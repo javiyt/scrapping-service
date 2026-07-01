@@ -33,7 +33,7 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
 
 ## Architecture
 
-```
+```text
 ┌──────────┐     ┌──────────────┐     ┌─────────────────┐
 │  Client   │────▶│  FastAPI      │────▶│  ScraperService  │
 │ (Go bot)   │     │  (uvicorn)    │     │                 │
@@ -50,7 +50,7 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
 The service is organised into these modules:
 
 | Module       | Responsibility                               |
-|--------------|---------------------------------------------|
+|--------------|----------------------------------------------|
 | `api/`       | FastAPI routes, request/response schemas     |
 | `core/`      | Config, error types, logging, URL security   |
 | `cache/`     | SQLite cache backend                         |
@@ -130,7 +130,7 @@ Readiness probe — verifies config, cache, and internal state.
 
 Prometheus-style metrics:
 
-```
+```text
 # HELP scrape_requests_total Total scrape requests received
 # TYPE scrape_requests_total counter
 scrape_requests_total 42
@@ -202,11 +202,11 @@ Scrape multiple URLs with controlled concurrency.
 
 ### Cache management
 
-| Method | Endpoint              | Description                         |
-|--------|-----------------------|-------------------------------------|
-| `GET`  | `/v1/cache/stats`     | Entry count, total size, expired    |
-| `DELETE` | `/v1/cache?url=...` | Remove one URL from cache           |
-| `POST` | `/v1/cache/purge`     | Clear all (or `?domain=...`) cache  |
+| Method   | Endpoint            | Description                        |
+|----------|---------------------|------------------------------------|
+| `GET`    | `/v1/cache/stats`   | Entry count, total size, expired   |
+| `DELETE` | `/v1/cache?url=...` | Remove one URL from cache          |
+| `POST`   | `/v1/cache/purge`   | Clear all (or `?domain=...`) cache |
 
 ---
 
@@ -217,15 +217,15 @@ environment variable overrides on top.
 
 ### Environment variables
 
-| Variable                    | Default                  | Description                   |
-|----------------------------|--------------------------|-------------------------------|
-| `SCRAPER_API_KEY`          | `change-me`              | API key for auth              |
-| `SCRAPER_SERVER_HOST`      | `0.0.0.0`                | Bind address                  |
-| `SCRAPER_SERVER_PORT`      | `8080`                   | HTTP port                     |
-| `SCRAPER_CACHE_SQLITE_PATH`| `/data/scraper-cache.db` | Cache database path           |
-| `SCRAPER_CACHE_DEFAULT_TTL_SECONDS` | `21600`         | Default cache TTL (6 hours)   |
-| `SCRAPER_LOG_LEVEL`        | `INFO`                   | Log level                     |
-| `CONFIG_PATH`              | —                        | Path to YAML config file      |
+| Variable                            | Default                  | Description                 |
+|-------------------------------------|--------------------------|-----------------------------|
+| `SCRAPER_API_KEY`                   | `change-me`              | API key for auth            |
+| `SCRAPER_SERVER_HOST`               | `0.0.0.0`                | Bind address                |
+| `SCRAPER_SERVER_PORT`               | `8080`                   | HTTP port                   |
+| `SCRAPER_CACHE_SQLITE_PATH`         | `/data/scraper-cache.db` | Cache database path         |
+| `SCRAPER_CACHE_DEFAULT_TTL_SECONDS` | `21600`                  | Default cache TTL (6 hours) |
+| `SCRAPER_LOG_LEVEL`                 | `INFO`                   | Log level                   |
+| `CONFIG_PATH`                       | —                        | Path to YAML config file    |
 
 ### YAML config
 
@@ -306,6 +306,7 @@ Simple HTTP GET via `httpx`. No JavaScript execution. Fast and lightweight.
 ### `browser`
 
 Full browser rendering via Botasaurus (Chromium). Supports:
+
 - JavaScript execution
 - `wait_until` strategies (`load`, `domcontentloaded`, `networkidle`)
 - CSS selector wait (`wait_selector`)
@@ -330,6 +331,7 @@ debug:
 ```
 
 When enabled:
+
 - **HTML dumps** are written to `debug_dir/html/`.
 - **Screenshots** (browser mode only) go to `debug_dir/screenshots/`.
 
@@ -404,17 +406,17 @@ All errors follow a consistent JSON structure:
 
 Error types:
 
-| Type               | HTTP Status | Description                       |
-|--------------------|-------------|-----------------------------------|
-| `validation_error` | 400         | Invalid request parameters        |
-| `security_error`   | 403         | URL blocked by SSRF or policy     |
-| `timeout_error`    | 504         | Request exceeded timeout          |
-| `blocked_error`    | 403         | Response appears blocked/empty    |
-| `http_error`       | 502         | Upstream HTTP request failed      |
-| `browser_error`    | 502         | Browser rendering failed          |
-| `cache_error`      | 500         | Cache backend error               |
-| `internal_error`   | 500         | Unexpected internal error         |
-| `authentication_error`| 401/403  | Invalid or missing API key        |
+| Type                   | HTTP Status | Description                    |
+|------------------------|-------------|--------------------------------|
+| `validation_error`     | 400         | Invalid request parameters     |
+| `security_error`       | 403         | URL blocked by SSRF or policy  |
+| `timeout_error`        | 504         | Request exceeded timeout       |
+| `blocked_error`        | 403         | Response appears blocked/empty |
+| `http_error`           | 502         | Upstream HTTP request failed   |
+| `browser_error`        | 502         | Browser rendering failed       |
+| `cache_error`          | 500         | Cache backend error            |
+| `internal_error`       | 500         | Unexpected internal error      |
+| `authentication_error` | 401/403     | Invalid or missing API key     |
 
 ---
 
@@ -422,16 +424,16 @@ Error types:
 
 The `/metrics` endpoint exposes simple counters in Prometheus text format:
 
-| Metric                       | Type    | Description                     |
-|------------------------------|---------|---------------------------------|
-| `scraper_up`                 | gauge   | 1 = service up, 0 = down       |
-| `scrape_requests_total`      | counter | All scrape requests             |
-| `scrape_success_total`       | counter | Successful scrapes              |
-| `scrape_error_total`         | counter | Failed scrapes                  |
-| `cache_hits_total`           | counter | Cache hits                      |
-| `cache_misses_total`         | counter | Cache misses                    |
-| `cache_stale_hits_total`     | counter | Stale cache served on error     |
-| `scrape_duration_ms_sum`     | counter | Total scrape duration (ms)      |
+| Metric                   | Type    | Description                 |
+|--------------------------|---------|-----------------------------|
+| `scraper_up`             | gauge   | 1 = service up, 0 = down    |
+| `scrape_requests_total`  | counter | All scrape requests         |
+| `scrape_success_total`   | counter | Successful scrapes          |
+| `scrape_error_total`     | counter | Failed scrapes              |
+| `cache_hits_total`       | counter | Cache hits                  |
+| `cache_misses_total`     | counter | Cache misses                |
+| `cache_stale_hits_total` | counter | Stale cache served on error |
+| `scrape_duration_ms_sum` | counter | Total scrape duration (ms)  |
 
 ---
 
@@ -489,7 +491,7 @@ responsibly — but the ultimate responsibility lies with you.
 
 ### Project structure
 
-```
+```text
 .
 ├── app/                    # Application code
 │   ├── api/                # FastAPI routes and dependencies
