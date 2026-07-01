@@ -4,7 +4,8 @@
 #              running Podman + Quadlet.
 # =============================================================================
 # Usage:
-#   ./scripts/deploy.sh user@raspberry-host          # basic deploy
+#   ./scripts/deploy.sh user@raspberry-host          # basic deploy (build locally)
+#   ./scripts/deploy.sh user@host --tag v1.0.0       # pull pre-built image from GHCR
 #   ./scripts/deploy.sh user@host --with-env         # overwrite remote .env
 #   ./scripts/deploy.sh user@host --without-config   # skip YAML config
 #   ./scripts/deploy.sh user@host --pull-only        # only pull, don't build
@@ -27,6 +28,8 @@ WITHOUT_CONFIG=false
 PULL_ONLY=false
 NO_HEALTHCHECK=false
 SHOW_HELP=false
+IMAGE_TAG=""
+IMAGE_REGISTRY="ghcr.io/javiyt/scrapping-service"
 
 # ------------------------------------------------------------------ helpers
 
@@ -66,6 +69,7 @@ while [[ $# -gt 0 ]]; do
         --without-config) WITHOUT_CONFIG=true; shift ;;
         --pull-only)    PULL_ONLY=true;    shift ;;
         --no-healthcheck) NO_HEALTHCHECK=true; shift ;;
+        --tag)          IMAGE_TAG="$2";    shift 2 ;;
         --help)         SHOW_HELP=true;    shift ;;
         *)              POSITIONAL+=("$1"); shift ;;
     esac
@@ -83,8 +87,9 @@ done
     echo "  --port PORT            SSH port (default: 22)"
     echo "  --app-dir PATH         Remote app directory (default: ~/scraper-api)"
     echo "  --with-env             Upload local .env (default: preserve remote)"
+    echo "  --tag TAG             Pull pre-built image from GHCR (e.g. v1.0.0, latest)"
     echo "  --without-config       Skip uploading config YAML"
-    echo "  --pull-only            Only pull images, skip build"
+    echo "  --pull-only            Only pull base image, skip build (local build mode)"
     echo "  --no-healthcheck       Skip health check after deploy"
     echo "  --help                 Show this help"
     echo ""
@@ -110,6 +115,13 @@ fi
 [[ -z "$REMOTE_DIR" ]] && REMOTE_DIR="/home/${REMOTE_USER}/scraper-api"
 
 echo "═══ Deploying scraper-api to ${REMOTE_USER}@${REMOTE_HOST} ═══"
+if [[ -n "$IMAGE_TAG" ]]; then
+    IMAGE_REF="${IMAGE_REGISTRY}:${IMAGE_TAG}"
+    echo "  Mode:        Pull from GHCR (${IMAGE_REF})"
+else
+    IMAGE_REF="localhost/scraper-api:latest"
+    echo "  Mode:        Build locally on remote"
+fi
 echo "  Remote dir:  $REMOTE_DIR"
 echo "  SSH port:    $SSH_PORT"
 echo "  With .env:   $WITH_ENV"
@@ -118,7 +130,7 @@ echo ""
 
 # ------------------------------------------------------------- setup remote
 echo "▸ Creating remote directories..."
-remote_exec "mkdir -p ${REMOTE_DIR}/{configs,data,debug,logs,remote}"
+remote_exec "mkdir -p ${REMOTE_DIR}/{app,configs,data,debug,logs,remote}"
 
 # ----------------------------------------------------------- preserve .env
 if [[ "$WITH_ENV" != "true" ]]; then
@@ -127,15 +139,23 @@ if [[ "$WITH_ENV" != "true" ]]; then
 fi
 
 # --------------------------------------------------------------- copy files
-echo "▸ Copying source files..."
-remote_copy_dir "$(dirname "$0")/../app/"     "${REMOTE_DIR}/app/"
-remote_copy_dir "$(dirname "$0")/../remote/"  "${REMOTE_DIR}/remote/"
+if [[ -z "$IMAGE_TAG" ]]; then
+    # Local build mode — copy source code and Dockerfile
+    echo "▸ Copying source files..."
+    remote_copy_dir "$(dirname "$0")/../app/"     "${REMOTE_DIR}/app/"
+    remote_copy_dir "$(dirname "$0")/../remote/"  "${REMOTE_DIR}/remote/"
 
-remote_copy "$(dirname "$0")/../requirements.txt"         "${REMOTE_DIR}/requirements.txt"
-remote_copy "$(dirname "$0")/../Dockerfile"               "${REMOTE_DIR}/Dockerfile"
-remote_copy "$(dirname "$0")/../.dockerignore"            "${REMOTE_DIR}/.dockerignore"
+    remote_copy "$(dirname "$0")/../requirements.txt"         "${REMOTE_DIR}/requirements.txt"
+    remote_copy "$(dirname "$0")/../Dockerfile"               "${REMOTE_DIR}/Dockerfile"
+    remote_copy "$(dirname "$0")/../.dockerignore"            "${REMOTE_DIR}/.dockerignore"
+else
+    # GHCR mode — only copy the Quadlet file (remote/ dir)
+    echo "▸ Copying Quadlet files..."
+    remote_copy_dir "$(dirname "$0")/../remote/"  "${REMOTE_DIR}/remote/"
+fi
 
 if [[ "$WITHOUT_CONFIG" != "true" ]]; then
+    echo "▸ Copying config..."
     remote_copy "$(dirname "$0")/../configs/config.example.yaml" "${REMOTE_DIR}/configs/config.yaml"
 fi
 
@@ -144,8 +164,11 @@ if [[ "$WITH_ENV" == "true" ]]; then
     remote_exec "chmod 600 ${REMOTE_DIR}/.env"
 fi
 
-# ------------------------------------------------------------- build image
-if [[ "$PULL_ONLY" == "true" ]]; then
+# ------------------------------------------------------------- build / pull image
+if [[ -n "$IMAGE_TAG" ]]; then
+    echo "▸ Pulling pre-built image ${IMAGE_REF}..."
+    remote_exec "podman pull ${IMAGE_REF}"
+elif [[ "$PULL_ONLY" == "true" ]]; then
     echo "▸ Pulling base image (no build)..."
     remote_exec "cd ${REMOTE_DIR} && podman pull python:3.12-slim-bookworm"
 else
@@ -157,6 +180,13 @@ fi
 echo "▸ Deploying Quadlet service..."
 remote_exec "mkdir -p ~/.config/containers/systemd/"
 remote_exec "cp ${REMOTE_DIR}/remote/scraper-api.container ~/.config/containers/systemd/"
+
+# When pulling from GHCR, update the Quadlet image reference so systemd
+# uses the remote image (and survives reboots/restarts).
+if [[ -n "$IMAGE_TAG" ]]; then
+    echo "▸ Patching Quadlet image reference to ${IMAGE_REF}..."
+    remote_exec "sed -i 's|^Image=.*|Image=${IMAGE_REF}|' ~/.config/containers/systemd/scraper-api.container"
+fi
 
 echo "▸ Reloading systemd and enabling linger..."
 remote_exec "systemctl --user daemon-reload"
