@@ -75,8 +75,7 @@ class ScrapeRequest(BaseModel):
     def _check_timeout_vs_mode(self) -> "ScrapeRequest":
         if self.timeout_seconds > 60 and self.mode == "browser":
             raise ValueError(
-                "Timeout > 60 s is not recommended for browser mode "
-                "— risk of resource exhaustion"
+                "Timeout > 60 s is not recommended for browser mode — risk of resource exhaustion"
             )
         return self
 

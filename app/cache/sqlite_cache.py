@@ -153,8 +153,7 @@ class SqliteCache:
         """Return cache statistics."""
         with self._cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*) AS cnt, COALESCE(SUM(content_length), 0) "
-                "AS total_bytes FROM cache"
+                "SELECT COUNT(*) AS cnt, COALESCE(SUM(content_length), 0) AS total_bytes FROM cache"
             )
             row = cur.fetchone()
             total = row["cnt"]
@@ -162,8 +161,7 @@ class SqliteCache:
 
             now = datetime.now(UTC).isoformat()
             cur.execute(
-                "SELECT COUNT(*) AS cnt FROM cache "
-                "WHERE expires_at IS NOT NULL AND expires_at < ?",
+                "SELECT COUNT(*) AS cnt FROM cache WHERE expires_at IS NOT NULL AND expires_at < ?",
                 (now,),
             )
             expired = cur.fetchone()["cnt"]
