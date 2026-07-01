@@ -1,0 +1,59 @@
+# =============================================================================
+# Podman Quadlet — scraper-api container
+# =============================================================================
+# Deploy:
+#   mkdir -p ~/.config/containers/systemd/
+#   cp scraper-api.container ~/.config/containers/systemd/
+#   systemctl --user daemon-reload
+#   systemctl --user start scraper-api.service
+#
+# See scripts/deploy.sh for automated deployment.
+# =============================================================================
+
+[Unit]
+Description=Scraper API container
+Documentation=https://github.com/your-org/scrapping-service
+After=network-online.target
+
+[Container]
+Image=localhost/scraper-api:latest
+
+# Port mapping
+PublishPort=8080:8080
+
+# Persistent data volumes
+Volume=%h/scraper-api/configs/config.yaml:/config/config.yaml:ro,z
+Volume=%h/scraper-api/data:/data:z
+Volume=%h/scraper-api/debug:/debug:z
+Volume=%h/scraper-api/logs:/logs:z
+
+# Environment
+Environment=CONFIG_PATH=/config/config.yaml
+Environment=CACHE_SQLITE_PATH=/data/scraper-cache.db
+Environment=DEBUG_DIR=/debug
+Environment=TZ=Europe/Madrid
+EnvironmentFile=%h/scraper-api/.env
+
+# Resource limits
+MemoryLimit=512M
+CPUSetCPUs=0-3
+
+# Shared memory (large enough for Chromium)
+ShmSize=256M
+
+# Restart policy
+Restart=always
+
+# Health check (runs inside container)
+HealthCmd=CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
+HealthInterval=30s
+HealthTimeout=10s
+HealthStartPeriod=15s
+HealthRetries=3
+
+[Service]
+Restart=always
+
+[Install]
+# Enable linger for the user if not already: loginctl enable-linger <user>
+WantedBy=default.target

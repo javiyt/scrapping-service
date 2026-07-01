@@ -1,0 +1,66 @@
+# =============================================================================
+# Scraper API — Example configuration
+# =============================================================================
+# Copy this file to configs/config.yaml and adjust as needed.
+#
+# All values can be overridden at runtime via environment variables:
+#   SCRAPER_SERVER_PORT, SCRAPER_CACHE_SQLITE_PATH, etc.
+# =============================================================================
+
+# ------------------------------------------------------------------- Server
+server:
+  host: 0.0.0.0
+  port: 8080
+  api_key_required: true
+  cors_origins:
+    - "*"
+
+# -------------------------------------------------------------------- Cache
+cache:
+  backend: sqlite
+  sqlite_path: data/scraper-cache.db
+  default_ttl_seconds: 21600          # 6 hours
+  max_html_size_mb: 10                # Truncate responses larger than this
+  stale_if_error: true                # Serve expired cache on fetch failure
+
+# ----------------------------------------------------------------- Scraper
+scraper:
+  default_mode: auto                  # http | browser | auto
+  headless: true
+  timeout_seconds: 45
+  max_concurrency: 1
+  user_agent_profile: desktop_es
+
+# ---------------------------------------------------------------- Browser
+browser:
+  arguments:
+    - "--headless=new"
+    - "--no-sandbox"
+    - "--disable-dev-shm-usage"
+    - "--disable-gpu"
+    - "--disable-background-networking"
+    - "--window-size=1366,768"
+
+# --------------------------------------------------------------- Security
+security:
+  block_private_ips: true
+  block_localhost: true
+  allowed_domains: []                 # Empty = allow all non-private domains
+
+# ---------------------------------------------------------------- Domains
+# Per-domain overrides.  Any key here can appear in "allowed_domains".
+domains:
+  example.com:
+    allowed: true
+    min_delay_seconds: 5
+    max_concurrent_requests: 1
+    default_ttl_seconds: 21600
+
+# ------------------------------------------------------------------ Debug
+debug:
+  screenshots: false
+  html_dumps: false
+  dir: debug
+
+# ---------------------------------------------------------------- Logging
+log_level: INFO
