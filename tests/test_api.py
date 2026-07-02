@@ -295,6 +295,19 @@ class TestMetricsEndpoint:
         assert "scrape_requests_total" in text
         assert "# HELP scraper_up" in text
 
+    def test_metrics_includes_extraction_counters(self):
+        app.state.scraper = MagicMock()
+        app.state.cache = MagicMock()
+        client = TestClient(app)
+
+        response = client.get("/metrics", headers=AUTH_HEADER)
+        assert response.status_code == 200, response.text
+        text = response.text
+        assert "# HELP extraction_requests_total" in text
+        assert "extraction_requests_total" in text
+        assert "extraction_success_total" in text
+        assert "extraction_error_total" in text
+
 
 # ============================================================= Ready
 
@@ -308,3 +321,81 @@ class TestReadyEndpoint:
         response = client.get("/ready")
         # /ready falls under the auth-required router
         assert response.status_code in (200, 401, 403)
+
+
+# ============================================================= Extraction
+
+
+class TestExtractionEndpoint:
+    """Tests that ``/v1/scrape`` returns extracted data when requested."""
+
+    SAMPLE_WITH_TITLE = {
+        **SAMPLE_RESULT,
+        "html": ("<html><head><title>Test Title</title></head><body><p>Hello</p></body></html>"),
+    }
+
+    def _patch_scraper(self, mock):
+        app.state.scraper = mock
+        app.state.cache = MagicMock()
+        return TestClient(app)
+
+    def test_scrape_with_extraction_returns_extracted(self):
+        mock = _mock_scraper(return_value=self.SAMPLE_WITH_TITLE)
+        client = self._patch_scraper(mock)
+
+        response = client.post(
+            "/v1/scrape",
+            json={
+                "url": "https://example.com",
+                "extract": {
+                    "enabled": True,
+                    "fields": {
+                        "title": {"selector": "title", "type": "text"},
+                    },
+                },
+            },
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["extracted"] == {"title": "Test Title"}
+
+    def test_scrape_without_extraction_extracted_is_null(self):
+        mock = _mock_scraper(return_value=self.SAMPLE_WITH_TITLE)
+        client = self._patch_scraper(mock)
+
+        response = client.post(
+            "/v1/scrape",
+            json={"url": "https://example.com"},
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["extracted"] is None
+
+    def test_scrape_extraction_required_field_missing(self):
+        mock = _mock_scraper(return_value=self.SAMPLE_WITH_TITLE)
+        client = self._patch_scraper(mock)
+
+        response = client.post(
+            "/v1/scrape",
+            json={
+                "url": "https://example.com",
+                "extract": {
+                    "enabled": True,
+                    "fields": {
+                        "missing": {
+                            "selector": ".nonexistent",
+                            "type": "text",
+                            "required": True,
+                        },
+                    },
+                },
+            },
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["extracted"] is None
+        assert data["extraction_error"] is not None
+        assert data["extraction_error"]["field"] == "missing"

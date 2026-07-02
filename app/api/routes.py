@@ -20,10 +20,13 @@ from app.schemas.scrape import (
     BatchScrapeResponse,
     CacheCleanupRequest,
     CacheStats,
+    ExtractConfig,
     PurgeResponse,
     ScrapeRequest,
     ScrapeResponse,
 )
+from app.scraper.extractor import ExtractionError
+from app.scraper.extractor import extract as run_extraction
 from app.scraper.html_normalizer import normalize_html
 from app.scraper.service import ScraperService
 
@@ -62,6 +65,40 @@ def _normalize_response(
         "html": normalized_html,
         "metadata": metadata,
     }
+
+
+def _extract_response(
+    result: dict,
+    extract_config: ExtractConfig,
+) -> dict:
+    """Apply CSS-selector-based extraction to a response dict (if enabled).
+
+    Extraction runs on whatever ``html`` the response currently holds —
+    that is, after normalisation if it was applied, or raw HTML otherwise.
+
+    Returns the result dict with ``extracted`` (and optionally
+    ``extraction_error``) added.
+    """
+    if not extract_config.enabled or not extract_config.fields:
+        return result
+
+    html_to_extract = result.get("html", "")
+    if not html_to_extract:
+        return result
+
+    fields = {name: field.model_dump() for name, field in extract_config.fields.items()}
+    # Resolve base URL: explicit extract.base_url » final_url » request url
+    base_url = extract_config.base_url or result.get("final_url") or result.get("url", "")
+
+    try:
+        extracted_data = run_extraction(html_to_extract, fields, base_url=base_url)
+        return {**result, "extracted": extracted_data}
+    except ExtractionError as exc:
+        return {
+            **result,
+            "extracted": None,
+            "extraction_error": exc.to_dict(),
+        }
 
 
 # ------------------------------------------------------------------- router
@@ -166,6 +203,16 @@ async def scrape_url(
         # Apply HTML normalisation at response time (cache always stores raw).
         result = _normalize_response(result, request.normalize.model_dump())
 
+        # Apply CSS-selector extraction (operates on whatever HTML the
+        # response currently holds — normalised if enabled, raw otherwise).
+        if request.extract.enabled and request.extract.fields:
+            metrics_collector.inc("extraction_requests_total")
+            result = _extract_response(result, request.extract)
+            if result.get("extraction_error"):
+                metrics_collector.inc("extraction_error_total")
+            else:
+                metrics_collector.inc("extraction_success_total")
+
         # Fill in elapsed time in metadata.
         if "metadata" in result:
             result["metadata"]["elapsed_ms"] = elapsed
@@ -216,6 +263,16 @@ async def scrape_batch(
                 )
                 # Apply HTML normalisation per item at response time.
                 result = _normalize_response(result, item.normalize.model_dump())
+
+                # Apply extraction per item.
+                if item.extract.enabled and item.extract.fields:
+                    metrics_collector.inc("extraction_requests_total")
+                    result = _extract_response(result, item.extract)
+                    if result.get("extraction_error"):
+                        metrics_collector.inc("extraction_error_total")
+                    else:
+                        metrics_collector.inc("extraction_success_total")
+
                 metrics_collector.inc("scrape_success_total")
                 succeeded += 1
                 return {"url": item.url, "success": True, "result": result, "error": None}
