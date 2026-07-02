@@ -367,3 +367,72 @@ class TestFieldDefaults:
             {"x": {"selector": ".does-not-exist-at-all", "type": "text"}},
         )
         assert result["x"] is None
+
+
+class TestExtractAttrFallback:
+    def test_attr_type_no_attribute_fallback_to_href(self):
+        html = '<a href="https://example.com">link</a>'
+        result = extract(html, {"link": {"selector": "a", "type": "attr"}})
+        assert result["link"] == "https://example.com"
+
+    def test_attr_type_no_attribute_fallback_to_src(self):
+        html = '<img src="https://example.com/img.png">'
+        result = extract(html, {"img": {"selector": "img", "type": "attr"}})
+        assert result["img"] == "https://example.com/img.png"
+
+
+class TestExtractUnknownType:
+    def test_unknown_type_fallback_to_str(self):
+        html = "<div>content</div>"
+        result = extract(html, {"x": {"selector": "div", "type": "unknown"}})
+        assert result["x"] is not None
+
+
+class TestExtractExceptionInField:
+    def test_required_field_raises_via_re_raise(self):
+        with pytest.raises(ExtractionError):
+            extract(
+                SIMPLE_HTML,
+                {
+                    "req_field": {
+                        "selector": ".does-not-exist",
+                        "type": "text",
+                        "required": True,
+                    }
+                },
+            )
+
+    def test_non_required_field_exception_returns_default(self):
+        result = extract(
+            PRODUCT_CARDS_HTML,
+            {
+                "bad": {
+                    "selector": None,  # type: ignore[typeddict-item]
+                    "type": "text",
+                    "required": False,
+                    "default": "safe_fallback",
+                }
+            },
+        )
+        assert result["bad"] == "safe_fallback"
+
+    def test_nested_field_exception_non_required(self):
+        html = '<div class="card"><a href="/page">link</a></div>'
+        result = extract(
+            html,
+            {
+                "card": {
+                    "selector": ".card",
+                    "type": "object",
+                    "fields": {
+                        "link": {
+                            "selector": None,  # type: ignore[typeddict-item]
+                            "type": "text",
+                            "required": False,
+                            "default": "fallback_url",
+                        },
+                    },
+                }
+            },
+        )
+        assert result["card"]["link"] == "fallback_url"

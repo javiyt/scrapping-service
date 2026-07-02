@@ -364,3 +364,73 @@ class TestMaintenanceService:
         assert task_id1 == task_id2
 
         loop.run_until_complete(service.stop())
+
+    def test_stop_when_not_started_is_safe(self):
+        cache = MagicMock(spec=SqliteCache)
+        settings = MagicMock()
+        settings.cache_cleanup_interval_seconds = 3600
+        settings.cache_delete_expired_after_seconds = 86400
+        settings.cache_max_entries = 10000
+        settings.cache_max_size_mb = 512
+        settings.cache_vacuum_after_cleanup = False
+
+        service = CacheMaintenanceService(cache=cache, settings=settings)
+        import asyncio
+
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(service.stop())
+        assert service.is_running is False
+
+
+class TestMaintenanceErrorHandling:
+    def test_cleanup_error_logged(self):
+        import asyncio
+
+        cache = MagicMock(spec=SqliteCache)
+        cache.cleanup.side_effect = RuntimeError("cleanup crashed")
+        cache.db_path = ":memory:"
+        settings = MagicMock()
+        settings.cache_cleanup_interval_seconds = 1
+        settings.cache_delete_expired_after_seconds = 86400
+        settings.cache_max_entries = 10000
+        settings.cache_max_size_mb = 512
+        settings.cache_vacuum_after_cleanup = False
+
+        service = CacheMaintenanceService(cache=cache, settings=settings)
+
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(service.start())
+        loop.run_until_complete(asyncio.sleep(0.1))
+        loop.run_until_complete(service.stop())
+        assert service.is_running is False
+
+
+class TestMaintenanceCleanupRuns:
+    def test_cleanup_runs_on_start(self):
+        import asyncio
+
+        cache = MagicMock(spec=SqliteCache)
+        cache.cleanup.return_value = CacheCleanupResult(
+            total_deleted=5,
+            size_before_bytes=1000,
+            size_after_bytes=500,
+            entries_before=10,
+            entries_after=5,
+            deleted_expired=3,
+        )
+        cache.db_path = ":memory:"
+        settings = MagicMock()
+        settings.cache_cleanup_interval_seconds = 1
+        settings.cache_delete_expired_after_seconds = 86400
+        settings.cache_max_entries = 10000
+        settings.cache_max_size_mb = 512
+        settings.cache_vacuum_after_cleanup = True
+
+        service = CacheMaintenanceService(cache=cache, settings=settings)
+
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(service.start())
+        loop.run_until_complete(asyncio.sleep(0.2))
+        loop.run_until_complete(service.stop())
+        cache.cleanup.assert_called()
+        assert service.is_running is False

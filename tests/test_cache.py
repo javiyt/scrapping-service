@@ -249,3 +249,176 @@ class TestCacheEntryModel:
             error_metadata=None,
         )
         assert not entry.is_expired
+
+
+class TestCacheEdgeCases:
+    def test_open_twice_is_noop(self, cache):
+        cache.open()
+        assert cache._conn is not None
+
+    def test_close_after_open(self, cache):
+        cache.close()
+        assert cache._conn is None
+
+    def test_delete_by_url_no_match(self, cache):
+        assert not cache.delete_by_url("https://nonexistent.com")
+
+    def test_purge_with_domain(self, cache):
+        from datetime import UTC, datetime, timedelta
+
+        entry = CacheEntry(
+            cache_key="dom1",
+            url="https://example.com/page",
+            final_url="https://example.com/page",
+            status_code=200,
+            html="<html>domain test</html>",
+            fetched_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            mode="http",
+            content_length=22,
+            headers=None,
+            error_metadata=None,
+        )
+        cache.set(entry)
+        purged = cache.purge(domain="example.com")
+        assert purged >= 1
+
+    def test_is_expired_nonexistent_key(self, cache):
+        assert cache.is_expired("no-such-key") is True
+
+    def test_delete_by_url_no_match_returns_false(self, cache):
+        assert cache.delete_by_url("https://does-not-exist.com") is False
+
+    def test_delete_returns_false_for_missing(self, cache):
+        assert cache.delete("no-such-key") is False
+
+    def test_stats_path_in_result(self, cache):
+        stats = cache.stats()
+        assert "cache_path" in stats
+
+    def test_to_cache_dict(self):
+        from datetime import UTC, datetime, timedelta
+
+        entry = CacheEntry(
+            cache_key="k",
+            url="https://example.com",
+            final_url="https://example.com",
+            status_code=200,
+            html="<html>test</html>",
+            fetched_at=datetime.now(UTC),
+            expires_at=datetime.now(UTC) + timedelta(hours=1),
+            mode="http",
+            content_length=14,
+            headers=None,
+            error_metadata=None,
+        )
+        d = entry.to_cache_dict()
+        assert d["cache_key"] == "k"
+        assert d["url"] == "https://example.com"
+        assert d["status_code"] == 200
+        assert "fetched_at" in d
+        assert "expires_at" in d
+
+
+class TestCacheCursorErrors:
+    def test_cursor_raises_when_not_opened(self):
+        with pytest.raises(RuntimeError, match="not opened"):
+            c = SqliteCache(db_path=":memory:", max_size_mb=10)
+            with c._cursor():
+                pass
+
+    def test_cursor_rollback_on_exception(self, cache):
+        """When an exception occurs inside a _cursor block, it should rollback."""
+        from datetime import UTC, datetime
+
+        with pytest.raises(ValueError, match="intentional"):
+            with cache._cursor() as cur:
+                cur.execute(
+                    """INSERT INTO cache
+                       (cache_key, url, status_code, fetched_at, mode, content_length)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (
+                        "rollback_test",
+                        "https://example.com",
+                        200,
+                        datetime.now(UTC).isoformat(),
+                        "http",
+                        0,
+                    ),
+                )
+                raise ValueError("intentional rollback test")
+        # After rollback, the entry should not exist.
+        assert cache.get("rollback_test") is None
+
+
+class TestCacheEviction:
+    def test_eviction_removes_entries_when_over_limit(self):
+        import tempfile
+        from pathlib import Path
+
+        tmp = Path(tempfile.mktemp(suffix=".db"))
+        c = SqliteCache(db_path=str(tmp), max_size_mb=1)
+        c.open()
+        try:
+            large_html = "<html>" + "x" * 900000 + "</html>"
+            entry1 = CacheEntry(
+                cache_key="large1",
+                url="https://example.com/large1",
+                final_url="https://example.com/large1",
+                status_code=200,
+                html=large_html,
+                fetched_at=datetime.now(UTC),
+                expires_at=datetime.now(UTC) - timedelta(hours=2),
+                mode="http",
+                content_length=len(large_html),
+                headers=None,
+                error_metadata=None,
+            )
+            c.set(entry1)
+            entry2 = CacheEntry(
+                cache_key="large2",
+                url="https://example.com/large2",
+                final_url="https://example.com/large2",
+                status_code=200,
+                html=large_html,
+                fetched_at=datetime.now(UTC),
+                expires_at=datetime.now(UTC) + timedelta(hours=2),
+                mode="http",
+                content_length=len(large_html),
+                headers=None,
+                error_metadata=None,
+            )
+            c.set(entry2)
+            stats = c.stats()
+            assert stats["total_entries"] <= 1
+        finally:
+            c.close()
+            tmp.unlink(missing_ok=True)
+
+    def test_eviction_not_triggered_under_limit(self):
+        import tempfile
+        from pathlib import Path
+
+        tmp = Path(tempfile.mktemp(suffix=".db"))
+        c = SqliteCache(db_path=str(tmp), max_size_mb=10)
+        c.open()
+        try:
+            entry = CacheEntry(
+                cache_key="small",
+                url="https://example.com",
+                final_url="https://example.com",
+                status_code=200,
+                html="<html>small</html>",
+                fetched_at=datetime.now(UTC),
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
+                mode="http",
+                content_length=16,
+                headers=None,
+                error_metadata=None,
+            )
+            c.set(entry)
+            stats = c.stats()
+            assert stats["total_entries"] == 1
+        finally:
+            c.close()
+            tmp.unlink(missing_ok=True)

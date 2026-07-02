@@ -123,3 +123,68 @@ class TestComputeDomain:
 
     def test_returns_none_for_invalid(self):
         assert compute_domain("") is None
+
+
+class TestValidateProxyUrlEdgeCases:
+    def test_rejects_empty_hostname(self):
+        from app.core.security import validate_proxy_url
+
+        valid, reason = validate_proxy_url("http:///path")
+        assert valid is False
+
+    def test_rejects_localhost_dot_local(self):
+        from app.core.security import validate_proxy_url
+
+        valid, reason = validate_proxy_url("http://proxy.localhost:8080")
+        assert valid is False
+
+    def test_none_url_rejected(self):
+        from app.core.security import validate_proxy_url
+
+        valid, reason = validate_proxy_url(None)
+        assert valid is False
+
+
+class TestRedactProxyUrlEdgeCases:
+    def test_redact_exception_returns_original(self):
+        from unittest.mock import patch
+
+        from app.core.security import redact_proxy_url
+
+        with patch("app.core.security.urlparse", side_effect=ValueError("bad")):
+            result = redact_proxy_url("http://user:pass@host:8080")
+            assert result == "http://user:pass@host:8080"
+
+    def test_handles_unparseable_url(self):
+        from app.core.security import redact_proxy_url
+
+        result = redact_proxy_url("http://")
+        assert result is not None
+
+
+class TestValidateUrlEdgeCases:
+    def test_rejects_non_string_url(self):
+        from app.core.security import validate_url
+
+        valid, reason = validate_url(None)  # type: ignore[arg-type]
+        assert valid is False
+
+    def test_handles_urlparse_exception(self):
+        from unittest.mock import patch
+
+        from app.core.security import validate_url
+
+        with patch("app.core.security.urlparse", side_effect=ValueError("bad url")):
+            valid, reason = validate_url("http://bad-url")
+            assert valid is False
+            assert "Failed to parse" in reason
+
+    def test_validate_proxy_url_parse_exception(self):
+        from unittest.mock import patch
+
+        from app.core.security import validate_proxy_url
+
+        with patch("app.core.security.urlparse", side_effect=ValueError("bad proxy")):
+            valid, reason = validate_proxy_url("http://proxy.example:8080")
+            assert valid is False
+            assert "Failed to parse" in reason

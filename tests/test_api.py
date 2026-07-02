@@ -186,6 +186,56 @@ class TestScrapeEndpoint:
         call_kwargs = mock.scrape.call_args[1]
         assert call_kwargs["cache_ttl_seconds"] == 7200
 
+    def test_scrape_stale_cache_hit(self):
+        stale_result = {**SAMPLE_RESULT, "from_cache": True, "stale": True}
+        mock = _mock_scraper(return_value=stale_result)
+        client = self._patch_scraper(mock)
+
+        response = client.post(
+            "/v1/scrape",
+            json={"url": "https://example.com"},
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["from_cache"] is True
+        assert data["stale"] is True
+
+    def test_scrape_normalize_empty_html(self):
+        empty_result = {**SAMPLE_RESULT, "html": ""}
+        mock = _mock_scraper(return_value=empty_result)
+        client = self._patch_scraper(mock)
+
+        response = client.post(
+            "/v1/scrape",
+            json={
+                "url": "https://example.com",
+                "normalize": {"enabled": True, "remove_scripts": True},
+            },
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200, response.text
+
+    def test_scrape_extract_empty_html(self):
+        empty_result = {**SAMPLE_RESULT, "html": ""}
+        mock = _mock_scraper(return_value=empty_result)
+        client = self._patch_scraper(mock)
+
+        response = client.post(
+            "/v1/scrape",
+            json={
+                "url": "https://example.com",
+                "extract": {
+                    "enabled": True,
+                    "fields": {
+                        "title": {"selector": "title", "type": "text"},
+                    },
+                },
+            },
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200, response.text
+
 
 # ========================================================= /v1/scrape/batch
 
@@ -273,6 +323,74 @@ class TestCacheEndpoints:
         assert response.status_code == 200, response.text
         data = response.json()
         assert data["purged_entries"] == 10
+
+    def test_cache_purge_error(self):
+        mock_cache = MagicMock()
+        mock_cache.purge.side_effect = RuntimeError("purge failed")
+        app.state.cache = mock_cache
+        app.state.scraper = MagicMock()
+        client = TestClient(app)
+
+        response = client.post("/v1/cache/purge", headers=AUTH_HEADER)
+        assert response.status_code == 500, response.text
+
+    def test_cache_cleanup_error(self):
+        mock_cache = MagicMock()
+        mock_cache.cleanup.side_effect = RuntimeError("cleanup failed")
+        app.state.cache = mock_cache
+        app.state.scraper = MagicMock()
+        client = TestClient(app)
+
+        response = client.post("/v1/cache/cleanup", headers=AUTH_HEADER)
+        assert response.status_code == 500, response.text
+
+    def test_cache_vacuum_error(self):
+        mock_cache = MagicMock()
+        mock_cache.vacuum.side_effect = RuntimeError("vacuum failed")
+        app.state.cache = mock_cache
+        app.state.scraper = MagicMock()
+        client = TestClient(app)
+
+        response = client.post("/v1/cache/vacuum", headers=AUTH_HEADER)
+        assert response.status_code == 500, response.text
+
+    def test_cache_stats_with_real_cache(self):
+        import tempfile
+        from datetime import UTC, datetime, timedelta
+        from pathlib import Path
+
+        from app.cache.models import CacheEntry
+        from app.cache.sqlite_cache import SqliteCache
+
+        tmp = Path(tempfile.mktemp(suffix=".db"))
+        real_cache = SqliteCache(db_path=str(tmp), max_size_mb=10)
+        real_cache.open()
+        try:
+            entry = CacheEntry(
+                cache_key="statkey",
+                url="https://example.com",
+                final_url="https://example.com",
+                status_code=200,
+                html="<html>stat</html>",
+                fetched_at=datetime.now(UTC),
+                expires_at=datetime.now(UTC) + timedelta(hours=1),
+                mode="http",
+                content_length=16,
+                headers=None,
+                error_metadata=None,
+            )
+            real_cache.set(entry)
+            app.state.cache = real_cache
+            app.state.scraper = MagicMock()
+            client = TestClient(app)
+
+            response = client.get("/v1/cache/stats", headers=AUTH_HEADER)
+            assert response.status_code == 200, response.text
+            data = response.json()
+            assert data["total_entries"] >= 1
+        finally:
+            real_cache.close()
+            tmp.unlink(missing_ok=True)
 
 
 # =============================================================== /metrics
@@ -399,3 +517,78 @@ class TestExtractionEndpoint:
         assert data["extracted"] is None
         assert data["extraction_error"] is not None
         assert data["extraction_error"]["field"] == "missing"
+
+
+# ============================================================= ScraperError handler
+
+
+class TestErrorHandler:
+    def test_scraper_error_handler(self):
+        app.state.cache = MagicMock()
+        app.state.scraper = _mock_scraper(
+            side_effect=SecurityError("URL references a blocked localhost address: localhost"),
+        )
+        client = TestClient(app)
+
+        response = client.post(
+            "/v1/scrape",
+            json={"url": "http://localhost:8080/"},
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 403
+        data = response.json()
+        assert data["error"]["type"] == "security_error"
+
+
+# ============================================================= Auth disabled
+
+
+class TestAuthDisabled:
+    def test_scrape_auth_disabled(self):
+        from app.api.dependencies import verify_api_key
+
+        app.dependency_overrides[verify_api_key] = lambda: None
+        try:
+            app.state.cache = MagicMock()
+            app.state.scraper = _mock_scraper(return_value=SAMPLE_RESULT)
+
+            client = TestClient(app)
+            response = client.post(
+                "/v1/scrape",
+                json={"url": "https://example.com"},
+            )
+            assert response.status_code == 200, response.text
+        finally:
+            app.dependency_overrides.clear()
+
+
+# ============================================================= Batch error
+
+
+class TestBatchError:
+    def test_batch_partial_failure(self):
+        mock = AsyncMock()
+        mock.scrape.side_effect = [
+            SAMPLE_RESULT,
+            SecurityError("blocked domain"),
+        ]
+        app.state.scraper = mock
+        app.state.cache = MagicMock()
+        client = TestClient(app)
+
+        response = client.post(
+            "/v1/scrape/batch",
+            json={
+                "items": [
+                    {"url": "https://example.com/1"},
+                    {"url": "https://blocked.com/2"},
+                ],
+                "max_concurrency": 2,
+            },
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["total"] == 2
+        assert data["succeeded"] == 1
+        assert data["failed"] == 1
