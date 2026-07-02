@@ -6,6 +6,78 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 
+# ========================================================= ExtractField
+class ExtractField(BaseModel):
+    """Configuration for a single extracted field.
+
+    Supports four field types:
+
+    * ``text`` — inner text content (stripped).
+    * ``html`` — inner HTML markup (preserves tag structure).
+    * ``attr`` — value of an HTML attribute on the matched element.
+    * ``object`` — nested structured extraction via sub-``fields``.
+    """
+
+    selector: str = Field(..., description="CSS selector to locate the element(s).")
+    type: str = Field(
+        default="text",
+        pattern=r"^(text|html|attr|object)$",
+        description="Type of value to extract.",
+    )
+    attribute: str | None = Field(
+        default=None,
+        description="Attribute name to read (only used when ``type`` is ``attr``).",
+    )
+    multiple: bool = Field(
+        default=False,
+        description="When ``True``, return a list of all matching results.",
+    )
+    default: Any = Field(
+        default=None,
+        description="Fallback value when no element matches.",
+    )
+    required: bool = Field(
+        default=False,
+        description="When ``True``, a failed match produces a structured extraction error.",
+    )
+    absolute_url: bool = Field(
+        default=False,
+        description="Convert the extracted URL from relative to absolute using the"
+        " page URL as base.",
+    )
+    fields: dict[str, "ExtractField"] | None = Field(
+        default=None,
+        description="Nested field definitions (only used when ``type`` is ``object``).",
+    )
+
+
+ExtractField.model_rebuild()
+
+
+# ========================================================= ExtractConfig
+class ExtractConfig(BaseModel):
+    """Optional structured extraction applied at response time.
+
+    Extraction runs *after* HTML normalization (if enabled), so it operates
+    on the cleaned HTML.  When extraction is disabled (the default) the
+    response does **not** include an ``extracted`` field.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Master toggle — must be ``True`` for any extraction to run.",
+    )
+    base_url: str | None = Field(
+        default=None,
+        description="Override base URL for relative-to-absolute URL conversion."
+        " Falls back to ``final_url``, then the request ``url``.",
+    )
+    fields: dict[str, ExtractField] = Field(
+        default_factory=dict,
+        description="Map of field names to extraction field configurations.",
+    )
+
+
 # ========================================================== NormalizeConfig
 class NormalizeConfig(BaseModel):
     """Optional HTML normalisation applied at response time.
@@ -124,6 +196,11 @@ class ScrapeRequest(BaseModel):
         description="Optional HTML normalisation applied at response time.",
     )
 
+    extract: ExtractConfig = Field(
+        default_factory=ExtractConfig,
+        description="Optional structured extraction using CSS selectors.",
+    )
+
     @model_validator(mode="after")
     def _check_timeout_vs_mode(self) -> "ScrapeRequest":
         if self.timeout_seconds > 60 and self.mode == "browser":
@@ -150,6 +227,7 @@ class BatchItem(BaseModel):
     scroll: ScrollConfig = Field(default_factory=ScrollConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)
     normalize: NormalizeConfig = Field(default_factory=NormalizeConfig)
+    extract: ExtractConfig = Field(default_factory=ExtractConfig)
 
 
 class BatchScrapeRequest(BaseModel):
@@ -190,6 +268,16 @@ class ScrapeResponse(BaseModel):
     expires_at: str | None = None
     html: str
     metadata: Metadata
+    extracted: dict[str, Any] | None = Field(
+        default=None,
+        description="Structured data extracted via CSS selectors. "
+        "``None`` when extraction is disabled or when a required field fails.",
+    )
+    extraction_error: dict[str, Any] | None = Field(
+        default=None,
+        description="Structured error when a required extraction field cannot be resolved. "
+        "``None`` when extraction succeeds or is disabled.",
+    )
 
 
 # ========================================================== CacheStats

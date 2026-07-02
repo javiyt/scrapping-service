@@ -13,6 +13,8 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
 - **HTML normalisation** — per-request clean-up: remove scripts, styles,
   comments, meta tags; convert relative links to absolute; collapse whitespace;
   or minify output.
+- **Selector extraction** — extract structured data (text, HTML, attributes,
+  objects) from scraped HTML using CSS selectors.
 - **Dual fetch modes** — simple HTTP fetch and browser-based (JavaScript)
   rendering via Botasaurus + Chromium.
 - **Auto mode** — tries HTTP first, falls back to browser if the response looks
@@ -52,13 +54,13 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
 
 The service is organised into these modules:
 
-| Module       | Responsibility                               |
-|--------------|----------------------------------------------|
-| `api/`       | FastAPI routes, request/response schemas     |
-| `core/`      | Config, error types, logging, URL security   |
-| `cache/`     | SQLite cache backend                         |
-| `scraper/`   | Fetch orchestration, HTTP & browser fetchers, HTML normalisation |
-| `metrics/`   | Prometheus-style metrics collector           |
+| Module     | Responsibility                                                                            |
+|------------|-------------------------------------------------------------------------------------------|
+| `api/`     | FastAPI routes, request/response schemas                                                  |
+| `core/`    | Config, error types, logging, URL security                                                |
+| `cache/`   | SQLite cache backend                                                                      |
+| `scraper/` | Fetch orchestration, HTTP & browser fetchers, HTML normalisation, CSS selector extraction |
+| `metrics/` | Prometheus-style metrics collector                                                        |
 
 ---
 
@@ -579,6 +581,148 @@ When normalisation is active, the response metadata gains two extra fields:
 
 ---
 
+## Selector-based extraction
+
+Extract structured data from scraped HTML using CSS selectors — no need to
+parse the full HTML on the client side.
+
+Extraction runs **after** HTML normalisation (if enabled), so you can
+clean up the markup before extracting.  It operates on whatever HTML the
+response currently holds.
+
+### Request fields
+
+Include an ``extract`` object in any scrape request:
+
+```json
+{
+  "url": "https://example.com/products",
+  "extract": {
+    "enabled": true,
+    "base_url": null,
+    "fields": {
+      "title": {
+        "selector": "title",
+        "type": "text"
+      },
+      "canonical": {
+        "selector": "link[rel='canonical']",
+        "type": "attr",
+        "attribute": "href",
+        "absolute_url": true
+      },
+      "products": {
+        "selector": ".product-card",
+        "type": "object",
+        "multiple": true,
+        "fields": {
+          "name": {
+            "selector": ".product-card-title",
+            "type": "text"
+          },
+          "price": {
+            "selector": ".price",
+            "type": "text"
+          },
+          "url": {
+            "selector": "a",
+            "type": "attr",
+            "attribute": "href",
+            "absolute_url": true
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+| Field            | Type     | Default | Description                                                |
+|------------------|----------|---------|------------------------------------------------------------|
+| ``enabled``      | bool     | false   | Master switch — must be ``true`` for extraction to run.    |
+| ``base_url``     | string\|null | null | Override base URL for relative URL resolution. Falls back to ``final_url``, then the request ``url``. |
+| ``fields``       | object   | ``{}``  | Map of field names to field configs (see below).           |
+
+Each **field config** supports these options:
+
+| Option              | Type           | Default  | Description                                       |
+|---------------------|---------------|----------|---------------------------------------------------|
+| ``selector``        | string        | —        | **Required.** CSS selector to locate the element(s). |
+| ``type``            | string        | ``"text"`` | One of ``text``, ``html``, ``attr``, ``object``.  |
+| ``attribute``       | string\|null  | null     | Attribute name to read (``attr`` type only).       |
+| ``multiple``        | bool          | false    | When ``true``, return a list of all matches.      |
+| ``default``         | any           | null     | Fallback value when no element matches.            |
+| ``required``        | bool          | false    | When ``true``, a failed match produces a structured error. |
+| ``absolute_url``    | bool          | false    | Resolve relative URLs against the page base URL.   |
+| ``fields``          | object\|null  | null     | Nested field map (``object`` type only).           |
+
+### Field types
+
+| Type     | Extracted value                                       |
+|----------|-------------------------------------------------------|
+| ``text`` | Inner text content (whitespace trimmed).              |
+| ``html`` | Inner HTML markup (preserves tags).                   |
+| ``attr`` | Value of the named HTML attribute.                    |
+| ``object`` | Recursively extract sub-fields from the matched element. |
+
+### Response
+
+When extraction is enabled, the response includes an ``extracted`` field:
+
+```json
+{
+  "url": "https://example.com",
+  "html": "<html>...</html>",
+  "extracted": {
+    "title": "Example Domain",
+    "canonical": "https://example.com/",
+    "products": [
+      {
+        "name": "Widget Alpha",
+        "price": "$19.99",
+        "url": "https://example.com/products/widget-alpha"
+      },
+      {
+        "name": "Widget Beta",
+        "price": "$29.99",
+        "url": "https://example.com/products/widget-beta"
+      }
+    ]
+  }
+}
+```
+
+When extraction is **disabled**, the ``extracted`` field is ``null``.
+
+If a ``required`` field cannot be resolved, ``extracted`` is ``null`` and
+``extraction_error`` provides details:
+
+```json
+{
+  "url": "https://example.com",
+  "html": "<html>...</html>",
+  "extracted": null,
+  "extraction_error": {
+    "field": "products",
+    "message": "No element matched CSS selector '.product-card'"
+  }
+}
+```
+
+### URL resolution order
+
+When ``absolute_url: true``, the base URL for resolution is determined in
+this order:
+
+1. ``extract.base_url`` (explicit override)
+2. ``final_url`` from the scrape result
+3. Original request ``url``
+
+The extractor is available at ``app/scraper/extractor.py`` and is fully
+self-contained with no external network access.
+
+---
+
 ## Raspberry Pi deployment (Podman + Quadlet)
 
 ### Prerequisites
@@ -670,6 +814,9 @@ The `/metrics` endpoint exposes simple counters in Prometheus text format:
 | `scrape_requests_total`  | counter | All scrape requests         |
 | `scrape_success_total`   | counter | Successful scrapes          |
 | `scrape_error_total`     | counter | Failed scrapes              |
+| `extraction_requests_total` | counter | Extraction requests         |
+| `extraction_success_total`  | counter | Successful extractions      |
+| `extraction_error_total`    | counter | Failed extractions          |
 | `cache_hits_total`       | counter | Cache hits                  |
 | `cache_misses_total`     | counter | Cache misses                |
 | `cache_stale_hits_total` | counter | Stale cache served on error |
