@@ -24,9 +24,45 @@ from app.schemas.scrape import (
     ScrapeRequest,
     ScrapeResponse,
 )
+from app.scraper.html_normalizer import normalize_html
 from app.scraper.service import ScraperService
 
 logger = logging.getLogger("scraper-api.routes")
+
+
+# ------------------------------------------------------------------- helpers
+
+
+def _normalize_response(
+    result: dict,
+    normalize_config: dict | None,
+) -> dict:
+    """Apply HTML normalisation to a copy of *result* (if enabled).
+
+    Returns a new dict so that the caller's original data (including any
+    module-level sample dicts used in tests) is never mutated.
+    """
+    if not normalize_config or not normalize_config.get("enabled"):
+        return result
+
+    raw_html = result.get("html", "")
+    base_url = result.get("final_url", "")
+    if not raw_html:
+        return result
+
+    normalized_html, applied = normalize_html(raw_html, base_url, **normalize_config)
+
+    metadata = dict(result.get("metadata", {}))
+    metadata["normalized"] = True
+    metadata["normalization"] = applied
+    metadata["content_length"] = len(normalized_html)
+
+    return {
+        **result,
+        "html": normalized_html,
+        "metadata": metadata,
+    }
+
 
 # ------------------------------------------------------------------- router
 
@@ -127,6 +163,9 @@ async def scrape_url(
         else:
             metrics_collector.inc("cache_misses_total")
 
+        # Apply HTML normalisation at response time (cache always stores raw).
+        result = _normalize_response(result, request.normalize.model_dump())
+
         # Fill in elapsed time in metadata.
         if "metadata" in result:
             result["metadata"]["elapsed_ms"] = elapsed
@@ -175,6 +214,8 @@ async def scrape_batch(
                     scroll_config=item.scroll.model_dump(),
                     debug_config=item.debug.model_dump(),
                 )
+                # Apply HTML normalisation per item at response time.
+                result = _normalize_response(result, item.normalize.model_dump())
                 metrics_collector.inc("scrape_success_total")
                 succeeded += 1
                 return {"url": item.url, "success": True, "result": result, "error": None}

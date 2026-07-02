@@ -6,6 +6,54 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 
+# ========================================================== NormalizeConfig
+class NormalizeConfig(BaseModel):
+    """Optional HTML normalisation applied at response time.
+
+    All fields default to ``False`` — normalization must be explicitly
+    enabled per request.  The raw HTML stored in cache is never modified;
+    normalization is applied on-the-fly when building the response.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Master toggle — must be true for any normalisation to run.",
+    )
+    absolute_urls: bool = Field(
+        default=False,
+        description="Convert relative ``href``, ``src``, ``action``, ``poster`` "
+        "and ``srcset`` values to absolute URLs.",
+    )
+    remove_scripts: bool = Field(
+        default=False,
+        description="Remove all ``<script>`` elements.",
+    )
+    remove_styles: bool = Field(
+        default=False,
+        description="Remove ``<style>`` elements and inline ``style`` attributes.",
+    )
+    remove_comments: bool = Field(
+        default=False,
+        description="Remove HTML comments.",
+    )
+    remove_meta: bool = Field(
+        default=False,
+        description="Remove all ``<meta>`` elements.",
+    )
+    remove_noscript: bool = Field(
+        default=False,
+        description="Remove all ``<noscript>`` elements.",
+    )
+    collapse_whitespace: bool = Field(
+        default=False,
+        description="Reduce runs of whitespace to single spaces in text nodes.",
+    )
+    minify: bool = Field(
+        default=False,
+        description="Compact HTML output without breaking semantics.",
+    )
+
+
 # =================================================================== Scroll
 class ScrollConfig(BaseModel):
     """Scrolling behaviour for JavaScript-rendered pages."""
@@ -71,6 +119,11 @@ class ScrapeRequest(BaseModel):
 
     debug: DebugConfig = Field(default_factory=DebugConfig)
 
+    normalize: NormalizeConfig = Field(
+        default_factory=NormalizeConfig,
+        description="Optional HTML normalisation applied at response time.",
+    )
+
     @model_validator(mode="after")
     def _check_timeout_vs_mode(self) -> "ScrapeRequest":
         if self.timeout_seconds > 60 and self.mode == "browser":
@@ -96,6 +149,7 @@ class BatchItem(BaseModel):
     timeout_seconds: int = Field(default=45, ge=5, le=120)
     scroll: ScrollConfig = Field(default_factory=ScrollConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)
+    normalize: NormalizeConfig = Field(default_factory=NormalizeConfig)
 
 
 class BatchScrapeRequest(BaseModel):
@@ -113,6 +167,15 @@ class Metadata(BaseModel):
     elapsed_ms: int
     content_length: int
     cache_key: str
+    normalized: bool = Field(
+        default=False,
+        description="True when HTML normalisation was applied to this response.",
+    )
+    normalization: dict[str, bool] | None = Field(
+        default=None,
+        description="Which normalisation features were applied, e.g. "
+        '``{"remove_scripts": true, "absolute_urls": true}``.',
+    )
 
 
 class ScrapeResponse(BaseModel):
