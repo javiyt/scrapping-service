@@ -20,7 +20,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
 
-# Run the API (config loads from configs/config.yaml by default)
+# Run the API (config loads from configs/config.yaml by default).
+# Port can be set via SCRAPER_SERVER_PORT env var or by editing
+# configs/config.yaml (server.port). Default is 8080.
 uvicorn app.main:app --reload --port 8080
 ```
 
@@ -91,6 +93,11 @@ Every push to `main` or a tag matching `v*` triggers the
    |---|---|
    | Push to `main` | `latest`, `sha-<short>` |
    | Tag `v1.2.3` | `1.2.3`, `1.2`, `latest`, `sha-<short>` |
+
+> **Note:** The CI workflow strips the `v` prefix from git tags when
+> publishing Docker images. A git tag `v1.0.0` produces an image tagged
+> `1.0.0` on GHCR. The deploy script handles this automatically — you
+> can pass `--tag v1.0.0` or `--tag 1.0.0` and it will resolve to `1.0.0`.
 
 ---
 
