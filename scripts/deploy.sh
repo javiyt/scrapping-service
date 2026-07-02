@@ -254,6 +254,12 @@ fi
 echo "▸ Verifying Quadlet installation..."
 remote_exec "ls -la ~/.config/containers/systemd/scraper-api.container"
 
+# Remove any stale static service file left over from a previous
+# "podman generate systemd" fallback — it takes precedence over
+# the Quadlet-generated unit and would pin the old image + port mapping.
+echo "▸ Cleaning up stale static service (if any)..."
+remote_exec "rm -f ~/.config/systemd/user/scraper-api.service"
+
 # Enable user linger FIRST so the user's systemd instance is active.
 # Quadlet won't generate units without a running systemd --user.
 echo "▸ Enabling user linger and reloading systemd..."
@@ -274,6 +280,11 @@ for attempt in 1 2 3; do
 done
 
 if [[ "$SERVICE_EXISTS" == "true" ]]; then
+    # Force-remove any stale container so systemd creates a fresh one
+    # with the updated Quadlet configuration (image, ports, env vars).
+    echo "▸ Removing stale container (if any)..."
+    remote_exec "podman rm -f scraper-api 2>/dev/null || true"
+
     echo "▸ Starting / restarting service..."
     remote_exec "systemctl --user restart scraper-api.service" && SERVICE_STARTED=true || {
         echo "⚠ Warning: restart failed. Trying start..."
@@ -288,7 +299,7 @@ else
     remote_exec "chmod 777 ${REMOTE_DIR}/{data,debug,logs}" || true
 
     PODMAN_RUN_CMD="podman run -d --name scraper-api --replace \
-        -p ${APP_PORT}:${APP_PORT} \
+        -p ${APP_PORT}:8080 \
         -v ${REMOTE_DIR}/configs/config.yaml:/config/config.yaml:ro,z \
         -v ${REMOTE_DIR}/data:/data:z \
         -v ${REMOTE_DIR}/debug:/debug:z \
