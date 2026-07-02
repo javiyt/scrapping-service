@@ -15,6 +15,8 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
   or minify output.
 - **Selector extraction** — extract structured data (text, HTML, attributes,
   objects) from scraped HTML using CSS selectors.
+- **Async jobs** — submit long-running scrapes as background jobs with
+  status polling, cancellation, and controlled concurrency.
 - **Dual fetch modes** — simple HTTP fetch and browser-based (JavaScript)
   rendering via Botasaurus + Chromium.
 - **Auto mode** — tries HTTP first, falls back to browser if the response looks
@@ -59,6 +61,7 @@ The service is organised into these modules:
 | `api/`     | FastAPI routes, request/response schemas                                                  |
 | `core/`    | Config, error types, logging, URL security                                                |
 | `cache/`   | SQLite cache backend                                                                      |
+| `jobs/`    | In-memory async job processing with background workers and retention policy               |
 | `scraper/` | Fetch orchestration, HTTP & browser fetchers, HTML normalisation, CSS selector extraction |
 | `metrics/` | Prometheus-style metrics collector                                                        |
 
@@ -723,6 +726,146 @@ self-contained with no external network access.
 
 ---
 
+## Async jobs
+
+Long-running scrape requests can be submitted as **asynchronous jobs** and
+polled for completion.  Jobs are processed in-order by a background worker
+pool with controlled concurrency.
+
+### Endpoints
+
+| Method   | Endpoint                       | Description                           |
+|----------|--------------------------------|---------------------------------------|
+| `POST`   | `/v1/jobs`                     | Create a new async scrape job         |
+| `GET`    | `/v1/jobs/{job_id}`            | Get job status and result             |
+| `GET`    | `/v1/jobs`                     | List all jobs (newest first)          |
+| `DELETE` | `/v1/jobs/{job_id}`            | Delete a job from the store           |
+| `POST`   | `/v1/jobs/{job_id}/cancel`     | Cancel a queued job                   |
+
+### Creating a job
+
+The request body is identical to ``/v1/scrape``:
+
+```json
+{
+  "url": "https://example.com",
+  "mode": "auto",
+  "extract": {
+    "enabled": true,
+    "fields": {
+      "title": { "selector": "title", "type": "text" }
+    }
+  }
+}
+```
+
+Response (immediate — job is queued):
+
+```json
+{
+  "job_id": "job_abc123...",
+  "status": "queued",
+  "url": "https://example.com",
+  "created_at": "2026-07-01T10:00:00+00:00",
+  "updated_at": "2026-07-01T10:00:00+00:00",
+  "started_at": null,
+  "finished_at": null,
+  "result": null,
+  "error": null
+}
+```
+
+### Polling for completion
+
+```json
+GET /v1/jobs/job_abc123...
+{
+  "job_id": "job_abc123...",
+  "status": "succeeded",
+  "url": "https://example.com",
+  "created_at": "2026-07-01T10:00:00+00:00",
+  "updated_at": "2026-07-01T10:00:05+00:00",
+  "started_at": "2026-07-01T10:00:01+00:00",
+  "finished_at": "2026-07-01T10:00:03+00:00",
+  "result": {
+    "url": "https://example.com",
+    "status_code": 200,
+    "html": "<html>..."
+  },
+  "error": null
+}
+```
+
+Possible ``status`` values:
+
+| Status        | Meaning                                 |
+|---------------|-----------------------------------------|
+| ``queued``    | Waiting for a worker to pick it up      |
+| ``running``   | Being processed by a worker             |
+| ``succeeded`` | Completed successfully — ``result`` set |
+| ``failed``   | An error occurred — ``error`` set       |
+| ``cancelled`` | Cancelled before processing started     |
+
+### Cancelling a job
+
+Only ``queued`` jobs can be cancelled.  Running or finished jobs are
+unaffected.
+
+```json
+POST /v1/jobs/job_abc123.../cancel
+{
+  "job_id": "job_abc123...",
+  "status": "cancelled",
+  ...
+}
+```
+
+### Configuration
+
+Add a ``jobs`` section to ``config.yaml``:
+
+```yaml
+jobs:
+  enabled: true               # Master switch
+  max_retained: 500           # Max number of jobs kept in memory
+  max_concurrency: 2          # How many jobs run simultaneously
+  result_ttl_seconds: 86400   # How long results are retained
+```
+
+Or set environment variables with the ``SCRAPER_JOBS_`` prefix:
+
+| Variable                          | Default  | Description                         |
+|-----------------------------------|----------|-------------------------------------|
+| ``SCRAPER_JOBS_ENABLED``          | ``true``  | Master switch for the job service   |
+| ``SCRAPER_JOBS_MAX_RETAINED``     | ``500``   | Maximum jobs held in memory         |
+| ``SCRAPER_JOBS_MAX_CONCURRENCY``  | ``2``     | Worker pool size                    |
+| ``SCRAPER_JOBS_RESULT_TTL_SECONDS`` | ``86400`` | Result retention window (24 hours)  |
+
+### Limitations
+
+* **In-memory only.** Jobs are **not durable** across service restarts.
+  All queued, running, and completed jobs are lost when the service stops.
+* **Result TTL.** Completed jobs are kept for ``result_ttl_seconds``.
+  After that they become eligible for eviction by the retention policy.
+* **Retention cap.** Once the total exceeds ``max_retained``, the oldest
+  finished jobs are automatically removed to stay under the limit.
+* **Raspberry Pi.** Keep ``jobs.max_concurrency`` low (1–2) on resourceconstrained devices.  Each worker shares the Redis-free scraper pool.
+
+### Metrics
+
+Additional Prometheus counters are exposed:
+
+| Metric                   | Type    | Description              |
+|--------------------------|---------|--------------------------|
+| ``jobs_created_total``   | counter | Jobs created             |
+| ``jobs_running``         | gauge   | Currently running        |
+| ``jobs_succeeded_total`` | counter | Successful jobs          |
+| ``jobs_failed_total``    | counter | Failed jobs              |
+| ``jobs_cancelled_total`` | counter | Cancelled jobs           |
+| ``jobs_queue_size``      | gauge   | Jobs waiting in the queue|
+
+---
+
 ## Raspberry Pi deployment (Podman + Quadlet)
 
 ### Prerequisites
@@ -814,7 +957,15 @@ The `/metrics` endpoint exposes simple counters in Prometheus text format:
 | `scrape_requests_total`  | counter | All scrape requests         |
 | `scrape_success_total`   | counter | Successful scrapes          |
 | `scrape_error_total`     | counter | Failed scrapes              |
-| `extraction_requests_total` | counter | Extraction requests         |
+| `extraction_requests_total` | counter | Extraction requests      |
+| `extraction_success_total`  | counter | Successful extractions   |
+| `extraction_error_total`    | counter | Failed extractions       |
+| `jobs_created_total`    | counter | Async jobs created            |
+| `jobs_running`          | gauge   | Currently running jobs        |
+| `jobs_succeeded_total`  | counter | Successful jobs               |
+| `jobs_failed_total`     | counter | Failed jobs                   |
+| `jobs_cancelled_total`  | counter | Cancelled jobs                |
+| `jobs_queue_size`       | gauge   | Jobs waiting in the queue     |
 | `extraction_success_total`  | counter | Successful extractions      |
 | `extraction_error_total`    | counter | Failed extractions          |
 | `cache_hits_total`       | counter | Cache hits                  |
