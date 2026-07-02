@@ -80,8 +80,9 @@ class TestJobServiceUnit:
             jobs_max_concurrency=max_concurrency,
         )
         scraper = AsyncMock()
+        cache = MagicMock()
         metrics = MetricsCollector()
-        return JobService(scraper=scraper, settings=settings, metrics=metrics)
+        return JobService(scraper=scraper, settings=settings, cache=cache, metrics=metrics)
 
     @pytest.mark.asyncio
     async def test_create_job_returns_queued(self):
@@ -207,7 +208,9 @@ class TestJobEndpoints:
         mock_scraper.scrape.return_value = SAMPLE_RESULT
         metrics = MetricsCollector()
 
-        svc = JobService(scraper=mock_scraper, settings=settings, metrics=metrics)
+        svc = JobService(
+            scraper=mock_scraper, settings=settings, cache=MagicMock(), metrics=metrics
+        )
         app.state.scraper = mock_scraper
         app.state.settings = settings
         app.state.job_service = svc

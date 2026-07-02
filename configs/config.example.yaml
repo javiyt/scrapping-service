@@ -15,6 +15,69 @@ server:
   cors_origins:
     - "*"
 
+# --------------------------------------------------------------------- Auth
+# Multi-key profile authentication.
+#
+# Each entry in ``api_keys`` maps an API key to a named profile that can
+# override safe parts of the global configuration.
+#
+# Environment variable expansion is supported for the ``key`` field:
+#   key: ${SCRAPER_API_KEY_FANATICS}
+#
+# If the referenced env var is not set, the profile is silently disabled
+# (a warning is logged — the secret placeholder is never exposed).
+#
+# Profiles can only override these sections:
+#   cache, scraper, security, domains, debug, browser, jobs
+#
+# These sections are FORBIDDEN and will cause a startup error:
+#   server, auth, config_path, log_level
+auth:
+  default_profile: default
+  expose_profile_in_response: false
+  api_keys:
+    - name: default
+      key: ${SCRAPER_API_KEY}
+      description: Default internal client
+      enabled: true
+    # - name: fanatics
+    #   key: ${SCRAPER_API_KEY_FANATICS}
+    #   description: Fanatics price tracker
+    #   enabled: true
+    #   overrides:
+    #     scraper:
+    #       default_mode: browser
+    #       timeout_seconds: 60
+    #       max_concurrency: 1
+    #     cache:
+    #       default_ttl_seconds: 21600
+    #       stale_if_error: true
+    #     security:
+    #       allowed_domains:
+    #         - fanatics.es
+    #         - www.fanatics.es
+    #     domains:
+    #       fanatics.es:
+    #         allowed: true
+    #         min_delay_seconds: 6
+    #         max_concurrent_requests: 1
+    #         default_ttl_seconds: 21600
+    #       www.fanatics.es:
+    #         allowed: true
+    #         min_delay_seconds: 6
+    #         max_concurrent_requests: 1
+    #         default_ttl_seconds: 21600
+    # - name: debug
+    #   key: ${SCRAPER_API_KEY_DEBUG}
+    #   description: Temporary debug profile
+    #   enabled: false
+    #   overrides:
+    #     debug:
+    #       screenshots: true
+    #       html_dumps: true
+    #     cache:
+    #       default_ttl_seconds: 300
+
 # -------------------------------------------------------------------- Cache
 cache:
   backend: sqlite
