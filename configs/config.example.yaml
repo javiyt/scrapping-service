@@ -49,6 +49,17 @@ browser:
     - "--disable-background-networking"
     - "--window-size=1366,768"
 
+# ------------------------------------------------------------------ Proxy
+# Global proxy configuration.  All requests will be routed through this
+# proxy when ``enabled`` is true, unless overridden per-request (requires
+# ``allow_request_override: true``).
+proxy:
+  enabled: false
+  url: null                               # e.g. http://user:pass@proxy.example:8080
+  country: null                            # e.g. ES (provider hint)
+  allow_request_override: false            # When false, per-request proxy config is rejected
+  block_private_proxy_hosts: true          # Reject proxies on private/localhost IPs
+
 # --------------------------------------------------------------- Security
 security:
   block_private_ips: true

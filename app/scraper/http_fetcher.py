@@ -48,10 +48,12 @@ class HttpFetcher:
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/120.0.0.0 Safari/537.36"
         ),
+        proxy_url: str | None = None,
     ) -> None:
         self._timeout = timeout_seconds
         self._max_concurrency = max_concurrency
         self._user_agent = user_agent
+        self._proxy_url = proxy_url
         self._semaphore = asyncio.Semaphore(max_concurrency)
 
     async def fetch(
@@ -60,6 +62,7 @@ class HttpFetcher:
         timeout_seconds: int | None = None,
         domain_limiter: DomainRateLimiter | None = None,
         domain: str | None = None,
+        proxy_url: str | None = None,
     ) -> FetchResult:
         """Perform an HTTP GET and return the response content.
 
@@ -79,12 +82,17 @@ class HttpFetcher:
 
         try:
             async with self._semaphore:
-                return await self._do_fetch(url, timeout_seconds)
+                return await self._do_fetch(url, timeout_seconds, proxy_url or self._proxy_url)
         finally:
             if domain_limiter and domain:
                 domain_limiter.release(domain)
 
-    async def _do_fetch(self, url: str, timeout_seconds: int | None = None) -> FetchResult:
+    async def _do_fetch(
+        self,
+        url: str,
+        timeout_seconds: int | None = None,
+        proxy_url: str | None = None,
+    ) -> FetchResult:
         timeout = timeout_seconds or self._timeout
         headers = {
             "User-Agent": self._user_agent,
@@ -94,16 +102,21 @@ class HttpFetcher:
 
         import time
 
+        client_kwargs: dict = {
+            "timeout": httpx.Timeout(timeout),
+            "follow_redirects": True,
+            "max_redirects": 10,
+        }
+        if proxy_url:
+            client_kwargs["proxies"] = proxy_url
+
         start = time.monotonic()
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout),
-            follow_redirects=True,
-            max_redirects=10,
-        ) as client:
+        async with httpx.AsyncClient(**client_kwargs) as client:
             response = await client.get(url, headers=headers)
 
         elapsed = int((time.monotonic() - start) * 1000)
-        logger.info("HTTP fetch %s → %d (%d ms)", url, response.status_code, elapsed)
+        proxy_info = " via proxy" if proxy_url else ""
+        logger.info("HTTP fetch %s → %d (%d ms)%s", url, response.status_code, elapsed, proxy_info)
 
         return FetchResult(
             html=response.text,

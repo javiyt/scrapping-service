@@ -45,12 +45,14 @@ class BrowserFetcher:
             "Chrome/125.0.0.0 Safari/537.36"
         ),
         window_size: tuple[int, int] = (1366, 768),
+        proxy_url: str | None = None,
     ) -> None:
         self._headless = headless
         self._arguments = arguments or []
         self._timeout = timeout_seconds
         self._user_agent = user_agent
         self._window_size = window_size
+        self._proxy_url = proxy_url
         self._driver: Any = None
         self._botasaurus_available = False
 
@@ -73,14 +75,21 @@ class BrowserFetcher:
         if self._driver is None:
             from botasaurus_driver import Driver
 
-            self._driver = Driver(
-                headless=self._headless,
-                arguments=self._arguments,
-                user_agent=self._user_agent,
-                window_size=self._window_size,
-                block_images=True,
-                wait_for_complete_page_load=True,
-            )
+            kwargs: dict = {
+                "headless": self._headless,
+                "arguments": self._arguments,
+                "user_agent": self._user_agent,
+                "window_size": self._window_size,
+                "block_images": True,
+                "wait_for_complete_page_load": True,
+            }
+            if self._proxy_url:
+                # Note: Botasaurus Driver proxy support may vary by version.
+                # The 'proxy' parameter expects a string like
+                # "http://user:pass@host:port" or a dict mapping scheme to URL.
+                kwargs["proxy"] = self._proxy_url
+
+            self._driver = Driver(**kwargs)
         return self._driver
 
     # ------------------------------------------------------------------ fetch
@@ -93,6 +102,7 @@ class BrowserFetcher:
         wait_selector: str | None = None,
         scroll_config: dict[str, Any] | None = None,
         screenshot_path: str | None = None,
+        proxy_url: str | None = None,
     ) -> FetchResult:
         """Fetch a URL with browser rendering.
 
@@ -103,6 +113,9 @@ class BrowserFetcher:
             wait_selector: Optional CSS selector to wait for.
             scroll_config: Scrolling behaviour (``enabled``, ``max_scrolls``, …).
             screenshot_path: If set, save a screenshot to this path.
+            proxy_url: Proxy URL override.  Only supported when set at
+                construction time — per-request proxy overrides are **not**
+                supported for the browser fetcher and will be silently ignored.
 
         Returns:
             A :class:`FetchResult` with the full rendered HTML.
@@ -117,6 +130,15 @@ class BrowserFetcher:
             )
 
         timeout = timeout_seconds or self._timeout
+
+        # Per-request proxy override is NOT supported for the browser fetcher.
+        # Botasaurus Driver only accepts proxy at construction time.  Log a
+        # warning if a different proxy is requested.
+        if proxy_url and proxy_url != self._proxy_url:
+            logger.warning(
+                "Per-request proxy override is not supported for browser fetcher; "
+                "using the globally configured proxy (or none)."
+            )
 
         # Selenium calls are synchronous, so offload to a thread-pool.
         import asyncio
