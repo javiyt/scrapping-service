@@ -18,7 +18,12 @@ from app.core.errors import (
     SecurityError,
     TimeoutError,
 )
-from app.core.security import compute_domain, validate_url
+from app.core.security import (
+    compute_domain,
+    validate_proxy_url,
+    validate_url,
+)
+from app.metrics.prometheus import get_metrics
 from app.scraper.browser_fetcher import BrowserFetcher
 from app.scraper.domain_policy import DomainRateLimiter
 from app.scraper.http_fetcher import FetchResult, HttpFetcher
@@ -51,10 +56,16 @@ class ScraperService:
         self.settings = settings
         self.cache = cache
 
+        # Resolve global proxy URL.
+        self._proxy_url: str | None = None
+        if settings.proxy_enabled and settings.proxy_url:
+            self._proxy_url = settings.proxy_url
+
         # HTTP fetcher
         self.http_fetcher = HttpFetcher(
             timeout_seconds=settings.scraper_timeout_seconds,
             max_concurrency=settings.scraper_max_concurrency,
+            proxy_url=self._proxy_url,
         )
 
         # Browser fetcher (lazy — only instantiated if used)
@@ -87,6 +98,7 @@ class ScraperService:
             "timeout_seconds": settings.scraper_timeout_seconds,
             "user_agent": user_agent,
             "window_size": window_size,
+            "proxy_url": self._proxy_url,
         }
 
         # Domain rate limiter
@@ -115,6 +127,40 @@ class ScraperService:
 
     # --------------------------------------------------------------- scrape
 
+    def _resolve_proxy(self, proxy_config: dict[str, Any] | None) -> str | None:
+        """Resolve the effective proxy URL for a request.
+
+        Priority:
+        1. If request proxy is enabled and override is allowed → request proxy.
+        2. If global proxy is enabled → global proxy.
+        3. Otherwise → ``None`` (no proxy).
+
+        Raises:
+            SecurityError: Request proxy is enabled but override is not allowed.
+            SecurityError: Request proxy URL is invalid.
+        """
+        request_enabled = proxy_config and proxy_config.get("enabled", False)
+        request_url = proxy_config.get("url") if proxy_config else None
+
+        # If no request proxy and global proxy is enabled, use the global one.
+        if not request_enabled:
+            return self._proxy_url
+
+        # Request proxy is enabled — check override permission.
+        if not self.settings.proxy_allow_request_override:
+            raise SecurityError("Per-request proxy override is not allowed by server configuration")
+
+        if not request_url:
+            raise SecurityError("Proxy is enabled in the request but no proxy URL was provided")
+
+        # Validate the request proxy URL.
+        block_private = self.settings.proxy_block_private_proxy_hosts
+        valid, reason = validate_proxy_url(request_url, block_private_hosts=block_private)
+        if not valid:
+            raise SecurityError(f"Invalid request proxy URL: {reason}")
+
+        return request_url
+
     async def scrape(
         self,
         url: str,
@@ -126,6 +172,7 @@ class ScraperService:
         timeout_seconds: int | None = None,
         scroll_config: dict[str, Any] | None = None,
         debug_config: dict[str, Any] | None = None,
+        proxy_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Scrape a single URL and return the result dictionary.
 
@@ -139,10 +186,15 @@ class ScraperService:
             timeout_seconds: Request timeout override.
             scroll_config: Scrolling configuration.
             debug_config: Debug output controls (``screenshot``, ``html_dump``).
+            proxy_config: Per-request proxy configuration.
 
         Returns:
             Dict ready for JSON serialisation.
         """
+        # ---- 0. Resolve proxy
+        effective_proxy = self._resolve_proxy(proxy_config)
+        metrics = get_metrics()
+
         # ---- 1. Validate URL
         block_private = self.settings.security_block_private_ips
         block_local = self.settings.security_block_localhost
@@ -178,12 +230,16 @@ class ScraperService:
         used_mode = mode
         start = time.monotonic()
 
+        if effective_proxy:
+            metrics.inc("proxy_requests_total")
+
         try:
             if mode == "http":
                 result = await self._fetch_http(
                     url,
                     timeout_seconds,
                     domain,
+                    proxy_url=effective_proxy,
                 )
             elif mode == "browser":
                 result = await self._fetch_browser(
@@ -193,11 +249,14 @@ class ScraperService:
                     wait_selector,
                     scroll_config or {},
                     debug_config or {},
+                    proxy_url=effective_proxy,
                 )
             else:  # auto
                 # Try HTTP first.
                 try:
-                    result = await self._fetch_http(url, timeout_seconds, domain)
+                    result = await self._fetch_http(
+                        url, timeout_seconds, domain, proxy_url=effective_proxy
+                    )
                     if self._looks_blocked(result):
                         logger.info(
                             "HTTP result looks blocked for %s — falling back to browser", url
@@ -209,6 +268,7 @@ class ScraperService:
                             wait_selector,
                             scroll_config or {},
                             debug_config or {},
+                            proxy_url=effective_proxy,
                         )
                         used_mode = "browser"
                     else:
@@ -223,11 +283,15 @@ class ScraperService:
                             wait_selector,
                             scroll_config or {},
                             debug_config or {},
+                            proxy_url=effective_proxy,
                         )
                         used_mode = "browser"
                     except (BrowserError, ImportError) as browser_exc:
                         # Both failed — propagate the original HTTP error.
                         raise exc from browser_exc
+        except SecurityError as exc:
+            error = exc
+            metrics.inc("proxy_errors_total")
         except ScraperError as exc:
             error = exc
         except Exception as exc:
@@ -289,12 +353,19 @@ class ScraperService:
 
     # --------------------------------------------------------------- helpers
 
-    async def _fetch_http(self, url: str, timeout: int | None, domain: str) -> FetchResult:
+    async def _fetch_http(
+        self,
+        url: str,
+        timeout: int | None,
+        domain: str,
+        proxy_url: str | None = None,
+    ) -> FetchResult:
         return await self.http_fetcher.fetch(
             url=url,
             timeout_seconds=timeout,
             domain_limiter=self.rate_limiter,
             domain=domain or None,
+            proxy_url=proxy_url,
         )
 
     async def _fetch_browser(
@@ -305,6 +376,7 @@ class ScraperService:
         wait_selector: str | None,
         scroll_config: dict[str, Any],
         debug_config: dict[str, Any],
+        proxy_url: str | None = None,
     ) -> FetchResult:
         screenshot_path: str | None = None
         if debug_config.get("screenshot", False):
@@ -319,6 +391,7 @@ class ScraperService:
             wait_selector=wait_selector,
             scroll_config=scroll_config,
             screenshot_path=screenshot_path,
+            proxy_url=proxy_url,
         )
 
     def _looks_blocked(self, result: FetchResult) -> bool:

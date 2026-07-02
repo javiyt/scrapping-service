@@ -195,6 +195,7 @@ async def scrape_url(
             timeout_seconds=request.timeout_seconds,
             scroll_config=request.scroll.model_dump(),
             debug_config=request.debug.model_dump(),
+            proxy_config=request.proxy.model_dump(),
         )
 
         elapsed = int((time.monotonic() - start) * 1000)
@@ -268,6 +269,7 @@ async def scrape_batch(
                     timeout_seconds=item.timeout_seconds,
                     scroll_config=item.scroll.model_dump(),
                     debug_config=item.debug.model_dump(),
+                    proxy_config=item.proxy.model_dump(),
                 )
                 # Apply HTML normalisation per item at response time.
                 result = _normalize_response(result, item.normalize.model_dump())
@@ -508,6 +510,7 @@ async def create_job(
         "timeout_seconds": request.timeout_seconds,
         "scroll_config": request.scroll.model_dump(),
         "debug_config": request.debug.model_dump(),
+        "proxy_config": request.proxy.model_dump(),
     }
 
     job = await jobs.create_job(

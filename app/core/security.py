@@ -3,7 +3,7 @@
 import ipaddress
 import re
 import socket
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 # -------------------------------------------------------------------- constants
 
@@ -151,3 +151,105 @@ def compute_domain(url: str) -> str | None:
         return hostname
     except Exception:
         return None
+
+
+# ====================================================================== Proxy
+
+
+VALID_PROXY_SCHEMES = frozenset({"http", "https", "socks5"})
+
+
+def validate_proxy_url(
+    url: str | None,
+    block_private_hosts: bool = True,
+) -> tuple[bool, str]:
+    """Validate a proxy URL.
+
+    Returns ``(True, "")`` on success or ``(False, "reason")`` on rejection.
+    """
+    if not url:
+        return False, "Proxy URL must be a non-empty string"
+
+    try:
+        parsed = urlparse(url)
+    except Exception as exc:
+        return False, f"Failed to parse proxy URL: {exc}"
+
+    # Scheme checks.
+    scheme = parsed.scheme.lower() if parsed.scheme else ""
+    if not scheme:
+        return False, "Proxy URL has no scheme"
+    if scheme == "file":
+        return False, "file:// scheme is not allowed for proxy URLs"
+    if scheme not in VALID_PROXY_SCHEMES:
+        return (
+            False,
+            f"Invalid proxy scheme '{scheme}'; "
+            f"must be one of: {', '.join(sorted(VALID_PROXY_SCHEMES))}",
+        )
+
+    hostname = parsed.hostname
+    if not hostname:
+        return False, "Proxy URL has no hostname"
+
+    if len(hostname) > 253:
+        return False, "Proxy hostname exceeds 253 characters"
+
+    # Reject localhost proxy hosts.
+    hostname_lower = hostname.lower()
+    localhost_aliases: set = {
+        "localhost",
+        "127.0.0.1",
+        "127.0.1.1",
+        "::1",
+        "0.0.0.0",
+        "[::1]",
+        "localhost6",
+    }
+    if hostname_lower in localhost_aliases or hostname_lower.endswith(".localhost"):
+        return False, f"Proxy hostname '{hostname}' is a localhost address"
+
+    # Reject private IP proxy hosts when block_private_hosts is True.
+    if block_private_hosts:
+        try:
+            resolved = socket.getaddrinfo(hostname, 80, family=socket.AF_INET)
+        except socket.gaierror:
+            # Cannot resolve — skip the private-IP check rather than
+            # rejecting a potentially valid external proxy hostname.
+            pass
+        else:
+            for _, _, _, _, sockaddr in resolved:
+                ip = sockaddr[0]
+                if is_private_ip(ip):
+                    return False, f"Proxy hostname resolves to private/reserved IP: {ip}"
+
+    return True, ""
+
+
+def redact_proxy_url(url: str | None) -> str | None:
+    """Redact credentials from a proxy URL for safe logging.
+
+    Example::
+
+        >>> redact_proxy_url("http://user:pass@host:8080")
+        "http://***:***@host:8080"
+    """
+    if not url:
+        return url
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return url
+
+    if parsed.username is None and parsed.password is None:
+        return url
+
+    # Reconstruct with redacted credentials: http://***:***@host:port/path
+    hostname = parsed.hostname or ""
+    port_str = f":{parsed.port}" if parsed.port is not None else ""
+    netloc = f"***:***@{hostname}{port_str}"
+
+    return urlunparse(
+        (parsed.scheme, netloc, parsed.path, parsed.params, parsed.query, parsed.fragment)
+    )

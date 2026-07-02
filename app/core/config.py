@@ -82,6 +82,13 @@ class Settings(BaseSettings):
     security_block_localhost: bool = True
     security_allowed_domains: list[str] = Field(default_factory=list)
 
+    # ---------------------------------------------------------------- Proxy
+    proxy_enabled: bool = False
+    proxy_url: str | None = None
+    proxy_country: str | None = None
+    proxy_allow_request_override: bool = False
+    proxy_block_private_proxy_hosts: bool = True
+
     # Domain-specific overrides loaded from YAML.
     domains: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
@@ -176,6 +183,7 @@ class Settings(BaseSettings):
             "cache": "cache",
             "scraper": "scraper",
             "browser": "browser",
+            "proxy": "proxy",
             "security": "security",
             "debug": "debug",
             "jobs": "jobs",

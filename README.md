@@ -35,6 +35,8 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
 - **Containerised** — multi-arch Docker image (`linux/amd64`, `linux/arm64`).
 - **Quadlet deploy** — first-class Podman Quadlet support for Raspberry Pi.
 - **Full API** — scrape, batch scrape, cache management, health checks.
+- **Optional proxy support** — global or per-request proxy (HTTP, HTTPS, SOCKS5)
+  with credential redaction, private-host blocking, and override controls.
 
 ---
 
@@ -186,6 +188,19 @@ Request:
 }
 ```
 
+Per-request proxy example (requires ``proxy.allow_request_override: true``):
+
+```json
+{
+  "url": "https://example.com",
+  "proxy": {
+    "enabled": true,
+    "url": "http://user:pass@residential-proxy.example:8080",
+    "country": "ES"
+  }
+}
+```
+
 Response:
 
 ```json
@@ -261,6 +276,28 @@ environment variable overrides on top.
 
 See [`configs/config.example.yaml`](configs/config.example.yaml) for all options
 with documentation.
+
+### Proxy
+
+A global proxy can be configured in YAML or via environment variables.
+Per-request proxy overrides require ``proxy.allow_request_override: true``.
+
+```yaml
+proxy:
+  enabled: false
+  url: null                               # http://user:pass@proxy.example:8080
+  country: null                            # Optional country hint for provider
+  allow_request_override: false
+  block_private_proxy_hosts: true
+```
+
+| Variable                               | Default  | Description                              |
+|----------------------------------------|----------|------------------------------------------|
+| ``SCRAPER_PROXY_ENABLED``              | ``false`` | Enable the global proxy                  |
+| ``SCRAPER_PROXY_URL``                  | —        | Proxy URL (http, https, socks5)          |
+| ``SCRAPER_PROXY_COUNTRY``              | —        | Optional country hint                    |
+| ``SCRAPER_PROXY_ALLOW_REQUEST_OVERRIDE`` | ``false`` | Allow per-request proxy overrides      |
+| ``SCRAPER_PROXY_BLOCK_PRIVATE_PROXY_HOSTS`` | ``true`` | Block proxy hosts on private IPs   |
 
 ### Configuration priority
 
@@ -431,6 +468,20 @@ The service implements defence-in-depth against Server-Side Request Forgery:
   blocked.
 - **Allowed domains**: optionally restrict scraping to an explicit domain list.
 
+### Proxy credentials
+
+Proxy credentials are handled with care:
+
+- **Never logged**: proxy URLs containing credentials are automatically redacted
+  before they appear in logs or error messages.
+- **Never returned**: redacted proxy URLs are used in all logging and error
+  reporting — ``http://***:***@proxy.example:8080``.
+- **Private host blocking**: by default, proxy hostnames that resolve to private
+  or loopback IP addresses are rejected (configurable via
+  ``proxy.block_private_proxy_hosts``).
+- **Override control**: per-request proxy overrides are blocked unless
+  ``proxy.allow_request_override: true`` is set in the server configuration.
+
 ### Authentication
 
 - All endpoints except `/health` require `Authorization: Bearer <SCRAPER_API_KEY>`.
@@ -473,6 +524,12 @@ Full browser rendering via Botasaurus (Chromium). Supports:
 - `wait_until` strategies (`load`, `domcontentloaded`, `networkidle`)
 - CSS selector wait (`wait_selector`)
 - Page scrolling to trigger lazy-loaded content
+- Global proxy support (see **Proxy** below)
+
+**Browser proxy limitation**: proxy configuration for the browser fetcher is
+only supported at **construction time** — the global ``proxy.url`` is used when
+the browser driver is initialised.  Per-request proxy overrides are silently
+ignored for browser-mode scrapes.  Use HTTP mode for per-request proxy routing.
 
 ### `auto` (default)
 
@@ -972,6 +1029,8 @@ The `/metrics` endpoint exposes simple counters in Prometheus text format:
 | `cache_misses_total`     | counter | Cache misses                |
 | `cache_stale_hits_total` | counter | Stale cache served on error |
 | `scrape_duration_ms_sum` | counter | Total scrape duration (ms)  |
+| `proxy_requests_total`   | counter | Requests routed through a proxy |
+| `proxy_errors_total`     | counter | Proxy-related errors            |
 
 ---
 

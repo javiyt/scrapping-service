@@ -126,6 +126,32 @@ class NormalizeConfig(BaseModel):
     )
 
 
+# ====================================================================== Proxy
+class ProxyConfig(BaseModel):
+    """Optional proxy configuration for a scrape request.
+
+    When left at defaults, the global proxy settings from the config file
+    are used.  Using a per-request proxy ``url`` requires the admin to have
+    set ``proxy.allow_request_override: true`` in the server configuration.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Master toggle for this proxy configuration.",
+    )
+    url: str | None = Field(
+        default=None,
+        description=(
+            "Proxy URL, e.g. http://user:pass@proxy.example:8080. "
+            "Accepted schemes: http, https, socks5."
+        ),
+    )
+    country: str | None = Field(
+        default=None,
+        description="Optional country hint for the proxy provider (e.g. ``ES``).",
+    )
+
+
 # =================================================================== Scroll
 class ScrollConfig(BaseModel):
     """Scrolling behaviour for JavaScript-rendered pages."""
@@ -187,6 +213,11 @@ class ScrapeRequest(BaseModel):
         description="Maximum time to wait for the page to load.",
     )
 
+    proxy: ProxyConfig = Field(
+        default_factory=ProxyConfig,
+        description="Optional proxy configuration for this request.",
+    )
+
     scroll: ScrollConfig = Field(default_factory=ScrollConfig)
 
     debug: DebugConfig = Field(default_factory=DebugConfig)
@@ -224,6 +255,7 @@ class BatchItem(BaseModel):
     )
     wait_selector: str | None = Field(default=None, max_length=500)
     timeout_seconds: int = Field(default=45, ge=5, le=120)
+    proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     scroll: ScrollConfig = Field(default_factory=ScrollConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)
     normalize: NormalizeConfig = Field(default_factory=NormalizeConfig)
