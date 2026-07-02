@@ -56,12 +56,12 @@ COPY --chown=scraper:scraper app/ ./app/
 
 USER scraper
 
-# Runtime port is configurable via the SCRAPER_SERVER_PORT env var (default 8080).
-# Override at runtime:  docker run -e SCRAPER_SERVER_PORT=9090 ...
+# The container always listens on 8080 internally — host port mapping determines
+# the external port (e.g. -p 9090:8080).  The SCRAPER_SERVER_PORT env var is an
+# informational / config hint for the application, not the actual listen port.
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
-    CMD ["python", "-c", "import os,urllib.request; p=os.environ.get('SCRAPER_SERVER_PORT','8080'); urllib.request.urlopen('http://localhost:'+p+'/health')"]
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
 
-# Shell exec form is used so ${SCRAPER_SERVER_PORT} is expanded at runtime.
-CMD exec uvicorn app.main:app --host 0.0.0.0 --port ${SCRAPER_SERVER_PORT:-8080} --log-level info
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "info"]

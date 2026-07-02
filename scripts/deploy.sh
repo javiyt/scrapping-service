@@ -79,7 +79,7 @@ QUADLET_PATCHED=""
 if [[ "$APP_PORT" != "8080" ]]; then
     echo "▸ Patching Quadlet port to ${APP_PORT}..."
     QUADLET_PATCHED="$(mktemp /tmp/scraper-api.container.XXXXXX)"
-    sed -e "s/PublishPort=8080:8080/PublishPort=${APP_PORT}:${APP_PORT}/" \
+    sed -e "s/PublishPort=8080:8080/PublishPort=${APP_PORT}:8080/" \
         -e "s/^Environment=SCRAPER_SERVER_PORT=8080$/Environment=SCRAPER_SERVER_PORT=${APP_PORT}/" \
         "$QUADLET_SRC" > "$QUADLET_PATCHED"
 fi
