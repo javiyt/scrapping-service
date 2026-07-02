@@ -8,12 +8,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from app.api.dependencies import (
+    get_auth_context,
     get_cache,
+    get_effective_settings,
+    get_expose_profile,
     get_job_service,
     get_scraper,
     get_settings,
     verify_api_key,
 )
+from app.auth.models import AuthContext
 from app.cache.models import CacheCleanupResult, CacheVacuumResult
 from app.cache.sqlite_cache import SqliteCache
 from app.core.config import Settings
@@ -109,6 +113,19 @@ def _extract_response(
         }
 
 
+def _maybe_add_auth_profile(
+    result: dict,
+    auth_context: AuthContext | None,
+    expose_profile: bool,
+) -> dict:
+    """Add ``auth_profile`` to the result metadata if configured."""
+    if expose_profile and auth_context is not None:
+        metadata = dict(result.get("metadata", {}))
+        metadata["auth_profile"] = auth_context.profile_name
+        return {**result, "metadata": metadata}
+    return result
+
+
 # ------------------------------------------------------------------- router
 
 router = APIRouter(dependencies=[Depends(verify_api_key)])
@@ -179,12 +196,15 @@ async def scrape_url(
     request: ScrapeRequest,
     scraper: ScraperService = Depends(get_scraper),
     metrics_collector: MetricsCollector = Depends(get_metrics),
+    auth_context: AuthContext | None = Depends(get_auth_context),
+    expose_profile: bool = Depends(get_expose_profile),
 ):
     """Scrape a single URL and return its rendered HTML."""
     metrics_collector.inc("scrape_requests_total")
     start = time.monotonic()
 
     try:
+        # Determine effective mode: request explicit > profile overrides > global.
         result = await scraper.scrape(
             url=request.url,
             mode=request.mode,
@@ -226,6 +246,9 @@ async def scrape_url(
         if "metadata" in result:
             result["metadata"]["elapsed_ms"] = elapsed
 
+        # Optionally attach auth profile name to metadata.
+        result = _maybe_add_auth_profile(result, auth_context, expose_profile)
+
         return result
 
     except ScraperError as exc:
@@ -246,6 +269,8 @@ async def scrape_batch(
     request: BatchScrapeRequest,
     scraper: ScraperService = Depends(get_scraper),
     metrics_collector: MetricsCollector = Depends(get_metrics),
+    auth_context: AuthContext | None = Depends(get_auth_context),
+    expose_profile: bool = Depends(get_expose_profile),
 ):
     """Scrape multiple URLs with controlled concurrency."""
     start = time.monotonic()
@@ -282,6 +307,9 @@ async def scrape_batch(
                         metrics_collector.inc("extraction_error_total")
                     else:
                         metrics_collector.inc("extraction_success_total")
+
+                # Optionally attach auth profile name.
+                result = _maybe_add_auth_profile(result, auth_context, expose_profile)
 
                 metrics_collector.inc("scrape_success_total")
                 succeeded += 1
@@ -462,9 +490,12 @@ async def cache_vacuum(
 # ============================================================== /v1/jobs
 
 
-def _job_to_response(job: Job) -> dict:
+def _job_to_response(
+    job: Job,
+    expose_profile: bool = False,
+) -> dict:
     """Convert a Job model to a response dict (excludes config)."""
-    return {
+    resp = {
         "job_id": job.job_id,
         "status": job.status.value,
         "url": job.url,
@@ -475,12 +506,18 @@ def _job_to_response(job: Job) -> dict:
         "result": job.result,
         "error": job.error,
     }
+    if expose_profile and job.profile_name:
+        resp["profile_name"] = job.profile_name
+    return resp
 
 
 @router.post("/v1/jobs", response_model=JobResponse, tags=["Jobs"])
 async def create_job(
     request: ScrapeRequest,
     jobs: JobService = Depends(get_job_service),
+    auth_context: AuthContext | None = Depends(get_auth_context),
+    expose_profile: bool = Depends(get_expose_profile),
+    effective_settings: Settings = Depends(get_effective_settings),
 ):
     """Create a new async scrape job.
 
@@ -518,14 +555,17 @@ async def create_job(
         scrape_config=scrape_config,
         normalize_config=request.normalize.model_dump(),
         extract_config=request.extract.model_dump() if request.extract.fields else None,
+        profile_name=auth_context.profile_name if auth_context else None,
+        effective_settings=effective_settings,
     )
-    return _job_to_response(job)
+    return _job_to_response(job, expose_profile=expose_profile)
 
 
 @router.get("/v1/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
 async def get_job(
     job_id: str,
     jobs: JobService = Depends(get_job_service),
+    expose_profile: bool = Depends(get_expose_profile),
 ):
     """Return the current state and result of an async job."""
     job = jobs.get_job(job_id)
@@ -540,16 +580,17 @@ async def get_job(
                 }
             },
         )
-    return _job_to_response(job)
+    return _job_to_response(job, expose_profile=expose_profile)
 
 
 @router.get("/v1/jobs", response_model=JobListResponse, tags=["Jobs"])
 async def list_jobs(
     jobs: JobService = Depends(get_job_service),
+    expose_profile: bool = Depends(get_expose_profile),
 ):
     """List all async jobs (newest first)."""
     job_list = jobs.list_jobs()
-    responses = [_job_to_response(j) for j in job_list]
+    responses = [_job_to_response(j, expose_profile=expose_profile) for j in job_list]
     return {"jobs": responses, "total": len(responses)}
 
 
@@ -578,6 +619,7 @@ async def delete_job(
 async def cancel_job(
     job_id: str,
     jobs: JobService = Depends(get_job_service),
+    expose_profile: bool = Depends(get_expose_profile),
 ):
     """Cancel a queued job.  No-op if the job is already running or finished."""
     job = await jobs.cancel_job(job_id)
@@ -592,4 +634,4 @@ async def cancel_job(
                 }
             },
         )
-    return _job_to_response(job)
+    return _job_to_response(job, expose_profile=expose_profile)

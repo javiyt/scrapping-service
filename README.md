@@ -27,7 +27,9 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
   cloud metadata endpoints, and resolves hostnames to verify they don't point
   to private networks.
 - **API key authentication** — Bearer token required on all endpoints except
-  `/health`.
+  `/health`. Supports multiple API keys mapped to named client profiles with
+  per-profile configuration overrides (mode, TTL, allowed domains, rate limits,
+  and more).
 - **Domain policies** — per-domain rate limiting, concurrency control, and
   default TTL / mode overrides.
 - **Prometheus metrics** — lightweight built-in metrics endpoint.
@@ -61,6 +63,7 @@ The service is organised into these modules:
 | Module     | Responsibility                                                                            |
 |------------|-------------------------------------------------------------------------------------------|
 | `api/`     | FastAPI routes, request/response schemas                                                  |
+| `auth/`    | Profile-aware API key authentication, resolver, effective settings computation            |
 | `core/`    | Config, error types, logging, URL security                                                |
 | `cache/`   | SQLite cache backend                                                                      |
 | `jobs/`    | In-memory async job processing with background workers and retention policy               |
@@ -262,10 +265,12 @@ environment variable overrides on top.
 
 ### Environment variables
 
-| Variable                            | Default                  | Description                 |
-|-------------------------------------|--------------------------|-----------------------------|
-| `SCRAPER_API_KEY`                   | `change-me`              | API key for auth            |
-| `SCRAPER_SERVER_HOST`               | `0.0.0.0`                | Bind address                |
+| Variable                            | Default                  | Description                               |
+|-------------------------------------|--------------------------|-------------------------------------------|
+| `SCRAPER_API_KEY`                   | `change-me`              | API key for auth (legacy single-key mode) |
+| `SCRAPER_API_KEY_FANATICS`          | —                        | API key for the ``fanatics`` profile      |
+| `SCRAPER_API_KEY_DEBUG`             | —                        | API key for the ``debug`` profile         |
+| `SCRAPER_SERVER_HOST`               | `0.0.0.0`                | Bind address                              |
 | `SCRAPER_SERVER_PORT`               | `8080`                   | HTTP port                   |
 | `SCRAPER_CACHE_SQLITE_PATH`         | `/data/scraper-cache.db` | Cache database path         |
 | `SCRAPER_CACHE_DEFAULT_TTL_SECONDS` | `21600`                  | Default cache TTL (6 hours) |
@@ -301,9 +306,13 @@ proxy:
 
 ### Configuration priority
 
-1. **Environment variables** (highest priority)
-2. **YAML config file**
-3. **Hard-coded defaults**
+1. **Request explicit fields** (highest priority) — e.g. ``mode``, ``cache_ttl_seconds``,
+   ``timeout_seconds`` explicitly sent in the scrape request body.
+2. **Profile overrides** — per-client overrides from the authenticated profile's
+   ``overrides`` section.
+3. **Environment variables** — ``SCRAPER_*`` vars that override the YAML config.
+4. **YAML config file** — ``configs/config.yaml`` (or path from ``CONFIG_PATH``).
+5. **Hard-coded defaults** (lowest priority).
 
 ---
 
@@ -484,9 +493,126 @@ Proxy credentials are handled with care:
 
 ### Authentication
 
+#### Single-key mode (legacy, backwards-compatible)
+
+If only ``SCRAPER_API_KEY`` is set in ``.env`` and no ``auth.api_keys`` block exists
+in the YAML config, the service behaves exactly as before:
+
 - All endpoints except `/health` require `Authorization: Bearer <SCRAPER_API_KEY>`.
-- The API key is validated against the configured `scraper_api_key` value.
 - Authentication can be disabled by setting `server.api_key_required: false`.
+
+#### Multi-key profile mode
+
+Add an ``auth`` block to ``config.yaml`` to define named profiles, each with its
+own API key and optional configuration overrides:
+
+```yaml
+auth:
+  default_profile: default
+  expose_profile_in_response: false
+  api_keys:
+    - name: default
+      key: ${SCRAPER_API_KEY}
+      description: Default internal client
+      enabled: true
+    - name: fanatics
+      key: ${SCRAPER_API_KEY_FANATICS}
+      description: Fanatics price tracker
+      enabled: true
+      overrides:
+        scraper:
+          default_mode: browser
+          timeout_seconds: 60
+        cache:
+          default_ttl_seconds: 21600
+        security:
+          allowed_domains:
+            - fanatics.es
+```
+
+Each client authenticates with their own API key and receives the profile's
+overrides applied transparently.
+
+#### Environment variable expansion
+
+API keys (and other string values) in the YAML config support ``${VAR_NAME}``
+syntax for loading values from environment variables:
+
+```yaml
+key: ${SCRAPER_API_KEY_FANATICS}
+```
+
+If the referenced environment variable is not set:
+- A warning is logged (the placeholder is **never** exposed).
+- The profile is silently disabled.
+- The service does not crash unless **no** valid keys remain and ``api_key_required`` is ``true``.
+
+#### Safe override sections
+
+Profiles may only override these configuration sections:
+- ``cache`` — ``default_ttl_seconds``, ``stale_if_error``, ``max_html_size_mb``
+- ``scraper`` — ``default_mode``, ``timeout_seconds``, ``max_concurrency``, ``headless``, ``user_agent_profile``
+- ``security`` — ``allowed_domains``, ``block_private_ips``, ``block_localhost``
+- ``domains`` — per-domain policies (rate limits, TTL, etc.)
+- ``debug`` — ``screenshots``, ``html_dumps``
+- ``browser`` — ``arguments``
+- ``jobs`` — ``max_concurrency``, ``max_retained``, ``result_ttl_seconds``
+
+#### Forbidden override sections
+
+These sections must **never** appear in profile overrides — they are blocked at
+startup with a clear validation error:
+- ``server``
+- ``auth``
+- ``config_path``
+- ``log_level``
+
+#### How to revoke a key
+
+Set a profile's ``enabled`` to ``false``:
+
+```yaml
+- name: debug
+  key: ${SCRAPER_API_KEY_DEBUG}
+  enabled: false
+```
+
+Disabled profiles are rejected at authentication time.
+
+#### Response metadata
+
+When ``auth.expose_profile_in_response`` is ``true``, the profile name is
+included in scrape response metadata:
+
+```json
+{
+  "metadata": {
+    "mode": "http",
+    "auth_profile": "fanatics"
+  }
+}
+```
+
+Default is ``false`` — profile names are not exposed unless explicitly configured.
+
+#### Security notes
+
+- **Never commit real API keys** — always use environment variables.
+- API keys are compared using safe constant-time comparison.
+- API keys are **never** logged, returned in responses, or stored in job objects.
+- Profile names may optionally appear in responses when ``expose_profile_in_response``
+  is ``true``, but the keys themselves are never exposed.
+
+#### Profiles and async jobs
+
+Jobs created via ``POST /v1/jobs`` are associated with the authenticated profile.
+The job worker builds a scraper with the profile's effective settings at execution
+time.  If a profile is disabled after a job is queued, the job still uses the
+effective settings snapshot captured at creation time — the job will not fail,
+and API keys were never stored in the job object.
+
+Job responses may include ``profile_name`` only when ``expose_profile_in_response``
+is ``true``.
 
 ---
 
@@ -1029,6 +1155,8 @@ The `/metrics` endpoint exposes simple counters in Prometheus text format:
 | `cache_misses_total`     | counter | Cache misses                |
 | `cache_stale_hits_total` | counter | Stale cache served on error |
 | `scrape_duration_ms_sum` | counter | Total scrape duration (ms)  |
+| `auth_requests_total`    | counter | Total authenticated requests    |
+| `auth_failures_total`    | counter | Total authentication failures   |
 | `proxy_requests_total`   | counter | Requests routed through a proxy |
 | `proxy_errors_total`     | counter | Proxy-related errors            |
 
@@ -1092,6 +1220,7 @@ responsibly — but the ultimate responsibility lies with you.
 .
 ├── app/                    # Application code
 │   ├── api/                # FastAPI routes and dependencies
+│   ├── auth/               # Profile-aware API key authentication
 │   ├── cache/              # SQLite cache backend
 │   ├── core/               # Config, errors, logging, security
 │   ├── metrics/            # Prometheus metrics

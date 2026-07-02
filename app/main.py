@@ -10,13 +10,13 @@ from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_settings
 from app.api.routes import health_router, router
+from app.auth.resolver import init_profile_resolver
 from app.cache.maintenance import CacheMaintenanceService
 from app.cache.sqlite_cache import SqliteCache
 from app.core.errors import ScraperError
 from app.core.logging import setup_logging
 from app.jobs.service import JobService
 from app.metrics.prometheus import get_metrics
-from app.scraper.service import ScraperService
 
 logger = logging.getLogger("scraper-api")
 
@@ -31,7 +31,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Config path: %s", settings.config_path)
     logger.info("Cache path: %s", settings.cache_sqlite_path)
 
-    # Eagerly open cache at startup.
+    # Initialise the ProfileResolver from settings.
+    init_profile_resolver(settings)
+
+    # Eagerly open cache at startup (shared singleton).
     _cache = SqliteCache(
         db_path=settings.cache_sqlite_path,
         max_size_mb=settings.cache_max_html_size_mb,
@@ -57,18 +60,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Background cache cleanup is disabled")
 
-    # ---- Job service (uses the same scraper instance as the API routes)
+    # ---- Job service
+    # Scrapers are now created per-request/per-job with profile-specific
+    # effective settings.  The JobService receives the shared cache and
+    # builds per-job scrapers internally.
     _job_service: JobService | None = None
     if settings.jobs_enabled:
-        # Ensure a scraper instance exists on app.state (routes will reuse it).
-        if not hasattr(app.state, "scraper") or app.state.scraper is None:
-            sc = ScraperService(settings=settings, cache=_cache)
-            app.state.scraper = sc
-        scraper = app.state.scraper
-
         _job_service = JobService(
-            scraper=scraper,
+            scraper=None,  # scraper is built per-job from effective settings
             settings=settings,
+            cache=_cache,
             metrics=metrics,
         )
         await _job_service.start()

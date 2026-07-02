@@ -34,6 +34,8 @@ class MetricsCollector:
             "cache_stale_hits_total": 0,
             "proxy_requests_total": 0,
             "proxy_errors_total": 0,
+            "auth_requests_total": 0,
+            "auth_failures_total": 0,
         }
         self._latencies: dict[str, float] = {
             "scrape_duration_ms_sum": 0.0,
@@ -154,6 +156,17 @@ class MetricsCollector:
                 lines.append(f"# HELP {counter_name} {help_text}")
                 lines.append(f"# TYPE {counter_name} counter")
                 lines.append(f"{counter_name}{suffix} {val}")
+                lines.append("")
+
+            # Auth counters
+            for counter_name, help_text in [
+                ("auth_requests_total", "Total authenticated requests"),
+                ("auth_failures_total", "Total authentication failures"),
+            ]:
+                val = self._counters.get(counter_name, 0)
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                lines.append(f"{counter_name} {val}")
                 lines.append("")
 
             # Proxy counters

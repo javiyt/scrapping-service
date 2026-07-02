@@ -8,12 +8,36 @@ Priority (highest to lowest):
 """
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 import yaml
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _expand_env_vars_in_value(value: Any) -> Any:
+    """Recursively expand ``${VAR_NAME}`` references in strings found in
+    the given value tree (dict, list, str, or scalar).
+
+    If an env var is referenced but not set, it is left as-is (the
+    raw ``${VAR_NAME}`` string).
+    """
+    if isinstance(value, str):
+
+        def _replace(m: re.Match[str]) -> str:
+            var_name = m.group(1)
+            return os.environ.get(var_name, m.group(0))
+
+        return ENV_VAR_PATTERN.sub(_replace, value)
+    if isinstance(value, dict):
+        return {k: _expand_env_vars_in_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_expand_env_vars_in_value(item) for item in value]
+    return value
 
 
 class Settings(BaseSettings):
@@ -107,6 +131,11 @@ class Settings(BaseSettings):
     config_path: str = Field(default="", alias="CONFIG_PATH")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
+    # Raw auth YAML block — parsed by ProfileResolver.  Not meant to be
+    # serialised.  Starts without underscore so pydantic accepts it from
+    # the merged dict, but excluded from serialisation.
+    raw_yaml_auth: dict[str, Any] | None = Field(default=None, exclude=True, alias="_raw_yaml_auth")
+
     # ------------------------------------------------------------------ validators
 
     @field_validator("server_port")
@@ -152,12 +181,13 @@ class Settings(BaseSettings):
 
         merged: dict[str, Any] = {}
 
-        # 1. YAML values (base).
+        # 1. YAML values (base) — expand env vars in the raw YAML first.
         if config_path:
             config_file = Path(config_path)
             if config_file.exists():
                 with open(config_file, encoding="utf-8") as f:
                     data = yaml.safe_load(f) or {}
+                data = _expand_env_vars_in_value(data)
                 merged.update(cls._map_yaml_to_fields(data))
 
         # 2. Env overrides (highest priority) — pydantic coerces types.
@@ -202,6 +232,10 @@ class Settings(BaseSettings):
         # Top-level aliases
         if "log_level" in data:
             result["log_level"] = data["log_level"]
+
+        # Auth block — stored raw for the ProfileResolver to parse.
+        if "auth" in data and isinstance(data["auth"], dict):
+            result["_raw_yaml_auth"] = data["auth"]
 
         return result
 
