@@ -39,3 +39,16 @@ class TestVerifyApiKey:
         with pytest.raises(HTTPException) as excinfo:
             await verify_api_key(request, credentials=credentials, settings=settings)
         assert excinfo.value.status_code == 403
+
+
+class TestGetJobService:
+    @pytest.mark.asyncio
+    async def test_raises_when_not_available(self):
+        from app.api.dependencies import get_job_service
+
+        request = AsyncMock(spec=Request)
+        type(request.app.state).job_service = None
+
+        with pytest.raises(HTTPException) as excinfo:
+            await get_job_service(request)
+        assert excinfo.value.status_code == 503

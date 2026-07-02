@@ -58,6 +58,17 @@ class TestDomainRateLimiter:
         limiter = DomainRateLimiter(Settings(_env_file=None))
         assert limiter.can_proceed("fresh.com") is True
 
+    def test_can_proceed_false_when_min_delay_active(self):
+
+        limiter = DomainRateLimiter(Settings(_env_file=None))
+        limiter.set_policy("rate.com", DomainPolicy(min_delay_seconds=5.0))
+        limiter.acquire("rate.com")
+        limiter.release("rate.com")
+        # The min_delay has just started, so can_proceed should be False.
+        assert not limiter.can_proceed("rate.com")
+        # But can_proceed for a different domain should be True.
+        assert limiter.can_proceed("other.com") is True
+
     def test_can_proceed_disallowed_domain(self):
         settings = Settings(
             domains={"blocked.com": {"allowed": False}},
@@ -92,3 +103,50 @@ class TestDomainRateLimiter:
         limiter = DomainRateLimiter(Settings(_env_file=None))
         policy = limiter.default_policy
         assert policy.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_wait_if_needed_passes_when_free(self):
+        limiter = DomainRateLimiter(Settings(_env_file=None))
+        await limiter.wait_if_needed("fresh.com")
+        assert limiter.can_proceed("fresh.com") is True
+
+    @pytest.mark.asyncio
+    async def test_wait_if_needed_waits_for_concurrency(self):
+        limiter = DomainRateLimiter(Settings(_env_file=None))
+        from app.scraper.domain_policy import DomainPolicy
+
+        limiter.set_policy("busy.com", DomainPolicy(min_delay_seconds=0, max_concurrent_requests=2))
+        limiter.acquire("busy.com")
+        limiter.acquire("busy.com")
+        # At max concurrency, wait_if_needed should block until a slot is free.
+        import asyncio
+
+        async def release_after_delay():
+            await asyncio.sleep(0.1)
+            limiter.release("busy.com")
+
+        async def wait_and_check():
+            await limiter.wait_if_needed("busy.com")
+            return True
+
+        results = await asyncio.gather(release_after_delay(), wait_and_check())
+        assert results[1] is True
+
+    @pytest.mark.asyncio
+    async def test_wait_if_needed_waits_for_min_delay(self):
+        limiter = DomainRateLimiter(Settings(_env_file=None))
+        from app.scraper.domain_policy import DomainPolicy
+
+        limiter.set_policy(
+            "delayed.com",
+            DomainPolicy(min_delay_seconds=0.05, max_concurrent_requests=5),
+        )
+        limiter.acquire("delayed.com")
+        limiter.release("delayed.com")
+
+        import time
+
+        start = time.monotonic()
+        await limiter.wait_if_needed("delayed.com")
+        elapsed = time.monotonic() - start
+        assert elapsed >= 0.04  # should wait at least ~50ms for min_delay

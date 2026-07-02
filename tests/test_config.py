@@ -133,3 +133,31 @@ class TestConfigFromYaml:
         )
         assert s.get_domain_ttl("example.com") == 7200
         assert s.get_domain_ttl("unknown.com") == s.cache_default_ttl_seconds
+
+    def test_get_domain_config(self):
+        s = Settings(domains={"example.com": {"allowed": True, "min_delay_seconds": 5}})
+        cfg = s.get_domain_config("example.com")
+        assert cfg == {"allowed": True, "min_delay_seconds": 5}
+        assert s.get_domain_config("unknown.com") == {}
+
+    def test_is_domain_allowed_empty_list(self):
+        s = Settings(security_allowed_domains=[])
+        assert s.is_domain_allowed("any.com") is True
+
+    def test_is_domain_allowed_with_list(self):
+        s = Settings(security_allowed_domains=["allowed.com"])
+        assert s.is_domain_allowed("allowed.com") is True
+        assert s.is_domain_allowed("other.com") is False
+
+    def test_all_domain_names(self):
+        s = Settings(security_allowed_domains=["a.com", "b.com"])
+        assert s.all_domain_names() == ["a.com", "b.com"]
+
+    def test_all_domain_names_from_domains(self):
+        s = Settings(
+            security_allowed_domains=[],
+            domains={"x.com": {}, "y.com": {}},
+        )
+        names = s.all_domain_names()
+        assert "x.com" in names
+        assert "y.com" in names
