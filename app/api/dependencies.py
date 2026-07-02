@@ -8,6 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.cache.sqlite_cache import SqliteCache
 from app.core.config import Settings
+from app.jobs.service import JobService
 from app.scraper.service import ScraperService
 
 logger = logging.getLogger("scraper-api.deps")
@@ -65,6 +66,26 @@ def _get_scraper(request: Request) -> ScraperService:
 async def get_scraper(request: Request) -> AsyncGenerator[ScraperService, None]:
     """Yield the scraper service singleton."""
     yield _get_scraper(request)
+
+
+# ---------------------------------------------------------------- jobs
+
+
+def get_job_service(request: Request) -> JobService:
+    """Return the JobService singleton from app.state."""
+    service: JobService | None = getattr(request.app.state, "job_service", None)
+    if service is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "type": "internal_error",
+                    "message": "Job service is not available (jobs may be disabled)",
+                    "details": {},
+                }
+            },
+        )
+    return service
 
 
 # ------------------------------------------------------------- auth scheme

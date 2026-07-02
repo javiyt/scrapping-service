@@ -14,7 +14,9 @@ from app.cache.maintenance import CacheMaintenanceService
 from app.cache.sqlite_cache import SqliteCache
 from app.core.errors import ScraperError
 from app.core.logging import setup_logging
+from app.jobs.service import JobService
 from app.metrics.prometheus import get_metrics
+from app.scraper.service import ScraperService
 
 logger = logging.getLogger("scraper-api")
 
@@ -55,11 +57,37 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Background cache cleanup is disabled")
 
+    # ---- Job service (uses the same scraper instance as the API routes)
+    _job_service: JobService | None = None
+    if settings.jobs_enabled:
+        # Ensure a scraper instance exists on app.state (routes will reuse it).
+        if not hasattr(app.state, "scraper") or app.state.scraper is None:
+            sc = ScraperService(settings=settings, cache=_cache)
+            app.state.scraper = sc
+        scraper = app.state.scraper
+
+        _job_service = JobService(
+            scraper=scraper,
+            settings=settings,
+            metrics=metrics,
+        )
+        await _job_service.start()
+        app.state.job_service = _job_service
+        logger.info(
+            "Job service started (max_concurrency=%d, max_retained=%d)",
+            settings.jobs_max_concurrency,
+            settings.jobs_max_retained,
+        )
+    else:
+        logger.info("Job service is disabled")
+
     yield
 
     # ---- shutdown
     logger.info("Shutting down scraper-api")
     metrics.set_up(False)
+    if _job_service is not None:
+        await _job_service.stop()
     if _maintenance is not None:
         await _maintenance.stop()
     try:

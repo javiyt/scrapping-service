@@ -7,11 +7,19 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
-from app.api.dependencies import get_cache, get_scraper, get_settings, verify_api_key
+from app.api.dependencies import (
+    get_cache,
+    get_job_service,
+    get_scraper,
+    get_settings,
+    verify_api_key,
+)
 from app.cache.models import CacheCleanupResult, CacheVacuumResult
 from app.cache.sqlite_cache import SqliteCache
 from app.core.config import Settings
 from app.core.errors import ScraperError
+from app.jobs.models import Job, JobListResponse, JobResponse
+from app.jobs.service import JobService
 from app.metrics.prometheus import MetricsCollector, get_metrics
 from app.schemas.health import HealthResponse, ReadinessResponse
 from app.schemas.scrape import (
@@ -447,3 +455,138 @@ async def cache_vacuum(
                 }
             },
         )
+
+
+# ============================================================== /v1/jobs
+
+
+def _job_to_response(job: Job) -> dict:
+    """Convert a Job model to a response dict (excludes config)."""
+    return {
+        "job_id": job.job_id,
+        "status": job.status.value,
+        "url": job.url,
+        "created_at": job.created_at.isoformat(),
+        "updated_at": job.updated_at.isoformat(),
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+        "result": job.result,
+        "error": job.error,
+    }
+
+
+@router.post("/v1/jobs", response_model=JobResponse, tags=["Jobs"])
+async def create_job(
+    request: ScrapeRequest,
+    jobs: JobService = Depends(get_job_service),
+):
+    """Create a new async scrape job.
+
+    The request body is identical to ``/v1/scrape``.  The job is queued
+    immediately and processed by a background worker.  Poll
+    ``/v1/jobs/{job_id}`` to check progress.
+    """
+    if not jobs._settings.jobs_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "type": "internal_error",
+                    "message": "Async jobs are disabled",
+                    "details": {},
+                }
+            },
+        )
+
+    scrape_config = {
+        "url": request.url,
+        "mode": request.mode,
+        "cache_ttl_seconds": request.cache_ttl_seconds,
+        "force_refresh": request.force_refresh,
+        "wait_until": request.wait_until,
+        "wait_selector": request.wait_selector,
+        "timeout_seconds": request.timeout_seconds,
+        "scroll_config": request.scroll.model_dump(),
+        "debug_config": request.debug.model_dump(),
+    }
+
+    job = await jobs.create_job(
+        url=request.url,
+        scrape_config=scrape_config,
+        normalize_config=request.normalize.model_dump(),
+        extract_config=request.extract.model_dump() if request.extract.fields else None,
+    )
+    return _job_to_response(job)
+
+
+@router.get("/v1/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
+async def get_job(
+    job_id: str,
+    jobs: JobService = Depends(get_job_service),
+):
+    """Return the current state and result of an async job."""
+    job = jobs.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "type": "not_found",
+                    "message": f"Job {job_id} not found",
+                    "details": {},
+                }
+            },
+        )
+    return _job_to_response(job)
+
+
+@router.get("/v1/jobs", response_model=JobListResponse, tags=["Jobs"])
+async def list_jobs(
+    jobs: JobService = Depends(get_job_service),
+):
+    """List all async jobs (newest first)."""
+    job_list = jobs.list_jobs()
+    responses = [_job_to_response(j) for j in job_list]
+    return {"jobs": responses, "total": len(responses)}
+
+
+@router.delete("/v1/jobs/{job_id}", tags=["Jobs"])
+async def delete_job(
+    job_id: str,
+    jobs: JobService = Depends(get_job_service),
+):
+    """Delete an async job from the store."""
+    deleted = await jobs.delete_job(job_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "type": "not_found",
+                    "message": f"Job {job_id} not found",
+                    "details": {},
+                }
+            },
+        )
+    return {"message": f"Job {job_id} deleted"}
+
+
+@router.post("/v1/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])
+async def cancel_job(
+    job_id: str,
+    jobs: JobService = Depends(get_job_service),
+):
+    """Cancel a queued job.  No-op if the job is already running or finished."""
+    job = await jobs.cancel_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "type": "not_found",
+                    "message": f"Job {job_id} not found",
+                    "details": {},
+                }
+            },
+        )
+    return _job_to_response(job)

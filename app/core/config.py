@@ -90,6 +90,12 @@ class Settings(BaseSettings):
     debug_html_dumps: bool = False
     debug_dir: str = "debug"
 
+    # ------------------------------------------------------------- Jobs
+    jobs_enabled: bool = True
+    jobs_max_retained: int = 500
+    jobs_max_concurrency: int = 2
+    jobs_result_ttl_seconds: int = 86400  # 24 hours
+
     # ------------------------------------------------------------- Runtime
     config_path: str = Field(default="", alias="CONFIG_PATH")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -172,6 +178,7 @@ class Settings(BaseSettings):
             "browser": "browser",
             "security": "security",
             "debug": "debug",
+            "jobs": "jobs",
         }
         result: dict[str, Any] = {}
 
