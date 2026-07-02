@@ -16,9 +16,6 @@ Environment=SCRAPER_CACHE_SQLITE_PATH=/data/scraper-cache.db
 Environment=SCRAPER_DEBUG_DIR=/debug
 Environment=TZ=Europe/Madrid
 EnvironmentFile=%h/scraper-api/.env
-MemoryLimit=512M
-ShmSize=256M
-Restart=always
 
 [Service]
 Restart=always

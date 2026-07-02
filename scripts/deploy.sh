@@ -291,7 +291,19 @@ if [[ "$SERVICE_EXISTS" == "true" ]]; then
         remote_exec "systemctl --user start scraper-api.service" && SERVICE_STARTED=true || true
     }
 else
-    echo "⚠ Quadlet did not generate the service. Falling back to podman run..."
+    echo "⚠ Quadlet did not generate the service. Diagnosing..."
+    echo ""
+    echo "  # Podman version:"
+    remote_exec "podman version --format '{{.Version}}' 2>/dev/null || podman --version" || true
+    echo ""
+    echo "  # Quadlet generator (should exist at one of these paths):"
+    remote_exec "ls -la /usr/lib/systemd/user-generators/podman-user-generator 2>/dev/null || echo '  not found at /usr/lib/systemd/user-generators/'"
+    remote_exec "ls -la /usr/libexec/podman/quadlet 2>/dev/null || echo '  not found at /usr/libexec/podman/quadlet'" || true
+    echo ""
+    echo "  # Quadlet file syntax (dry-run):"
+    remote_exec "/usr/libexec/podman/quadlet --dryrun --user 2>&1 || true"
+    echo ""
+    echo "  # Falling back to podman run..."
     echo ""
 
     # Ensure data dirs exist and are writable by the container's scraper user.
