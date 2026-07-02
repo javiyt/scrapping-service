@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import BaseModel
+
 
 @dataclass
 class CacheEntry:
@@ -46,3 +48,29 @@ class CacheEntry:
             "mode": self.mode,
             "content_length": self.content_length,
         }
+
+
+class CacheCleanupResult(BaseModel):
+    """Result of a cache cleanup operation.
+
+    Reports how many entries were deleted in each phase and the
+    state of the cache before and after.
+    """
+
+    deleted_expired: int = 0
+    deleted_by_max_entries: int = 0
+    deleted_by_max_size: int = 0
+    total_deleted: int = 0
+    size_before_bytes: int = 0
+    size_after_bytes: int = 0
+    entries_before: int = 0
+    entries_after: int = 0
+    vacuumed: bool = False
+
+
+class CacheVacuumResult(BaseModel):
+    """Result of a SQLite VACUUM operation."""
+
+    vacuumed: bool = True
+    size_before_bytes: int = 0
+    size_after_bytes: int = 0

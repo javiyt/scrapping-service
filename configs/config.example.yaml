@@ -23,6 +23,14 @@ cache:
   max_html_size_mb: 10                # Truncate responses larger than this
   stale_if_error: true                # Serve expired cache on fetch failure
 
+  # Cache maintenance — automatic cleanup to prevent unbounded growth.
+  cleanup_enabled: true               # Enable automatic background cleanup
+  cleanup_interval_seconds: 3600      # Run cleanup every hour
+  delete_expired_after_seconds: 86400 # Delete entries expired >24h ago
+  max_entries: 10000                  # Max cache rows before eviction
+  max_size_mb: 512                    # Approximate max DB size
+  vacuum_after_cleanup: false         # Skip VACUUM by default (can block writes)
+
 # ----------------------------------------------------------------- Scraper
 scraper:
   default_mode: auto                  # http | browser | auto

@@ -159,6 +159,19 @@ class BatchScrapeResponse(BaseModel):
     elapsed_ms: int
 
 
+# ==================================================== CacheCleanupRequest
+class CacheCleanupRequest(BaseModel):
+    """Optional overrides for a manual cleanup request.
+
+    Each field falls back to the global config default when ``None``.
+    """
+
+    delete_expired_after_seconds: int | None = None
+    max_entries: int | None = None
+    max_size_mb: int | None = None
+    vacuum: bool | None = None
+
+
 # ============================================================ PurgeResponse
 class PurgeResponse(BaseModel):
     """Response after cache purge."""

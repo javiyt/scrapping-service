@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     cache_max_html_size_mb: int = 10
     cache_stale_if_error: bool = True
 
+    # ------------------------------------------------------------- Cache cleanup
+    cache_cleanup_enabled: bool = True
+    cache_cleanup_interval_seconds: int = 3600
+    cache_delete_expired_after_seconds: int = 86400  # 24 hours
+    cache_max_entries: int = 10000
+    cache_max_size_mb: int = 512
+    cache_vacuum_after_cleanup: bool = False
+
     # ------------------------------------------------------------- Scraper
     scraper_default_mode: str = "auto"
     scraper_headless: bool = True

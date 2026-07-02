@@ -12,8 +12,8 @@ import threading
 class MetricsCollector:
     """Thread-safe metrics collector.
 
-    Exposes counters and a simple text representation suitable for Prometheus
-    scraping.
+    Exposes counters, gauges, and a simple text representation suitable
+    for Prometheus scraping.
     """
 
     def __init__(self) -> None:
@@ -29,6 +29,7 @@ class MetricsCollector:
         self._latencies: dict[str, float] = {
             "scrape_duration_ms_sum": 0.0,
         }
+        self._gauges: dict[str, int | float] = {}
         self._up: bool = True
 
     # --------------------------------------------------------------- counters
@@ -44,6 +45,13 @@ class MetricsCollector:
     def set_up(self, up: bool) -> None:
         with self._lock:
             self._up = up
+
+    # ---------------------------------------------------------------- gauges
+
+    def set_gauge(self, name: str, value: int | float) -> None:
+        """Set a gauge metric to an absolute value."""
+        with self._lock:
+            self._gauges[name] = value
 
     # --------------------------------------------------------------- render
 
@@ -84,6 +92,37 @@ class MetricsCollector:
                 f"scrape_duration_ms_sum {self._latencies.get('scrape_duration_ms_sum', 0.0)}",
                 "",
             ]
+
+            # Cache cleanup counters
+            for counter_name, help_text, suffix in [
+                ("cache_cleanup_runs_total", "Total cache cleanup runs", ""),
+                (
+                    "cache_cleanup_deleted_entries_total",
+                    "Total cache entries deleted by cleanup",
+                    "",
+                ),
+                ("cache_cleanup_errors_total", "Total cache cleanup errors", ""),
+                ("cache_vacuum_runs_total", "Total cache VACUUM runs", ""),
+                ("cache_vacuum_errors_total", "Total cache VACUUM errors", ""),
+            ]:
+                val = self._counters.get(counter_name, 0)
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                lines.append(f"{counter_name}{suffix} {val}")
+                lines.append("")
+
+            # Gauges
+            for gauge_name in [
+                "cache_size_bytes",
+                "cache_entries_total",
+                "cache_expired_entries_total",
+            ]:
+                val = self._gauges.get(gauge_name, 0)
+                lines.append(f"# HELP {gauge_name} {gauge_name.replace('_', ' ')}")
+                lines.append(f"# TYPE {gauge_name} gauge")
+                lines.append(f"{gauge_name} {val}")
+                lines.append("")
+
         return "\n".join(lines)
 
 

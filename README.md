@@ -255,6 +255,138 @@ with documentation.
   are evicted when the limit is exceeded.
 - The cache persists on a Docker volume — it survives container restarts.
 
+## Cache maintenance
+
+Without periodic cleanup the SQLite cache database grows forever — expired
+rows still occupy space on disk, and the row count accumulates indefinitely.
+This is especially problematic on resource-constrained devices such as a
+Raspberry Pi with limited storage.
+
+### Cache Configuration
+
+Add the following under the ``cache`` section of ``config.yaml``:
+
+```yaml
+cache:
+  # ... existing settings ...
+
+  # Cache maintenance
+  cleanup_enabled: true               # Enable automatic background cleanup
+  cleanup_interval_seconds: 3600      # Run cleanup every hour
+  delete_expired_after_seconds: 86400 # Delete entries expired >24h ago
+  max_entries: 10000                  # Max cache rows before eviction
+  max_size_mb: 512                    # Approximate max DB size
+  vacuum_after_cleanup: false         # Skip VACUUM by default (can block writes)
+```
+
+All values can be overridden via environment variables:
+
+| Variable                                              | Default |
+|-------------------------------------------------------|---------|
+| ``SCRAPER_CACHE_CLEANUP_ENABLED``                     | `true`  |
+| ``SCRAPER_CACHE_CLEANUP_INTERVAL_SECONDS``            | `3600`  |
+| ``SCRAPER_CACHE_DELETE_EXPIRED_AFTER_SECONDS``        | `86400` |
+| ``SCRAPER_CACHE_MAX_ENTRIES``                         | `10000` |
+| ``SCRAPER_CACHE_MAX_SIZE_MB``                         | `512`   |
+| ``SCRAPER_CACHE_VACUUM_AFTER_CLEANUP``                | `false` |
+
+### How cleanup works
+
+The automatic background cleanup runs every ``cleanup_interval_seconds``
+when ``cleanup_enabled`` is ``true``. Each cycle performs these phases:
+
+1. **Expired entry cleanup** — deletes entries whose ``expires_at`` is older
+   than ``delete_expired_after_seconds`` ago. This grace period prevents
+   eagerly deleting entries that just expired.
+2. **Max entries** — if the total row count exceeds ``max_entries``, the
+   oldest entries (by ``fetched_at``) are deleted.
+3. **Max size** — if the total content size exceeds ``max_size_mb``, entries
+   are deleted in batches of 100 until the size is below the limit.
+4. **VACUUM** — if ``vacuum_after_cleanup`` is ``true``, SQLite VACUUM is
+   run to reclaim disk space. Off by default because VACUUM can block writes
+   and is I/O intensive on SD cards.
+
+The cleanup loop is safe to run concurrently with regular cache operations.
+Exceptions are caught and logged without crashing the application.
+
+### Manual cleanup
+
+Run cache cleanup immediately with default or overridden parameters:
+
+```http
+POST /v1/cache/cleanup
+Authorization: Bearer <API_KEY>
+```
+
+Optional request body (all fields are optional — omitted fields fall back to
+config defaults):
+
+```json
+{
+  "delete_expired_after_seconds": 86400,
+  "max_entries": 10000,
+  "max_size_mb": 512,
+  "vacuum": false
+}
+```
+
+Response:
+
+```json
+{
+  "deleted_expired": 42,
+  "deleted_by_max_entries": 10,
+  "deleted_by_max_size": 0,
+  "total_deleted": 52,
+  "size_before_bytes": 26214400,
+  "size_after_bytes": 26214400,
+  "entries_before": 10042,
+  "entries_after": 10000,
+  "vacuumed": false
+}
+```
+
+### Manual VACUUM
+
+Run SQLite VACUUM to reclaim disk space:
+
+```http
+POST /v1/cache/vacuum
+Authorization: Bearer <API_KEY>
+```
+
+Response:
+
+```json
+{
+  "vacuumed": true,
+  "size_before_bytes": 26214400,
+  "size_after_bytes": 15728640
+}
+```
+
+### Raspberry Pi recommendations
+
+- Keep ``vacuum_after_cleanup: false`` — VACUUM rewrites the entire database
+  file, which can block writes for seconds to minutes on an SD card.
+- Run manual VACUUM during maintenance windows if you need to reclaim space,
+  or accept that the DB file does not shrink after cleanup.
+- Use ``max_entries`` and ``max_size_mb`` to cap cache growth — these prevent
+  unbounded growth without requiring VACUUM.
+- On a Pi 3B+ with an SD card, a 10 000-entry cleanup typically completes in
+  under a second. VACUUM of a 500 MB database may take 10–30 seconds.
+
+### SQLite file size note
+
+When entries are deleted from SQLite, the database file does not shrink
+immediately — the freed pages are marked as reusable. Only ``VACUUM``
+actually reclaims the disk space. This means:
+
+- ``size_before_bytes`` and ``size_after_bytes`` in the cleanup result may be
+  identical even after many entries are deleted.
+- The ``max_size_mb`` check uses ``SUM(content_length)`` as a proxy for
+  database size since the actual file size only decreases after VACUUM.
+
 ---
 
 ## Security
