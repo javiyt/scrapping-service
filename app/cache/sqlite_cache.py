@@ -5,13 +5,14 @@ and configurable table size limits.
 """
 
 import logging
+import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from app.cache.models import CacheEntry
+from app.cache.models import CacheCleanupResult, CacheEntry, CacheVacuumResult
 
 logger = logging.getLogger("scraper-api.cache")
 
@@ -231,6 +232,141 @@ class SqliteCache:
                     (max(1, excess // (self.max_size_bytes // 100 + 1) + 1),),
                 )
                 logger.info("Evicted %d additional entries to meet size limit", cur.rowcount)
+
+    # --------------------------------------------------------------- cleanup
+
+    def cleanup_expired(self, delete_expired_after_seconds: int) -> int:
+        """Delete entries that expired more than *delete_expired_after_seconds* ago.
+
+        This provides a grace period: entries whose ``expires_at`` is within
+        the window are retained.
+        """
+        cutoff = (datetime.now(UTC) - timedelta(seconds=delete_expired_after_seconds)).isoformat()
+        with self._cursor() as cur:
+            cur.execute(
+                "DELETE FROM cache WHERE expires_at IS NOT NULL AND expires_at < ?",
+                (cutoff,),
+            )
+            deleted = cur.rowcount
+        if deleted:
+            logger.info("Cleanup expired deleted %d entries (cutoff=%s)", deleted, cutoff)
+        return deleted
+
+    def cleanup_by_max_entries(self, max_entries: int) -> int:
+        """If total entries exceed *max_entries*, delete the oldest entries."""
+        with self._cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM cache")
+            total = cur.fetchone()[0]
+            if total <= max_entries:
+                return 0
+            to_delete = total - max_entries
+            cur.execute(
+                """DELETE FROM cache WHERE cache_key IN (
+                       SELECT cache_key FROM cache ORDER BY fetched_at ASC LIMIT ?
+                   )""",
+                (to_delete,),
+            )
+            deleted = cur.rowcount
+        if deleted:
+            logger.info("Cleanup max_entries deleted %d entries", deleted)
+        return deleted
+
+    def cleanup_by_max_size(self, max_size_bytes: int) -> int:
+        """Delete oldest entries in batches until total content length is under limit.
+
+        Uses ``SUM(content_length)`` as a proxy for database size since the
+        actual SQLite file does not shrink when rows are deleted.
+        The batch size is calculated from the excess so that each iteration
+        deletes a reasonable number of rows without overshooting.
+        """
+        total_deleted = 0
+        while True:
+            with self._cursor() as cur:
+                cur.execute("SELECT COALESCE(SUM(content_length), 0), COUNT(*) FROM cache")
+                row = cur.fetchone()
+                total_size = row[0]
+                count = row[1]
+                if total_size <= max_size_bytes or count == 0:
+                    break
+                excess = total_size - max_size_bytes
+                avg_size = max(1, total_size // count)
+                batch = min(100, max(1, excess // avg_size + 1))
+                cur.execute(
+                    """DELETE FROM cache WHERE cache_key IN (
+                           SELECT cache_key FROM cache ORDER BY fetched_at ASC LIMIT ?
+                       )""",
+                    (batch,),
+                )
+                if cur.rowcount == 0:
+                    break
+                total_deleted += cur.rowcount
+        if total_deleted:
+            logger.info("Cleanup max_size deleted %d entries", total_deleted)
+        return total_deleted
+
+    def cleanup(
+        self,
+        delete_expired_after_seconds: int = 86400,
+        max_entries: int = 10000,
+        max_size_bytes: int = 512 * 1024 * 1024,
+        vacuum: bool = False,
+    ) -> CacheCleanupResult:
+        """Run all cleanup phases and return a structured result.
+
+        1. Delete expired entries past the grace period.
+        2. If total rows exceed *max_entries*, delete the oldest.
+        3. If content size exceeds *max_size_bytes*, delete in batches.
+        4. Optionally run VACUUM.
+        """
+        file_exists = os.path.exists(self.db_path)
+        size_before = os.path.getsize(self.db_path) if file_exists else 0
+
+        with self._cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM cache")
+            entries_before = cur.fetchone()[0]
+
+        deleted_expired = self.cleanup_expired(delete_expired_after_seconds)
+        deleted_by_max_entries = self.cleanup_by_max_entries(max_entries)
+        deleted_by_max_size = self.cleanup_by_max_size(max_size_bytes)
+
+        vacuumed = False
+        if vacuum and file_exists:
+            self.vacuum()
+            vacuumed = True
+
+        with self._cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM cache")
+            entries_after = cur.fetchone()[0]
+
+        size_after = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
+
+        return CacheCleanupResult(
+            deleted_expired=deleted_expired,
+            deleted_by_max_entries=deleted_by_max_entries,
+            deleted_by_max_size=deleted_by_max_size,
+            total_deleted=deleted_expired + deleted_by_max_entries + deleted_by_max_size,
+            size_before_bytes=size_before,
+            size_after_bytes=size_after,
+            entries_before=entries_before,
+            entries_after=entries_after,
+            vacuumed=vacuumed,
+        )
+
+    def vacuum(self) -> CacheVacuumResult:
+        """Run SQLite VACUUM to reclaim disk space.
+
+        Returns the file size before and after.
+        """
+        size_before = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
+        with self._cursor() as cur:
+            cur.execute("VACUUM")
+        size_after = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
+        logger.info("VACUUM completed: %d -> %d bytes", size_before, size_after)
+        return CacheVacuumResult(
+            vacuumed=True,
+            size_before_bytes=size_before,
+            size_after_bytes=size_after,
+        )
 
     # --------------------------------------------------------------- helpers
 

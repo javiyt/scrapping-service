@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_cache, get_scraper, get_settings, verify_api_key
+from app.cache.models import CacheCleanupResult, CacheVacuumResult
 from app.cache.sqlite_cache import SqliteCache
 from app.core.config import Settings
 from app.core.errors import ScraperError
@@ -17,6 +18,7 @@ from app.schemas.scrape import (
     BatchItem,
     BatchScrapeRequest,
     BatchScrapeResponse,
+    CacheCleanupRequest,
     CacheStats,
     PurgeResponse,
     ScrapeRequest,
@@ -257,4 +259,93 @@ async def cache_purge(
         raise HTTPException(
             status_code=500,
             detail={"error": {"type": "cache_error", "message": str(exc), "details": {}}},
+        )
+
+
+# ===================================================== POST /v1/cache/cleanup
+
+
+@router.post("/v1/cache/cleanup", response_model=CacheCleanupResult, tags=["Cache"])
+async def cache_cleanup(
+    request: CacheCleanupRequest | None = None,
+    cache: SqliteCache = Depends(get_cache),
+    settings: Settings = Depends(get_settings),
+    metrics_collector: MetricsCollector = Depends(get_metrics),
+):
+    """Run cache cleanup immediately with optional overrides.
+
+    Returns structured stats about what was deleted.
+    """
+    try:
+        params = request or CacheCleanupRequest()
+        delete_expired_after = (
+            params.delete_expired_after_seconds
+            if params.delete_expired_after_seconds is not None
+            else settings.cache_delete_expired_after_seconds
+        )
+        max_entries = (
+            params.max_entries if params.max_entries is not None else settings.cache_max_entries
+        )
+        max_size_mb = (
+            params.max_size_mb if params.max_size_mb is not None else settings.cache_max_size_mb
+        )
+        do_vacuum = params.vacuum if params.vacuum is not None else False
+
+        result = cache.cleanup(
+            delete_expired_after_seconds=delete_expired_after,
+            max_entries=max_entries,
+            max_size_bytes=max_size_mb * 1024 * 1024,
+            vacuum=do_vacuum,
+        )
+
+        metrics_collector.inc("cache_cleanup_runs_total")
+        metrics_collector.inc("cache_cleanup_deleted_entries_total", result.total_deleted)
+        metrics_collector.set_gauge("cache_size_bytes", result.size_after_bytes)
+        metrics_collector.set_gauge("cache_entries_total", result.entries_after)
+
+        return result
+
+    except Exception as exc:
+        metrics_collector.inc("cache_cleanup_errors_total")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "type": "cache_error",
+                    "message": f"Cache cleanup failed: {exc}",
+                    "details": {},
+                }
+            },
+        )
+
+
+# ====================================================== POST /v1/cache/vacuum
+
+
+@router.post("/v1/cache/vacuum", response_model=CacheVacuumResult, tags=["Cache"])
+async def cache_vacuum(
+    cache: SqliteCache = Depends(get_cache),
+    metrics_collector: MetricsCollector = Depends(get_metrics),
+):
+    """Run SQLite VACUUM to reclaim disk space.
+
+    This can block writes and is I/O intensive — prefer running during
+    maintenance windows on Raspberry Pi.
+    """
+    try:
+        metrics_collector.inc("cache_vacuum_runs_total")
+        result = cache.vacuum()
+        metrics_collector.set_gauge("cache_size_bytes", result.size_after_bytes)
+        return result
+    except Exception as exc:
+        metrics_collector.inc("cache_vacuum_errors_total")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": {
+                    "type": "cache_error",
+                    "message": f"VACUUM failed: {exc}",
+                    "details": {},
+                }
+            },
         )

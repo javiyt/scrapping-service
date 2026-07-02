@@ -14,7 +14,7 @@ class TestConfigDefaults:
     """Verify hard-coded default values are sensible."""
 
     def test_default_port(self):
-        s = Settings()
+        s = Settings(_env_file=None)
         assert s.server_port == 8080
 
     def test_default_host(self):

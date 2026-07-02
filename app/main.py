@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_settings
 from app.api.routes import health_router, router
+from app.cache.maintenance import CacheMaintenanceService
 from app.cache.sqlite_cache import SqliteCache
 from app.core.errors import ScraperError
 from app.core.logging import setup_logging
@@ -41,11 +42,26 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     metrics = get_metrics()
     metrics.set_up(True)
 
+    # Initialise background cache cleanup loop if enabled.
+    _maintenance: CacheMaintenanceService | None = None
+    if settings.cache_cleanup_enabled:
+        _maintenance = CacheMaintenanceService(cache=_cache, settings=settings)
+        await _maintenance.start()
+        app.state.cache_maintenance = _maintenance
+        logger.info(
+            "Background cache cleanup is enabled (interval=%ds)",
+            settings.cache_cleanup_interval_seconds,
+        )
+    else:
+        logger.info("Background cache cleanup is disabled")
+
     yield
 
     # ---- shutdown
     logger.info("Shutting down scraper-api")
     metrics.set_up(False)
+    if _maintenance is not None:
+        await _maintenance.stop()
     try:
         _cache.close()
     except Exception:
