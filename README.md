@@ -10,6 +10,9 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
 
 ## Features
 
+- **HTML normalisation** — per-request clean-up: remove scripts, styles,
+  comments, meta tags; convert relative links to absolute; collapse whitespace;
+  or minify output.
 - **Dual fetch modes** — simple HTTP fetch and browser-based (JavaScript)
   rendering via Botasaurus + Chromium.
 - **Auto mode** — tries HTTP first, falls back to browser if the response looks
@@ -54,7 +57,7 @@ The service is organised into these modules:
 | `api/`       | FastAPI routes, request/response schemas     |
 | `core/`      | Config, error types, logging, URL security   |
 | `cache/`     | SQLite cache backend                         |
-| `scraper/`   | Fetch orchestration, HTTP & browser fetchers |
+| `scraper/`   | Fetch orchestration, HTTP & browser fetchers, HTML normalisation |
 | `metrics/`   | Prometheus-style metrics collector           |
 
 ---
@@ -163,6 +166,17 @@ Request:
   "debug": {
     "screenshot": false,
     "html_dump": false
+  },
+  "normalize": {
+    "enabled": false,
+    "absolute_urls": false,
+    "remove_scripts": false,
+    "remove_styles": false,
+    "remove_comments": false,
+    "remove_meta": false,
+    "remove_noscript": false,
+    "collapse_whitespace": false,
+    "minify": false
   }
 }
 ```
@@ -183,7 +197,9 @@ Response:
     "mode": "browser",
     "elapsed_ms": 4820,
     "content_length": 834122,
-    "cache_key": "abc123..."
+    "cache_key": "abc123...",
+    "normalized": false,
+    "normalization": null
   }
 }
 ```
@@ -195,7 +211,14 @@ Scrape multiple URLs with controlled concurrency.
 ```json
 {
   "items": [
-    { "url": "https://example.com/1" },
+    {
+      "url": "https://example.com/1",
+      "normalize": {
+        "enabled": true,
+        "remove_scripts": true,
+        "absolute_urls": true
+      }
+    },
     { "url": "https://example.com/2" }
   ],
   "max_concurrency": 3
@@ -470,6 +493,89 @@ When enabled:
 - **Screenshots** (browser mode only) go to `debug_dir/screenshots/`.
 
 Debug output is off by default — only enable when troubleshooting.
+
+---
+
+## HTML normalisation
+
+Apply on-the-fly clean-up to scraped HTML **without modifying the cache**.
+Raw HTML is always stored in the cache as-is; normalisation runs when
+building the response for a request that explicitly enables it.
+
+All normalisation fields default to ``false`` — existing clients are
+unaffected.
+
+### Request fields
+
+Include a ``normalize`` object in any scrape request:
+
+```json
+{
+  "url": "https://example.com",
+  "normalize": {
+    "enabled": true,
+    "absolute_urls": true,
+    "remove_scripts": true,
+    "remove_styles": false,
+    "remove_comments": false,
+    "remove_meta": false,
+    "remove_noscript": false,
+    "collapse_whitespace": false,
+    "minify": false
+  }
+}
+```
+
+| Field                | Type    | Default | Description                                                |
+|----------------------|---------|---------|------------------------------------------------------------|
+| ``enabled``          | bool    | false   | Master switch — must be ``true`` for any normalisation.    |
+| ``absolute_urls``    | bool    | false   | Converts relative ``href``, ``src``, ``action``, ``poster``|
+|                      |         |         | and ``srcset`` to absolute URLs using the final URL as base.|
+| ``remove_scripts``   | bool    | false   | Removes all ``<script>`` elements.                         |
+| ``remove_styles``    | bool    | false   | Removes ``<style>`` elements and inline ``style`` attrs.   |
+| ``remove_comments``  | bool    | false   | Removes HTML comments (``<!-- ... -->``).                  |
+| ``remove_meta``      | bool    | false   | Removes all ``<meta>`` elements.                           |
+| ``remove_noscript``  | bool    | false   | Removes all ``<noscript>`` elements.                       |
+| ``collapse_whitespace`` | bool | false   | Collapses runs of whitespace to single spaces in text.     |
+| ``minify``           | bool    | false   | Compacts HTML output without breaking semantics.           |
+
+### Response metadata
+
+When normalisation is active, the response metadata gains two extra fields:
+
+```json
+{
+  "url": "https://example.com",
+  "html": "<a href=\"https://example.com/page\">…</a>",
+  "metadata": {
+    "mode": "http",
+    "elapsed_ms": 230,
+    "content_length": 428,
+    "cache_key": "abc123...",
+    "normalized": true,
+    "normalization": {
+      "absolute_urls": true,
+      "remove_scripts": true
+    }
+  }
+}
+```
+
+- ``normalized`` — ``true`` if any active normalisation was applied.
+- ``normalization`` — a map of the features that were actually enabled for
+  this request.
+
+### Cache behaviour
+
+- **Raw HTML is always cached.** The cache key (SHA-256 of the normalised
+  URL) is unchanged, and the cache stores the unmodified HTML returned by
+  the fetcher.
+- **Normalisation is applied at response time.** Every client that requests
+  the same URL can independently choose whether to receive raw or
+  normalised HTML — a cache hit serves one entry that is then processed
+  per-request.
+- Empty normalisation (``enabled: false`` or all features ``false``) is a
+  no-op — the original HTML passes through unchanged.
 
 ---
 
