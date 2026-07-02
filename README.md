@@ -80,7 +80,8 @@ cp configs/config.example.yaml configs/config.yaml
 cp .env.example .env
 # Edit .env — set SCRAPER_API_KEY to a strong secret
 
-# Run
+# Run (port defaults to 8080; set SCRAPER_SERVER_PORT env var or
+# change server.port in configs/config.yaml to override)
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 ```
 
@@ -98,7 +99,8 @@ ruff format --check .
 # Build
 docker build -t scraper-api:latest .
 
-# Run
+# Run (port defaults to 8080; set -e SCRAPER_SERVER_PORT=9090 and
+# adjust -p mapping to use a different port)
 docker run -d \
   --name scraper-api \
   -p 8080:8080 \
