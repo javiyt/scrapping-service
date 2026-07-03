@@ -25,7 +25,7 @@ jobs:
         run: npm install -g @redocly/cli@latest
 
       - name: Validate OpenAPI specification
-        run: redocly lint openapi.yaml --format=github-actions --severity=error
+        run: redocly lint openapi.yaml --format=github-actions
 
       # Continuación de tus pasos de Python
       - name: Setup Python ${{ env.PYTHON_VERSION }}
