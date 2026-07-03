@@ -7,8 +7,8 @@ from contextlib import asynccontextmanager
 import yaml as pyyaml
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import JSONResponse
 
 from app.api.dependencies import get_settings
 from app.api.routes import health_router, router
@@ -26,7 +26,7 @@ logger = logging.getLogger("scraper-api")
 def custom_openapi_schema(app: FastAPI) -> dict[str, any]:
     """Load and return OpenAPI schema from openapi.yaml file."""
     try:
-        with open("openapi.yaml", "r", encoding="utf-8") as f:
+        with open("openapi.yaml", encoding="utf-8") as f:
             schema = pyyaml.safe_load(f)
         return dict(schema)
     except FileNotFoundError:
@@ -37,7 +37,7 @@ def custom_openapi_schema(app: FastAPI) -> dict[str, any]:
 def app_openapi_schema(app: FastAPI) -> any:
     """Override OpenAPI schema with custom file-based schema."""
     try:
-        with open("openapi.yaml", "r", encoding="utf-8") as f:
+        with open("openapi.yaml", encoding="utf-8") as f:
             return pyyaml.safe_load(f)
     except FileNotFoundError:
         # Fall back to FastAPI's default schema if openapi.yaml doesn't exist
