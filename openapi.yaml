@@ -21,9 +21,9 @@ info:
 
 servers:
   - url: https://api.yourdomain.com/v1
-     description: Production server
-   - url: https://staging.yourdomain.com/v1
-     description: Staging environment
+    description: Production server
+  - url: https://staging.yourdomain.com/v1
+    description: Staging environment
 
 tags:
    - name: Health
