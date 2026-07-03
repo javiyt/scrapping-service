@@ -31,7 +31,7 @@ def custom_openapi_schema(app: FastAPI) -> dict[str, any]:
         return dict(schema)
     except FileNotFoundError:
         # Fall back to FastAPI's default schema if openapi.yaml doesn't exist
-        return get_openapi(title=app.title, version=app.version)
+        return get_openapi(title=app.title, version=app.version, routes=app.routes)
 
 
 def app_openapi_schema(app: FastAPI) -> any:
@@ -41,7 +41,7 @@ def app_openapi_schema(app: FastAPI) -> any:
             return pyyaml.safe_load(f)
     except FileNotFoundError:
         # Fall back to FastAPI's default schema if openapi.yaml doesn't exist
-        return get_openapi(title=app.title, version=app.version)
+        return get_openapi(title=app.title, version=app.version, routes=app.routes)
 
 
 @asynccontextmanager
@@ -144,7 +144,7 @@ app.include_router(health_router, tags=["Health"])
 app.include_router(router)
 
 # Register custom OpenAPI schema for /docs and /redoc
-custom_openapi_schema(app)
+app.openapi_schema = custom_openapi_schema(app)
 
 
 # ------------------------------------------------------- global exception handler
