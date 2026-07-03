@@ -6,15 +6,20 @@ info:
     Containerized scraping microservice — fetch rendered HTML from URLs.
 
     This API provides endpoints for:
-     - Single URL scraping with multiple modes (HTTP, Browser, Auto)
-     - Batch scraping of multiple URLs with controlled concurrency
-     - Async job queuing and management
-     - Cache operations (stats, purge, cleanup, vacuum)
-     - Health and readiness checks
+      - Single URL scraping with multiple modes (HTTP, Browser, Auto)
+      - Batch scraping of multiple URLs with controlled concurrency
+      - Async job queuing and management
+      - Cache operations (stats, purge, cleanup, vacuum)
+      - Health and readiness checks
 
     Authentication: API key via Bearer token in Authorization header (required for most endpoints).
 
   version: 1.0.0
+
+info:
+  license:
+    name: Proprietary
+    url: https://example.com
 
 servers:
   - url: /v1
@@ -23,14 +28,16 @@ servers:
     description: Local development server
 
 tags:
-  - name: Health
-    description: Health and readiness checks
-  - name: Scrape
-    description: URL scraping endpoints
-  - name: Cache
-    description: Cache management operations
-  - name: Jobs
-    description: Async job queue management
+   - name: Health
+     description: Health and readiness checks
+   - name: Scrape
+     description: URL scraping endpoints
+   - name: Cache
+     description: Cache management operations
+   - name: Jobs
+     description: Async job queue management
+
+security: []
 
 paths:
   /health:
@@ -39,6 +46,7 @@ paths:
       summary: Liveness check
       description: Always returns 200 when the service is running. No authentication required.
       tags: [Health]
+      security: []
       responses:
         '200':
           description: Service is healthy
@@ -53,8 +61,7 @@ paths:
       summary: Readiness probe
       description: Verifies config, cache, and scraper are all initialized. Requires authentication for metrics collection.
       tags: [Health]
-      security:
-        - bearerAuth: []
+      security: []
       responses:
         '200':
           description: All services ready
@@ -71,6 +78,7 @@ paths:
       summary: Prometheus-style metrics
       description: Returns Prometheus-formatted text metrics for monitoring. No authentication required.
       tags: [Monitoring]
+      security: []
       responses:
         '200':
           description: Text metrics response
@@ -109,7 +117,7 @@ paths:
 
       tags: [Scrape]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -144,7 +152,7 @@ paths:
 
       tags: [Scrape]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -171,7 +179,7 @@ paths:
       description: Returns current cache statistics (entries, size, expired count).
       tags: [Cache]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       responses:
         '200':
           description: Cache stats returned
@@ -187,14 +195,14 @@ paths:
       description: Remove a specific URL from the cache. Returns number of entries deleted.
       tags: [Cache]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       parameters:
-        - name: url
-          in: path
-          required: true
-          schema:
-            type: string
-          description: URL to remove from cache
+       - name: url
+         in: path
+         required: true
+         schema:
+           type: string
+         description: URL to remove from cache
       responses:
         '200':
           description: Entry deleted successfully
@@ -220,7 +228,7 @@ paths:
 
       tags: [Cache]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       requestBody:
         required: false
         content:
@@ -254,7 +262,7 @@ paths:
 
       tags: [Cache]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       requestBody:
         required: false
         content:
@@ -283,7 +291,7 @@ paths:
       description: Run SQLite VACUUM to reclaim disk space. Prefer during maintenance windows.
       tags: [Cache]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       responses:
         '200':
           description: Vacuum completed
@@ -310,7 +318,7 @@ paths:
 
       tags: [Jobs]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       requestBody:
         required: true
         content:
@@ -335,7 +343,7 @@ paths:
       description: Returns all async jobs (newest first) with their current status.
       tags: [Jobs]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       responses:
         '200':
           description: List of jobs
@@ -358,14 +366,14 @@ paths:
 
       tags: [Jobs]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       parameters:
-        - name: job_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Job ID to retrieve
+       - name: job_id
+         in: path
+         required: true
+         schema:
+           type: string
+         description: Job ID to retrieve
       responses:
         '200':
           description: Job details returned
@@ -382,13 +390,13 @@ paths:
       description: Remove an async job from the store. Returns confirmation message.
       tags: [Jobs]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       parameters:
-        - name: job_id
-          in: path
-          required: true
-          schema:
-            type: string
+       - name: job_id
+         in: path
+         required: true
+         schema:
+           type: string
       responses:
         '200':
           description: Job deleted successfully
@@ -411,13 +419,13 @@ paths:
 
       tags: [Jobs]
       security:
-        - bearerAuth: []
+       - bearerAuth: []
       parameters:
-        - name: job_id
-          in: path
-          required: true
-          schema:
-            type: string
+       - name: job_id
+         in: path
+         required: true
+         schema:
+           type: string
       responses:
         '200':
           description: Job cancelled or no-op (already running/finished)
@@ -436,7 +444,7 @@ components:
       bearerFormat: "API-Key"
 
   schemas:
-    # Health endpoints
+     # Health endpoints
     HealthResponse:
       type: object
       properties:
@@ -463,7 +471,7 @@ components:
           additionalProperties:
             type: string
 
-    # Scrape endpoints
+     # Scrape endpoints
     ExtractField:
       type: object
       properties:
@@ -507,7 +515,7 @@ components:
         fields:
           type: object
           additionalProperties:
-            $ref: '#/components/schemas/ExtractField'
+             $ref: '#/components/schemas/ExtractField'
 
     NormalizeConfig:
       type: object
@@ -632,15 +640,15 @@ components:
           default: 45
           description: Maximum time to wait for page load
         proxy:
-          $ref: '#/components/schemas/ProxyConfig'
+           $ref: '#/components/schemas/ProxyConfig'
         scroll:
-          $ref: '#/components/schemas/ScrollConfig'
+           $ref: '#/components/schemas/ScrollConfig'
         debug:
-          $ref: '#/components/schemas/DebugConfig'
+           $ref: '#/components/schemas/DebugConfig'
         normalize:
-          $ref: '#/components/schemas/NormalizeConfig'
+           $ref: '#/components/schemas/NormalizeConfig'
         extract:
-          $ref: '#/components/schemas/ExtractConfig'
+           $ref: '#/components/schemas/ExtractConfig'
 
     ScrapeResponse:
       type: object
@@ -667,7 +675,7 @@ components:
           type: string
           description: Rendered HTML content
         metadata:
-          $ref: '#/components/schemas/Metadata'
+           $ref: '#/components/schemas/Metadata'
         extracted:
           type: object
           description: Structured data from CSS selectors
@@ -726,15 +734,15 @@ components:
           maximum: 120
           default: 45
         proxy:
-          $ref: '#/components/schemas/ProxyConfig'
+           $ref: '#/components/schemas/ProxyConfig'
         scroll:
-          $ref: '#/components/schemas/ScrollConfig'
+           $ref: '#/components/schemas/ScrollConfig'
         debug:
-          $ref: '#/components/schemas/DebugConfig'
+           $ref: '#/components/schemas/DebugConfig'
         normalize:
-          $ref: '#/components/schemas/NormalizeConfig'
+           $ref: '#/components/schemas/NormalizeConfig'
         extract:
-          $ref: '#/components/schemas/ExtractConfig'
+           $ref: '#/components/schemas/ExtractConfig'
 
     BatchScrapeRequest:
       type: object
@@ -743,7 +751,7 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/BatchItem'
+             $ref: '#/components/schemas/BatchItem'
           minimum: 1
           maximum: 50
         max_concurrency:
@@ -760,7 +768,7 @@ components:
         success:
           type: boolean
         result:
-          $ref: '#/components/schemas/ScrapeResponse'
+           $ref: '#/components/schemas/ScrapeResponse'
         error:
           type: object
 
@@ -770,7 +778,7 @@ components:
         results:
           type: array
           items:
-            $ref: '#/components/schemas/BatchResult'
+             $ref: '#/components/schemas/BatchResult'
         total:
           type: integer
         succeeded:
@@ -828,7 +836,7 @@ components:
         entries_after:
           type: integer
 
-    # Job endpoints
+     # Job endpoints
     JobStatus:
       type: string
       enum: [queued, running, succeeded, failed, cancelled]
@@ -839,7 +847,7 @@ components:
         job_id:
           type: string
         status:
-          $ref: '#/components/schemas/JobStatus'
+           $ref: '#/components/schemas/JobStatus'
         url:
           type: string
         created_at:
@@ -868,11 +876,11 @@ components:
         jobs:
           type: array
           items:
-            $ref: '#/components/schemas/JobResponse'
+             $ref: '#/components/schemas/JobResponse'
         total:
           type: integer
 
-    # Error models
+     # Error models
     ErrorResponse:
       type: object
       properties:
