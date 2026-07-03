@@ -41,6 +41,457 @@ components:
       type: http
       scheme: bearer
       bearerFormat: "API-Key"
+# =========================================================== SCHEMA DEFINITIONS
+  schemas:
+    # Health endpoints
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, unavailable]
+          default: ok
+        version:
+          type: string
+          default: "1.0.0"
+        service:
+          type: string
+          default: "scraper-api"
+
+    ReadinessResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded, unavailable]
+          default: ok
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+
+    # Scrape endpoints
+    ExtractField:
+      type: object
+      properties:
+        selector:
+          type: string
+          description: CSS selector to locate element(s)
+        type:
+          type: string
+          enum: [text, html, attr, object]
+          default: text
+          description: Type of value to extract
+        attribute:
+          type: string
+          description: Attribute name for 'attr' type
+        multiple:
+          type: boolean
+          default: false
+          description: Return list when true
+        default:
+          type: object
+          description: Fallback value when no match
+        required:
+          type: boolean
+          default: false
+          description: Structured error on failure
+        absolute_url:
+          type: boolean
+          default: false
+          description: Convert to absolute URL
+
+    ExtractConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+          description: Master toggle for extraction
+        base_url:
+          type: string
+          description: Override base URL for relative-to-absolute conversion
+        fields:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ExtractField'
+
+    NormalizeConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+          description: Master toggle for HTML normalization
+        absolute_urls:
+          type: boolean
+          default: false
+          description: Convert relative URLs to absolute
+        remove_scripts:
+          type: boolean
+          default: false
+          description: Remove <script> elements
+        remove_styles:
+          type: boolean
+          default: false
+          description: Remove <style> elements and inline styles
+        remove_comments:
+          type: boolean
+          default: false
+          description: Remove HTML comments
+        remove_meta:
+          type: boolean
+          default: false
+          description: Remove <meta> elements
+        remove_noscript:
+          type: boolean
+          default: false
+          description: Remove <noscript> elements
+        collapse_whitespace:
+          type: boolean
+          default: false
+          description: Reduce whitespace runs to single spaces
+        minify:
+          type: boolean
+          default: false
+          description: Compact HTML without breaking semantics
+
+    ProxyConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+          description: Master toggle for proxy configuration
+        url:
+          type: string
+          description: Proxy URL (http, https, socks5 schemes)
+        country:
+          type: string
+          description: Country hint for proxy provider
+
+    ScrollConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        max_scrolls:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 5
+        delay_ms:
+          type: integer
+          minimum: 100
+          maximum: 30000
+          default: 1000
+        stop_when_no_growth:
+          type: boolean
+          default: true
+
+    DebugConfig:
+      type: object
+      properties:
+        screenshot:
+          type: boolean
+          default: false
+        html_dump:
+          type: boolean
+          default: false
+
+    ScrapeRequest:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          description: Target URL to scrape
+        mode:
+          type: string
+          enum: [http, browser, auto]
+          default: auto
+          description: Scraping mode (http, browser, or auto)
+        cache_ttl_seconds:
+          type: integer
+          minimum: 60
+          maximum: 2592000
+          description: Per-request cache TTL (60s - 30 days)
+        force_refresh:
+          type: boolean
+          default: false
+          description: Bypass cache and fetch fresh content
+        wait_until:
+          type: string
+          enum: [load, domcontentloaded, networkidle, networkidle0]
+          default: networkidle
+          description: Browser wait strategy (browser mode only)
+        wait_selector:
+          type: string
+          maxLength: 500
+          description: CSS selector to wait for before returning (browser mode)
+        timeout_seconds:
+          type: integer
+          minimum: 5
+          maximum: 120
+          default: 45
+          description: Maximum time to wait for page load
+        proxy:
+          $ref: '#/components/schemas/ProxyConfig'
+        scroll:
+          $ref: '#/components/schemas/ScrollConfig'
+        debug:
+          $ref: '#/components/schemas/DebugConfig'
+        normalize:
+          $ref: '#/components/schemas/NormalizeConfig'
+        extract:
+          $ref: '#/components/schemas/ExtractConfig'
+
+    ScrapeResponse:
+      type: object
+      properties:
+        url:
+          type: string
+        final_url:
+          type: string
+        status_code:
+          type: integer
+        from_cache:
+          type: boolean
+          default: false
+        stale:
+          type: boolean
+          default: false
+        fetched_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        html:
+          type: string
+          description: Rendered HTML content
+        metadata:
+          $ref: '#/components/schemas/Metadata'
+        extracted:
+          type: object
+          description: Structured data from CSS selectors
+        extraction_error:
+          type: object
+          description: Error when required extraction field failed
+
+    Metadata:
+      type: object
+      properties:
+        mode:
+          type: string
+        elapsed_ms:
+          type: integer
+        content_length:
+          type: integer
+        cache_key:
+          type: string
+        normalized:
+          type: boolean
+          default: false
+          description: True when normalization was applied
+        normalization:
+          type: object
+          description: Which features were applied
+
+    BatchItem:
+      type: object
+      required: [url, mode]
+      properties:
+        url:
+          type: string
+          minLength: 1
+          maxLength: 8192
+        mode:
+          type: string
+          enum: [http, browser, auto]
+          default: auto
+        cache_ttl_seconds:
+          type: integer
+          minimum: 60
+          maximum: 2592000
+        force_refresh:
+          type: boolean
+          default: false
+        wait_until:
+          type: string
+          enum: [load, domcontentloaded, networkidle, networkidle0]
+          default: networkidle
+        wait_selector:
+          type: string
+          maxLength: 500
+        timeout_seconds:
+          type: integer
+          minimum: 5
+          maximum: 120
+          default: 45
+        proxy:
+          $ref: '#/components/schemas/ProxyConfig'
+        scroll:
+          $ref: '#/components/schemas/ScrollConfig'
+        debug:
+          $ref: '#/components/schemas/DebugConfig'
+        normalize:
+          $ref: '#/components/schemas/NormalizeConfig'
+        extract:
+          $ref: '#/components/schemas/ExtractConfig'
+
+    BatchScrapeRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchItem'
+          minimum: 1
+          maximum: 50
+        max_concurrency:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 3
+
+    BatchResult:
+      type: object
+      properties:
+        url:
+          type: string
+        success:
+          type: boolean
+        result:
+          $ref: '#/components/schemas/ScrapeResponse'
+        error:
+          type: object
+
+    BatchScrapeResponse:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/BatchResult'
+        total:
+          type: integer
+        succeeded:
+          type: integer
+        failed:
+          type: integer
+        elapsed_ms:
+          type: integer
+
+    CacheStats:
+      type: object
+      properties:
+        total_entries:
+          type: integer
+        total_size_bytes:
+          type: integer
+        expired_entries:
+          type: integer
+        cache_path:
+          type: string
+
+    PurgeResponse:
+      type: object
+      properties:
+        purged_entries:
+          type: integer
+        message:
+          type: string
+
+    CacheCleanupRequest:
+      type: object
+      properties:
+        delete_expired_after_seconds:
+          type: integer
+        max_entries:
+          type: integer
+        max_size_mb:
+          type: integer
+        vacuum:
+          type: boolean
+
+    CacheVacuumResult:
+      type: object
+      properties:
+        size_after_bytes:
+          type: integer
+
+    CacheCleanupResult:
+      type: object
+      properties:
+        total_deleted:
+          type: integer
+        size_after_bytes:
+          type: integer
+        entries_after:
+          type: integer
+
+    # Job endpoints
+    JobStatus:
+      type: string
+      enum: [queued, running, succeeded, failed, cancelled]
+
+    JobResponse:
+      type: object
+      properties:
+        job_id:
+          type: string
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        url:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        result:
+          type: object
+        error:
+          type: object
+        profile_name:
+          type: string
+          description: Authenticated profile name (optional)
+
+    JobListResponse:
+      type: object
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobResponse'
+        total:
+          type: integer
+
+    # Error models
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            type:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
 
 paths:
    /health:
@@ -533,456 +984,3 @@ paths:
              application/json:
                schema:
                  $ref: '#/components/schemas/ErrorResponse'
-
-# =========================================================== SCHEMA DEFINITIONS
-components:
-  schemas:
-    # Health endpoints
-    HealthResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          enum: [ok, degraded, unavailable]
-          default: ok
-        version:
-          type: string
-          default: "1.0.0"
-        service:
-          type: string
-          default: "scraper-api"
-
-    ReadinessResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          enum: [ok, degraded, unavailable]
-          default: ok
-        checks:
-          type: object
-          additionalProperties:
-            type: string
-
-    # Scrape endpoints
-    ExtractField:
-      type: object
-      properties:
-        selector:
-          type: string
-          description: CSS selector to locate element(s)
-        type:
-          type: string
-          enum: [text, html, attr, object]
-          default: text
-          description: Type of value to extract
-        attribute:
-          type: string
-          description: Attribute name for 'attr' type
-        multiple:
-          type: boolean
-          default: false
-          description: Return list when true
-        default:
-          type: object
-          description: Fallback value when no match
-        required:
-          type: boolean
-          default: false
-          description: Structured error on failure
-        absolute_url:
-          type: boolean
-          default: false
-          description: Convert to absolute URL
-
-    ExtractConfig:
-      type: object
-      properties:
-        enabled:
-          type: boolean
-          default: false
-          description: Master toggle for extraction
-        base_url:
-          type: string
-          description: Override base URL for relative-to-absolute conversion
-        fields:
-          type: object
-          additionalProperties:
-            $ref: '#/components/schemas/ExtractField'
-
-    NormalizeConfig:
-      type: object
-      properties:
-        enabled:
-          type: boolean
-          default: false
-          description: Master toggle for HTML normalization
-        absolute_urls:
-          type: boolean
-          default: false
-          description: Convert relative URLs to absolute
-        remove_scripts:
-          type: boolean
-          default: false
-          description: Remove <script> elements
-        remove_styles:
-          type: boolean
-          default: false
-          description: Remove <style> elements and inline styles
-        remove_comments:
-          type: boolean
-          default: false
-          description: Remove HTML comments
-        remove_meta:
-          type: boolean
-          default: false
-          description: Remove <meta> elements
-        remove_noscript:
-          type: boolean
-          default: false
-          description: Remove <noscript> elements
-        collapse_whitespace:
-          type: boolean
-          default: false
-          description: Reduce whitespace runs to single spaces
-        minify:
-          type: boolean
-          default: false
-          description: Compact HTML without breaking semantics
-
-    ProxyConfig:
-      type: object
-      properties:
-        enabled:
-          type: boolean
-          default: false
-          description: Master toggle for proxy configuration
-        url:
-          type: string
-          description: Proxy URL (http, https, socks5 schemes)
-        country:
-          type: string
-          description: Country hint for proxy provider
-
-    ScrollConfig:
-      type: object
-      properties:
-        enabled:
-          type: boolean
-          default: false
-        max_scrolls:
-          type: integer
-          minimum: 1
-          maximum: 100
-          default: 5
-        delay_ms:
-          type: integer
-          minimum: 100
-          maximum: 30000
-          default: 1000
-        stop_when_no_growth:
-          type: boolean
-          default: true
-
-    DebugConfig:
-      type: object
-      properties:
-        screenshot:
-          type: boolean
-          default: false
-        html_dump:
-          type: boolean
-          default: false
-
-    ScrapeRequest:
-      type: object
-      required: [url]
-      properties:
-        url:
-          type: string
-          minLength: 1
-          maxLength: 8192
-          description: Target URL to scrape
-        mode:
-          type: string
-          enum: [http, browser, auto]
-          default: auto
-          description: Scraping mode (http, browser, or auto)
-        cache_ttl_seconds:
-          type: integer
-          minimum: 60
-          maximum: 2592000
-          description: Per-request cache TTL (60s - 30 days)
-        force_refresh:
-          type: boolean
-          default: false
-          description: Bypass cache and fetch fresh content
-        wait_until:
-          type: string
-          enum: [load, domcontentloaded, networkidle, networkidle0]
-          default: networkidle
-          description: Browser wait strategy (browser mode only)
-        wait_selector:
-          type: string
-          maxLength: 500
-          description: CSS selector to wait for before returning (browser mode)
-        timeout_seconds:
-          type: integer
-          minimum: 5
-          maximum: 120
-          default: 45
-          description: Maximum time to wait for page load
-        proxy:
-          $ref: '#/components/schemas/ProxyConfig'
-        scroll:
-          $ref: '#/components/schemas/ScrollConfig'
-        debug:
-          $ref: '#/components/schemas/DebugConfig'
-        normalize:
-          $ref: '#/components/schemas/NormalizeConfig'
-        extract:
-          $ref: '#/components/schemas/ExtractConfig'
-
-    ScrapeResponse:
-      type: object
-      properties:
-        url:
-          type: string
-        final_url:
-          type: string
-        status_code:
-          type: integer
-        from_cache:
-          type: boolean
-          default: false
-        stale:
-          type: boolean
-          default: false
-        fetched_at:
-          type: string
-          format: date-time
-        expires_at:
-          type: string
-          format: date-time
-        html:
-          type: string
-          description: Rendered HTML content
-        metadata:
-          $ref: '#/components/schemas/Metadata'
-        extracted:
-          type: object
-          description: Structured data from CSS selectors
-        extraction_error:
-          type: object
-          description: Error when required extraction field failed
-
-    Metadata:
-      type: object
-      properties:
-        mode:
-          type: string
-        elapsed_ms:
-          type: integer
-        content_length:
-          type: integer
-        cache_key:
-          type: string
-        normalized:
-          type: boolean
-          default: false
-          description: True when normalization was applied
-        normalization:
-          type: object
-          description: Which features were applied
-
-    BatchItem:
-      type: object
-      required: [url, mode]
-      properties:
-        url:
-          type: string
-          minLength: 1
-          maxLength: 8192
-        mode:
-          type: string
-          enum: [http, browser, auto]
-          default: auto
-        cache_ttl_seconds:
-          type: integer
-          minimum: 60
-          maximum: 2592000
-        force_refresh:
-          type: boolean
-          default: false
-        wait_until:
-          type: string
-          enum: [load, domcontentloaded, networkidle, networkidle0]
-          default: networkidle
-        wait_selector:
-          type: string
-          maxLength: 500
-        timeout_seconds:
-          type: integer
-          minimum: 5
-          maximum: 120
-          default: 45
-        proxy:
-          $ref: '#/components/schemas/ProxyConfig'
-        scroll:
-          $ref: '#/components/schemas/ScrollConfig'
-        debug:
-          $ref: '#/components/schemas/DebugConfig'
-        normalize:
-          $ref: '#/components/schemas/NormalizeConfig'
-        extract:
-          $ref: '#/components/schemas/ExtractConfig'
-
-    BatchScrapeRequest:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: '#/components/schemas/BatchItem'
-          minimum: 1
-          maximum: 50
-        max_concurrency:
-          type: integer
-          minimum: 1
-          maximum: 10
-          default: 3
-
-    BatchResult:
-      type: object
-      properties:
-        url:
-          type: string
-        success:
-          type: boolean
-        result:
-          $ref: '#/components/schemas/ScrapeResponse'
-        error:
-          type: object
-
-    BatchScrapeResponse:
-      type: object
-      properties:
-        results:
-          type: array
-          items:
-            $ref: '#/components/schemas/BatchResult'
-        total:
-          type: integer
-        succeeded:
-          type: integer
-        failed:
-          type: integer
-        elapsed_ms:
-          type: integer
-
-    CacheStats:
-      type: object
-      properties:
-        total_entries:
-          type: integer
-        total_size_bytes:
-          type: integer
-        expired_entries:
-          type: integer
-        cache_path:
-          type: string
-
-    PurgeResponse:
-      type: object
-      properties:
-        purged_entries:
-          type: integer
-        message:
-          type: string
-
-    CacheCleanupRequest:
-      type: object
-      properties:
-        delete_expired_after_seconds:
-          type: integer
-        max_entries:
-          type: integer
-        max_size_mb:
-          type: integer
-        vacuum:
-          type: boolean
-
-    CacheVacuumResult:
-      type: object
-      properties:
-        size_after_bytes:
-          type: integer
-
-    CacheCleanupResult:
-      type: object
-      properties:
-        total_deleted:
-          type: integer
-        size_after_bytes:
-          type: integer
-        entries_after:
-          type: integer
-
-    # Job endpoints
-    JobStatus:
-      type: string
-      enum: [queued, running, succeeded, failed, cancelled]
-
-    JobResponse:
-      type: object
-      properties:
-        job_id:
-          type: string
-        status:
-          $ref: '#/components/schemas/JobStatus'
-        url:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        started_at:
-          type: string
-          format: date-time
-        finished_at:
-          type: string
-          format: date-time
-        result:
-          type: object
-        error:
-          type: object
-        profile_name:
-          type: string
-          description: Authenticated profile name (optional)
-
-    JobListResponse:
-      type: object
-      properties:
-        jobs:
-          type: array
-          items:
-            $ref: '#/components/schemas/JobResponse'
-        total:
-          type: integer
-
-    # Error models
-    ErrorResponse:
-      type: object
-      properties:
-        error:
-          type: object
-          properties:
-            type:
-              type: string
-            message:
-              type: string
-            details:
-              type: object
