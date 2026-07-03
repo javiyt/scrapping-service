@@ -129,6 +129,11 @@ docker run -d \
 
 ## API Reference
 
+Full API documentation is available at OpenAPI/Swagger format:
+
+- [`openapi.yaml`](openapi.yaml) — Full OpenAPI 3.x specification (JSON/YAML format)
+- Swagger UI: http://localhost:8080/docs (when running locally)
+
 ### `GET /health`
 
 Liveness probe — always returns `200` when the service is running.
@@ -271,11 +276,11 @@ environment variable overrides on top.
 | `SCRAPER_API_KEY_FANATICS`          | —                        | API key for the ``fanatics`` profile      |
 | `SCRAPER_API_KEY_DEBUG`             | —                        | API key for the ``debug`` profile         |
 | `SCRAPER_SERVER_HOST`               | `0.0.0.0`                | Bind address                              |
-| `SCRAPER_SERVER_PORT`               | `8080`                   | HTTP port                   |
-| `SCRAPER_CACHE_SQLITE_PATH`         | `/data/scraper-cache.db` | Cache database path         |
-| `SCRAPER_CACHE_DEFAULT_TTL_SECONDS` | `21600`                  | Default cache TTL (6 hours) |
-| `SCRAPER_LOG_LEVEL`                 | `INFO`                   | Log level                   |
-| `CONFIG_PATH`                       | —                        | Path to YAML config file    |
+| `SCRAPER_SERVER_PORT`               | `8080`                   | HTTP port                                 |
+| `SCRAPER_CACHE_SQLITE_PATH`         | `/data/scraper-cache.db` | Cache database path                       |
+| `SCRAPER_CACHE_DEFAULT_TTL_SECONDS` | `21600`                  | Default cache TTL (6 hours)               |
+| `SCRAPER_LOG_LEVEL`                 | `INFO`                   | Log level                                 |
+| `CONFIG_PATH`                       | —                        | Path to YAML config file                  |
 
 ### YAML config
 
@@ -296,13 +301,13 @@ proxy:
   block_private_proxy_hosts: true
 ```
 
-| Variable                               | Default  | Description                              |
-|----------------------------------------|----------|------------------------------------------|
-| ``SCRAPER_PROXY_ENABLED``              | ``false`` | Enable the global proxy                  |
-| ``SCRAPER_PROXY_URL``                  | —        | Proxy URL (http, https, socks5)          |
-| ``SCRAPER_PROXY_COUNTRY``              | —        | Optional country hint                    |
-| ``SCRAPER_PROXY_ALLOW_REQUEST_OVERRIDE`` | ``false`` | Allow per-request proxy overrides      |
-| ``SCRAPER_PROXY_BLOCK_PRIVATE_PROXY_HOSTS`` | ``true`` | Block proxy hosts on private IPs   |
+| Variable                                    | Default   | Description                       |
+|---------------------------------------------|-----------|-----------------------------------|
+| ``SCRAPER_PROXY_ENABLED``                   | ``false`` | Enable the global proxy           |
+| ``SCRAPER_PROXY_URL``                       | —         | Proxy URL (http, https, socks5)   |
+| ``SCRAPER_PROXY_COUNTRY``                   | —         | Optional country hint             |
+| ``SCRAPER_PROXY_ALLOW_REQUEST_OVERRIDE``    | ``false`` | Allow per-request proxy overrides |
+| ``SCRAPER_PROXY_BLOCK_PRIVATE_PROXY_HOSTS`` | ``true``  | Block proxy hosts on private IPs  |
 
 ### Configuration priority
 
@@ -543,6 +548,7 @@ key: ${SCRAPER_API_KEY_FANATICS}
 ```
 
 If the referenced environment variable is not set:
+
 - A warning is logged (the placeholder is **never** exposed).
 - The profile is silently disabled.
 - The service does not crash unless **no** valid keys remain and ``api_key_required`` is ``true``.
@@ -550,6 +556,7 @@ If the referenced environment variable is not set:
 #### Safe override sections
 
 Profiles may only override these configuration sections:
+
 - ``cache`` — ``default_ttl_seconds``, ``stale_if_error``, ``max_html_size_mb``
 - ``scraper`` — ``default_mode``, ``timeout_seconds``, ``max_concurrency``, ``headless``, ``user_agent_profile``
 - ``security`` — ``allowed_domains``, ``block_private_ips``, ``block_localhost``
@@ -562,6 +569,7 @@ Profiles may only override these configuration sections:
 
 These sections must **never** appear in profile overrides — they are blocked at
 startup with a clear validation error:
+
 - ``server``
 - ``auth``
 - ``config_path``
@@ -714,20 +722,20 @@ Include a ``normalize`` object in any scrape request:
 }
 ```
 
-| Field                | Type    | Default | Description                                                |
-|----------------------|---------|---------|------------------------------------------------------------|
-| ``enabled``          | bool    | false   | Master switch — must be ``true`` for any normalisation.    |
-| ``absolute_urls``    | bool    | false   | Converts relative ``href``, ``src``, ``action``, ``poster``|
-|                      |         |         | and ``srcset`` to absolute URLs using the final URL as base.|
-| ``remove_scripts``   | bool    | false   | Removes all ``<script>`` elements.                         |
-| ``remove_styles``    | bool    | false   | Removes ``<style>`` elements and inline ``style`` attrs.   |
-| ``remove_comments``  | bool    | false   | Removes HTML comments (``<!-- ... -->``).                  |
-| ``remove_meta``      | bool    | false   | Removes all ``<meta>`` elements.                           |
-| ``remove_noscript``  | bool    | false   | Removes all ``<noscript>`` elements.                       |
-| ``collapse_whitespace`` | bool | false   | Collapses runs of whitespace to single spaces in text.     |
-| ``minify``           | bool    | false   | Compacts HTML output without breaking semantics.           |
+| Field                   | Type | Default | Description                                                  |
+|-------------------------|------|---------|--------------------------------------------------------------|
+| ``enabled``             | bool | false   | Master switch — must be ``true`` for any normalisation.      |
+| ``absolute_urls``       | bool | false   | Converts relative ``href``, ``src``, ``action``, ``poster``  |
+|                         |      |         | and ``srcset`` to absolute URLs using the final URL as base. |
+| ``remove_scripts``      | bool | false   | Removes all ``<script>`` elements.                           |
+| ``remove_styles``       | bool | false   | Removes ``<style>`` elements and inline ``style`` attrs.     |
+| ``remove_comments``     | bool | false   | Removes HTML comments (``<!-- ... -->``).                    |
+| ``remove_meta``         | bool | false   | Removes all ``<meta>`` elements.                             |
+| ``remove_noscript``     | bool | false   | Removes all ``<noscript>`` elements.                         |
+| ``collapse_whitespace`` | bool | false   | Collapses runs of whitespace to single spaces in text.       |
+| ``minify``              | bool | false   | Compacts HTML output without breaking semantics.             |
 
-### Response metadata
+### Response metadata HTML Normalization
 
 When normalisation is active, the response metadata gains two extra fields:
 
@@ -753,7 +761,7 @@ When normalisation is active, the response metadata gains two extra fields:
 - ``normalization`` — a map of the features that were actually enabled for
   this request.
 
-### Cache behaviour
+### Cache behaviour HTML Normalization
 
 - **Raw HTML is always cached.** The cache key (SHA-256 of the normalised
   URL) is unchanged, and the cache stores the unmodified HTML returned by
@@ -776,7 +784,7 @@ Extraction runs **after** HTML normalisation (if enabled), so you can
 clean up the markup before extracting.  It operates on whatever HTML the
 response currently holds.
 
-### Request fields
+### Request fields Selector-based extraction
 
 Include an ``extract`` object in any scrape request:
 
@@ -823,32 +831,32 @@ Include an ``extract`` object in any scrape request:
 }
 ```
 
-| Field            | Type     | Default | Description                                                |
-|------------------|----------|---------|------------------------------------------------------------|
-| ``enabled``      | bool     | false   | Master switch — must be ``true`` for extraction to run.    |
-| ``base_url``     | string\|null | null | Override base URL for relative URL resolution. Falls back to ``final_url``, then the request ``url``. |
-| ``fields``       | object   | ``{}``  | Map of field names to field configs (see below).           |
+| Field        | Type    | Default | Description                                             |                                                                                                       |
+|--------------|---------|---------|---------------------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| ``enabled``  | bool    | false   | Master switch — must be ``true`` for extraction to run. |                                                                                                       |
+| ``base_url`` | string\ | null    | null                                                    | Override base URL for relative URL resolution. Falls back to ``final_url``, then the request ``url``. |
+| ``fields``   | object  | ``{}``  | Map of field names to field configs (see below).        |                                                                                                       |
 
 Each **field config** supports these options:
 
-| Option              | Type           | Default  | Description                                       |
-|---------------------|---------------|----------|---------------------------------------------------|
-| ``selector``        | string        | —        | **Required.** CSS selector to locate the element(s). |
-| ``type``            | string        | ``"text"`` | One of ``text``, ``html``, ``attr``, ``object``.  |
-| ``attribute``       | string\|null  | null     | Attribute name to read (``attr`` type only).       |
-| ``multiple``        | bool          | false    | When ``true``, return a list of all matches.      |
-| ``default``         | any           | null     | Fallback value when no element matches.            |
-| ``required``        | bool          | false    | When ``true``, a failed match produces a structured error. |
-| ``absolute_url``    | bool          | false    | Resolve relative URLs against the page base URL.   |
-| ``fields``          | object\|null  | null     | Nested field map (``object`` type only).           |
+| Option           | Type    | Default    | Description                                                |                                              |
+|------------------|---------|------------|------------------------------------------------------------|----------------------------------------------|
+| ``selector``     | string  | —          | **Required.** CSS selector to locate the element(s).       |                                              |
+| ``type``         | string  | ``"text"`` | One of ``text``, ``html``, ``attr``, ``object``.           |                                              |
+| ``attribute``    | string\ | null       | null                                                       | Attribute name to read (``attr`` type only). |
+| ``multiple``     | bool    | false      | When ``true``, return a list of all matches.               |                                              |
+| ``default``      | any     | null       | Fallback value when no element matches.                    |                                              |
+| ``required``     | bool    | false      | When ``true``, a failed match produces a structured error. |                                              |
+| ``absolute_url`` | bool    | false      | Resolve relative URLs against the page base URL.           |                                              |
+| ``fields``       | object\ | null       | null                                                       | Nested field map (``object`` type only).     |
 
 ### Field types
 
-| Type     | Extracted value                                       |
-|----------|-------------------------------------------------------|
-| ``text`` | Inner text content (whitespace trimmed).              |
-| ``html`` | Inner HTML markup (preserves tags).                   |
-| ``attr`` | Value of the named HTML attribute.                    |
+| Type       | Extracted value                                          |
+|------------|----------------------------------------------------------|
+| ``text``   | Inner text content (whitespace trimmed).                 |
+| ``html``   | Inner HTML markup (preserves tags).                      |
+| ``attr``   | Value of the named HTML attribute.                       |
 | ``object`` | Recursively extract sub-fields from the matched element. |
 
 ### Response
