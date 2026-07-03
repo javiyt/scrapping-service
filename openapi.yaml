@@ -1,15 +1,16 @@
 openapi: 3.0.3
+
 info:
   title: Scraper API
   description: |
     Containerized scraping microservice — fetch rendered HTML from URLs.
 
     This API provides endpoints for:
-    - Single URL scraping with multiple modes (HTTP, Browser, Auto)
-    - Batch scraping of multiple URLs with controlled concurrency
-    - Async job queuing and management
-    - Cache operations (stats, purge, cleanup, vacuum)
-    - Health and readiness checks
+     - Single URL scraping with multiple modes (HTTP, Browser, Auto)
+     - Batch scraping of multiple URLs with controlled concurrency
+     - Async job queuing and management
+     - Cache operations (stats, purge, cleanup, vacuum)
+     - Health and readiness checks
 
     Authentication: API key via Bearer token in Authorization header (required for most endpoints).
 
@@ -31,9 +32,409 @@ tags:
   - name: Jobs
     description: Async job queue management
 
-# ============================================================ SCHEMA DEFINITIONS
+paths:
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Liveness check
+      description: Always returns 200 when the service is running. No authentication required.
+      tags: [Health]
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /ready:
+    get:
+      operationId: readinessCheck
+      summary: Readiness probe
+      description: Verifies config, cache, and scraper are all initialized. Requires authentication for metrics collection.
+      tags: [Health]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All services ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '503':
+          description: Service degraded
+
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus-style metrics
+      description: Returns Prometheus-formatted text metrics for monitoring. No authentication required.
+      tags: [Monitoring]
+      responses:
+        '200':
+          description: Text metrics response
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  # ====================================================== Scrape Endpoints
+  /v1/scrape:
+    post:
+      operationId: scrapeUrl
+      summary: Scrape single URL
+      description: |
+        Scrape a single URL and return its rendered HTML. Supports multiple modes:
+
+         - **http**: Uses standard HTTP headers (headless browser)
+         - **browser**: Uses headless Chrome/Chromium with full JavaScript execution
+         - **auto**: Auto-detects based on user-agent and content
+
+        Request body fields:
+         - url: Target URL to scrape
+         - mode: Scraping mode (http, browser, or auto)
+         - cache_ttl_seconds: TTL for caching (60s - 30 days)
+         - force_refresh: Bypass cache if true
+         - wait_until: Browser wait strategy
+         - wait_selector: CSS selector to wait for
+         - timeout_seconds: Max time to wait (5-120s)
+         - proxy: Proxy configuration for this request
+         - scroll: Scroll settings for JS-rendered pages
+         - debug: Debug output controls
+         - normalize: HTML normalization options
+         - extract: CSS selector extraction config
+
+        Authentication: Required unless API key is disabled in config.
+
+      tags: [Scrape]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScrapeRequest'
+      responses:
+        '200':
+          description: Successful scrape
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScrapeResponse'
+        '422':
+          description: Validation error
+        '401':
+          description: Missing or invalid API key
+
+  /v1/scrape/batch:
+    post:
+      operationId: scrapeBatch
+      summary: Scrape multiple URLs
+      description: |
+        Scrape multiple URLs with controlled concurrency. Returns results individually
+        so failed items don't block others.
+
+        Request body fields:
+         - items: Array of up to 50 URLs with per-item options
+         - max_concurrency: Max concurrent requests (1-10)
+
+        Each item can have its own mode, proxy, scroll config, etc.
+
+      tags: [Scrape]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchScrapeRequest'
+      responses:
+        '200':
+          description: Batch scraping complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchScrapeResponse'
+        '422':
+          description: Validation error
+        '401':
+          description: Missing or invalid API key
+
+  # ======================================================= Cache Endpoints
+  /v1/cache/stats:
+    get:
+      operationId: cacheStats
+      summary: Cache statistics
+      description: Returns current cache statistics (entries, size, expired count).
+      tags: [Cache]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cache stats returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CacheStats'
+
+  /v1/cache/{url}:
+    delete:
+      operationId: deleteCacheEntry
+      summary: Delete single cache entry
+      description: Remove a specific URL from the cache. Returns number of entries deleted.
+      tags: [Cache]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: url
+          in: path
+          required: true
+          schema:
+            type: string
+          description: URL to remove from cache
+      responses:
+        '200':
+          description: Entry deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '404':
+          description: URL not found in cache
+
+  /v1/cache/purge:
+    post:
+      operationId: purgeCache
+      summary: Purge cache entries
+      description: |
+        Remove all (or domain-scoped) entries from the cache.
+
+        Body field:
+         - domain: Optional domain to scope the purge (e.g., "example.com")
+
+      tags: [Cache]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                domain:
+                  type: string
+                  description: Optional domain scope (omit to purge all)
+      responses:
+        '200':
+          description: Cache purged successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurgeResponse'
+
+  /v1/cache/cleanup:
+    post:
+      operationId: cleanupCache
+      summary: Run cache cleanup
+      description: |
+        Immediately run cache cleanup with optional overrides.
+
+        Optional body fields (defaults to global config):
+         - delete_expired_after_seconds: Delete entries older than this
+         - max_entries: Max entries to keep
+         - max_size_mb: Max total size in MB
+         - vacuum: Run VACUUM to reclaim space
+
+      tags: [Cache]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CacheCleanupRequest'
+      responses:
+        '200':
+          description: Cleanup completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_deleted:
+                    type: integer
+                  size_after_bytes:
+                    type: integer
+                  entries_after:
+                    type: integer
+
+  /v1/cache/vacuum:
+    post:
+      operationId: vacuumCache
+      summary: Vacuum cache disk space
+      description: Run SQLite VACUUM to reclaim disk space. Prefer during maintenance windows.
+      tags: [Cache]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Vacuum completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  size_after_bytes:
+                    type: integer
+
+  # ======================================================= Job Endpoints
+  /v1/jobs:
+    post:
+      operationId: createJob
+      summary: Create async scrape job
+      description: |
+        Queue a new async scrape job for background processing.
+
+        The request body is identical to `/v1/scrape`. The job is queued immediately
+        and processed by a background worker. Poll `/v1/jobs/{job_id}` for results.
+
+        Requires API key authentication unless disabled in config.
+
+      tags: [Jobs]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScrapeRequest'
+      responses:
+        '201':
+          description: Job created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '422':
+          description: Validation error
+        '503':
+          description: Async jobs are disabled
+
+    get:
+      operationId: listJobs
+      summary: List all jobs
+      description: Returns all async jobs (newest first) with their current status.
+      tags: [Jobs]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobListResponse'
+
+  /v1/jobs/{job_id}:
+    get:
+      operationId: getJob
+      summary: Get job status
+      description: |
+        Return the current state and result of an async job.
+
+        Required path parameter: `job_id`
+
+        When authentication is enabled and expose_profile_in_response is true,
+        includes the profile_name field.
+
+      tags: [Jobs]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Job ID to retrieve
+      responses:
+        '200':
+          description: Job details returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '404':
+          description: Job not found
+
+    delete:
+      operationId: deleteJob
+      summary: Delete job
+      description: Remove an async job from the store. Returns confirmation message.
+      tags: [Jobs]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+
+  /v1/jobs/{job_id}/cancel:
+    post:
+      operationId: cancelJob
+      summary: Cancel queued job
+      description: |
+        Cancel a queued job. No-op if the job is already running or finished.
+
+        Required path parameter: `job_id`
+
+      tags: [Jobs]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job cancelled or no-op (already running/finished)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+
+# =========================================================== SCHEMA DEFINITIONS
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: "API-Key"
+
   schemas:
     # Health endpoints
     HealthResponse:
@@ -484,408 +885,3 @@ components:
               type: string
             details:
               type: object
-
-# =========================================================== ENDPOINTS
-
-paths:
-  /health:
-    get:
-      operationId: healthCheck
-      summary: Liveness check
-      description: Always returns 200 when the service is running. No authentication required.
-      tags: [Health]
-      responses:
-        '200':
-          description: Service is healthy
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HealthResponse'
-
-  /ready:
-    get:
-      operationId: readinessCheck
-      summary: Readiness probe
-      description: Verifies config, cache, and scraper are all initialized. Requires authentication for metrics collection.
-      tags: [Health]
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: All services ready
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ReadinessResponse'
-        '503':
-          description: Service degraded
-
-  /metrics:
-    get:
-      operationId: getMetrics
-      summary: Prometheus-style metrics
-      description: Returns Prometheus-formatted text metrics for monitoring. No authentication required.
-      tags: [Monitoring]
-      responses:
-        '200':
-          description: Text metrics response
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  # ====================================================== Scrape Endpoints
-  /v1/scrape:
-    post:
-      operationId: scrapeUrl
-      summary: Scrape single URL
-      description: |
-        Scrape a single URL and return its rendered HTML. Supports multiple modes:
-
-        - **http**: Uses standard HTTP headers (headless browser)
-        - **browser**: Uses headless Chrome/Chromium with full JavaScript execution
-        - **auto**: Auto-detects based on user-agent and content
-
-        Request body fields:
-        - url: Target URL to scrape
-        - mode: Scraping mode (http, browser, or auto)
-        - cache_ttl_seconds: TTL for caching (60s - 30 days)
-        - force_refresh: Bypass cache if true
-        - wait_until: Browser wait strategy
-        - wait_selector: CSS selector to wait for
-        - timeout_seconds: Max time to wait (5-120s)
-        - proxy: Proxy configuration for this request
-        - scroll: Scroll settings for JS-rendered pages
-        - debug: Debug output controls
-        - normalize: HTML normalization options
-        - extract: CSS selector extraction config
-
-        Authentication: Required unless API key is disabled in config.
-
-      tags: [Scrape]
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ScrapeRequest'
-      responses:
-        '200':
-          description: Successful scrape
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ScrapeResponse'
-        '422':
-          description: Validation error
-        '401':
-          description: Missing or invalid API key
-
-  /v1/scrape/batch:
-    post:
-      operationId: scrapeBatch
-      summary: Scrape multiple URLs
-      description: |
-        Scrape multiple URLs with controlled concurrency. Returns results individually
-        so failed items don't block others.
-
-        Request body fields:
-        - items: Array of up to 50 URLs with per-item options
-        - max_concurrency: Max concurrent requests (1-10)
-
-        Each item can have its own mode, proxy, scroll config, etc.
-
-      tags: [Scrape]
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/BatchScrapeRequest'
-      responses:
-        '200':
-          description: Batch scraping complete
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/BatchScrapeResponse'
-        '422':
-          description: Validation error
-        '401':
-          description: Missing or invalid API key
-
-  # ======================================================= Cache Endpoints
-  /v1/cache/stats:
-    get:
-      operationId: cacheStats
-      summary: Cache statistics
-      description: Returns current cache statistics (entries, size, expired count).
-      tags: [Cache]
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Cache stats returned
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CacheStats'
-
-  /v1/cache/{url}:
-    delete:
-      operationId: deleteCacheEntry
-      summary: Delete single cache entry
-      description: Remove a specific URL from the cache. Returns number of entries deleted.
-      tags: [Cache]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: url
-          in: query
-          required: true
-          schema:
-            type: string
-          description: URL to remove from cache
-      responses:
-        '200':
-          description: Entry deleted successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-        '404':
-          description: URL not found in cache
-
-  /v1/cache/purge:
-    post:
-      operationId: purgeCache
-      summary: Purge cache entries
-      description: |
-        Remove all (or domain-scoped) entries from the cache.
-
-        Body field:
-        - domain: Optional domain to scope the purge (e.g., "example.com")
-
-
-      tags: [Cache]
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                domain:
-                  type: string
-                  description: Optional domain scope (omit to purge all)
-      responses:
-        '200':
-          description: Cache purged successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PurgeResponse'
-
-  /v1/cache/cleanup:
-    post:
-      operationId: cleanupCache
-      summary: Run cache cleanup
-      description: |
-        Immediately run cache cleanup with optional overrides.
-
-        Optional body fields (defaults to global config):
-        - delete_expired_after_seconds: Delete entries older than this
-        - max_entries: Max entries to keep
-        - max_size_mb: Max total size in MB
-        - vacuum: Run VACUUM to reclaim space
-
-      tags: [Cache]
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CacheCleanupRequest'
-      responses:
-        '200':
-          description: Cleanup completed
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  total_deleted:
-                    type: integer
-                  size_after_bytes:
-                    type: integer
-                  entries_after:
-                    type: integer
-
-  /v1/cache/vacuum:
-    post:
-      operationId: vacuumCache
-      summary: Vacuum cache disk space
-      description: Run SQLite VACUUM to reclaim disk space. Prefer during maintenance windows.
-      tags: [Cache]
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: Vacuum completed
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  size_after_bytes:
-                    type: integer
-
-  # ======================================================= Job Endpoints
-  /v1/jobs:
-    post:
-      operationId: createJob
-      summary: Create async scrape job
-      description: |
-        Queue a new async scrape job for background processing.
-
-        The request body is identical to `/v1/scrape`. The job is queued immediately
-        and processed by a background worker. Poll `/v1/jobs/{job_id}` for results.
-
-        Requires API key authentication unless disabled in config.
-
-      tags: [Jobs]
-      security:
-        - bearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ScrapeRequest'
-      responses:
-        '201':
-          description: Job created successfully
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/JobResponse'
-        '422':
-          description: Validation error
-        '503':
-          description: Async jobs are disabled
-
-    get:
-      operationId: listJobs
-      summary: List all jobs
-      description: Returns all async jobs (newest first) with their current status.
-      tags: [Jobs]
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: List of jobs
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/JobListResponse'
-
-  /v1/jobs/{job_id}:
-    get:
-      operationId: getJob
-      summary: Get job status
-      description: |
-        Return the current state and result of an async job.
-
-        Required path parameter: `job_id`
-
-        When authentication is enabled and expose_profile_in_response is true,
-        includes the profile_name field.
-
-      tags: [Jobs]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: job_id
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Job ID to retrieve
-      responses:
-        '200':
-          description: Job details returned
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/JobResponse'
-        '404':
-          description: Job not found
-
-    delete:
-      operationId: deleteJob
-      summary: Delete job
-      description: Remove an async job from the store. Returns confirmation message.
-      tags: [Jobs]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: job_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Job deleted successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-
-  /v1/jobs/{job_id}/cancel:
-    post:
-      operationId: cancelJob
-      summary: Cancel queued job
-      description: |
-        Cancel a queued job. No-op if the job is already running or finished.
-
-        Required path parameter: `job_id`
-
-      tags: [Jobs]
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: job_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Job cancelled or no-op (already running/finished)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/JobResponse'
-
-# ======================================================= AUTHENTICATION SCHEMAS
-
-securitySchemes:
-  bearerAuth:
-    type: http
-    scheme: bearer
-    bearerFormat: "API-Key"
