@@ -53,6 +53,7 @@ RUN groupadd -r scraper && useradd -r -g scraper -d /app -s /usr/sbin/nologin sc
     && mkdir -p /data /debug /logs /config && chown -R scraper:scraper /data /debug /logs /config
 
 COPY --chown=scraper:scraper app/ ./app/
+COPY --chown=scraper:scraper openapi.yaml .
 
 USER scraper
 
