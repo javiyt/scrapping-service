@@ -6,4 +6,4 @@ httpx>=0.27.0
 pyyaml>=6.0.3
 botasaurus>=4.0.97,<5.0.0
 selenium>=4.45.0
-beautifulsoup4>=4.12.0
+beautifulsoup4>=4.15.0
