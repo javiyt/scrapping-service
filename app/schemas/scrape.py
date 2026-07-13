@@ -207,10 +207,10 @@ class ScrapeRequest(BaseModel):
     )
 
     timeout_seconds: int = Field(
-        default=45,
+        default=90,
         ge=5,
-        le=120,
-        description="Maximum time to wait for the page to load.",
+        le=180,
+        description="Maximum time to wait for the page to load. Heavy pages may need 120–180 s.",
     )
 
     proxy: ProxyConfig = Field(
@@ -254,7 +254,7 @@ class BatchItem(BaseModel):
         pattern=r"^(load|domcontentloaded|networkidle|networkidle0)$",
     )
     wait_selector: str | None = Field(default=None, max_length=500)
-    timeout_seconds: int = Field(default=45, ge=5, le=120)
+    timeout_seconds: int = Field(default=90, ge=5, le=180)
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     scroll: ScrollConfig = Field(default_factory=ScrollConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)

@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------- Scraper
     scraper_default_mode: str = "auto"
     scraper_headless: bool = True
-    scraper_timeout_seconds: int = 45
+    scraper_timeout_seconds: int = 90
     scraper_max_concurrency: int = 1
     scraper_user_agent_profile: str = "desktop_es"
 

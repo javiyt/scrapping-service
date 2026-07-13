@@ -361,12 +361,13 @@ if [[ "$NO_HEALTHCHECK" != "true" && "$SERVICE_STARTED" == "true" ]]; then
     echo "▸ Waiting for health check..."
     sleep 5
     HEALTH_OK=false
-    for i in $(seq 1 12); do
-        if remote_exec "curl -s -o /dev/null -w '%{http_code}' http://localhost:${APP_PORT}/health" 2>/dev/null | grep -q 200; then
+    for i in $(seq 1 24); do
+        HEALTH_RESPONSE=$(remote_exec "curl -s -o /dev/null -w '%{http_code}' http://localhost:${APP_PORT}/health" 2>/dev/null || echo "FAILED")
+        if echo "$HEALTH_RESPONSE" | grep -q 200; then
             HEALTH_OK=true
             break
         fi
-        echo "   Attempt $i/12..."
+        echo "   Attempt $i/24 (http_code=$HEALTH_RESPONSE)..."
         sleep 5
     done
 
@@ -382,7 +383,13 @@ if [[ "$NO_HEALTHCHECK" != "true" && "$SERVICE_STARTED" == "true" ]]; then
         remote_exec "podman exec scraper-api env | grep -E 'SERVER_PORT|PORT|SCRAPER_' 2>/dev/null || echo 'container not running or no exec'" || true
         echo ""
         echo "  # Container logs:"
-        remote_exec "podman logs --tail 10 scraper-api 2>&1 || true" || true
+        remote_exec "podman logs --tail 20 scraper-api 2>&1 || true" || true
+        echo ""
+        echo "  # Container resource usage:"
+        remote_exec "podman stats --no-stream scraper-api 2>&1 || true" || true
+        echo ""
+        echo "  # Curl health (verbose):"
+        remote_exec "curl -v --max-time 10 http://localhost:${APP_PORT}/health 2>&1 || true" || true
         echo ""
         echo "  # Service status:"
         echo "  systemctl --user status scraper-api.service"
