@@ -105,6 +105,39 @@ class TestUrlValidation:
         )
         assert not valid
 
+    def test_allowed_domain_www_normalised(self):
+        """'fanatics.es' should match when only 'www.fanatics.es' is listed."""
+        valid, reason = validate_url(
+            "https://fanatics.es/page",
+            allowed_domains=["www.fanatics.es"],
+        )
+        assert valid, reason
+
+    def test_allowed_domain_www_in_url_normalised(self):
+        """'www.fanatics.es' should match when only 'fanatics.es' is listed."""
+        valid, reason = validate_url(
+            "https://www.fanatics.es/page",
+            allowed_domains=["fanatics.es"],
+        )
+        assert valid, reason
+
+    def test_allowed_domain_both_with_www_normalised(self):
+        """Both variants with www. listed — still matches."""
+        valid, reason = validate_url(
+            "https://fanatics.es/page",
+            allowed_domains=["www.fanatics.es", "www.otro.es"],
+        )
+        assert valid, reason
+
+    def test_reject_subdomain_not_listed(self):
+        """A subdomain of a listed domain that isn't explicitly allowed should
+        still be rejected (e.g. 'sub.fanatics.es' not in ['fanatics.es'])."""
+        valid, reason = validate_url(
+            "https://sub.fanatics.es/page",
+            allowed_domains=["fanatics.es"],
+        )
+        assert not valid
+
     def test_quick_check(self):
         assert is_safe_url("https://example.com")
         assert not is_safe_url("http://localhost:8080/")

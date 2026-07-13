@@ -123,9 +123,12 @@ def validate_url(
         if pat.match(hostname):
             return False, f"URL references a blocked hostname: {hostname}"
 
-    # -- allowed domains
-    if allowed_domains and hostname not in allowed_domains:
-        return False, f"Domain '{hostname}' is not in the allowed-domains list"
+    # -- allowed domains (www.-normalised comparison)
+    if allowed_domains:
+        norm_hostname = hostname[4:] if hostname.startswith("www.") else hostname
+        norm_allowed = [d[4:] if d.startswith("www.") else d for d in allowed_domains]
+        if norm_hostname not in norm_allowed:
+            return False, f"Domain '{hostname}' is not in the allowed-domains list"
 
     # -- DNS resolution + IP checks
     if block_private_ips:
