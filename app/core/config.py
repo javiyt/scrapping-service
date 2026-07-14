@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     server_cors_origins: list[str] = Field(default_factory=lambda: ["*"])
 
     # ------------------------------------------------------------- Auth / Keys
-    scraper_api_key: str = "change-me"
+    api_key: str = "change-me"
 
     # ---------------------------------------------------------------- Cache DB
     cache_backend: str = "sqlite"
@@ -159,7 +159,7 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid scraper mode '{v}'; must be one of: http, browser, auto")
         return v
 
-    @field_validator("scraper_api_key")
+    @field_validator("api_key")
     @classmethod
     def _validate_api_key(cls, v: str) -> str:
         if v == "change-me":

@@ -41,7 +41,7 @@ from app.core.config import Settings
 def _make_settings_with_auth(auth_config: dict[str, Any]) -> Settings:
     """Create a Settings instance with a custom auth block."""
     settings = Settings(
-        scraper_api_key="test-key",
+        api_key="test-key",
         server_api_key_required=True,
     )
     object.__setattr__(settings, "raw_yaml_auth", auth_config)
@@ -51,7 +51,7 @@ def _make_settings_with_auth(auth_config: dict[str, Any]) -> Settings:
 def _make_settings_no_auth() -> Settings:
     """Create a Settings instance with no auth block (single-key fallback)."""
     return Settings(
-        scraper_api_key="legacy-key",
+        api_key="legacy-key",
         server_api_key_required=True,
     )
 
@@ -888,7 +888,7 @@ class TestAPIWithProfiles:
         from app.jobs.service import JobService
         from app.metrics.prometheus import get_metrics
 
-        app.state.settings = AppSettings(scraper_api_key="test-key")
+        app.state.settings = AppSettings(api_key="test-key")
         job_service = JobService(
             scraper=app.state.scraper,
             settings=app.state.settings,

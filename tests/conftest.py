@@ -13,7 +13,7 @@ def pytest_configure(config):
     This hook runs before conftest fixtures, ensuring the env var is set
     when app modules are imported during test collection.
     """
-    os.environ["SCRAPER_SCRAPER_API_KEY"] = "test-key-for-tests"
+    os.environ["SCRAPER_API_KEY"] = "test-key-for-tests"
 
 
 @pytest.fixture(autouse=True)
