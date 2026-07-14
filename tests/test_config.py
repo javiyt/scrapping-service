@@ -47,15 +47,15 @@ class TestConfigValidation:
 
     def test_invalid_port_too_low(self):
         with pytest.raises(ValueError):
-            Settings(server_port=0)
+            Settings(scraper_api_key="test-key", server_port=0)
 
     def test_invalid_port_too_high(self):
         with pytest.raises(ValueError):
-            Settings(server_port=99999)
+            Settings(scraper_api_key="test-key", server_port=99999)
 
     def test_invalid_mode(self):
         with pytest.raises(ValueError):
-            Settings(scraper_default_mode="ftp")
+            Settings(scraper_api_key="test-key", scraper_default_mode="ftp")
 
     def test_valid_modes(self):
         for mode in ("http", "browser", "auto"):
@@ -64,7 +64,7 @@ class TestConfigValidation:
 
     def test_max_html_size_bounds(self):
         with pytest.raises(ValueError):
-            Settings(cache_max_html_size_mb=0)
+            Settings(scraper_api_key="test-key", cache_max_html_size_mb=0)
 
 
 class TestConfigFromYaml:
@@ -81,6 +81,7 @@ class TestConfigFromYaml:
             with open(tmp, "w") as f:
                 yaml.dump(yaml_content, f)
 
+            original_key = os.environ.get("SCRAPER_SCRAPER_API_KEY")
             os.environ["SCRAPER_SCRAPER_API_KEY"] = "test-key"
             try:
                 s = Settings.load(config_path=str(tmp))
@@ -89,7 +90,10 @@ class TestConfigFromYaml:
                 assert s.cache_default_ttl_seconds == 3600
                 assert s.scraper_default_mode == "http"
             finally:
-                del os.environ["SCRAPER_SCRAPER_API_KEY"]
+                if original_key is None:
+                    os.environ.pop("SCRAPER_SCRAPER_API_KEY", None)
+                else:
+                    os.environ["SCRAPER_SCRAPER_API_KEY"] = original_key
         finally:
             tmp.unlink(missing_ok=True)
 
@@ -108,13 +112,17 @@ class TestConfigFromYaml:
             with open(tmp, "w") as f:
                 yaml.dump(yaml_content, f)
 
+            original_key = os.environ.get("SCRAPER_SCRAPER_API_KEY")
             os.environ["SCRAPER_SCRAPER_API_KEY"] = "test-key"
             try:
                 s = Settings.load(config_path=str(tmp))
                 assert "example.com" in s.domains
                 assert s.domains["example.com"]["min_delay_seconds"] == 5
             finally:
-                del os.environ["SCRAPER_SCRAPER_API_KEY"]
+                if original_key is None:
+                    os.environ.pop("SCRAPER_SCRAPER_API_KEY", None)
+                else:
+                    os.environ["SCRAPER_SCRAPER_API_KEY"] = original_key
         finally:
             tmp.unlink(missing_ok=True)
 
@@ -126,14 +134,22 @@ class TestConfigFromYaml:
             with open(tmp, "w") as f:
                 yaml.dump(yaml_content, f)
 
+            original_port = os.environ.get("SCRAPER_SERVER_PORT")
+            original_key = os.environ.get("SCRAPER_SCRAPER_API_KEY")
             os.environ["SCRAPER_SERVER_PORT"] = "3000"
             os.environ["SCRAPER_SCRAPER_API_KEY"] = "test-key"
             try:
                 s = Settings.load(config_path=str(tmp))
                 assert s.server_port == 3000
             finally:
-                del os.environ["SCRAPER_SERVER_PORT"]
-                del os.environ["SCRAPER_SCRAPER_API_KEY"]
+                if original_port is None:
+                    os.environ.pop("SCRAPER_SERVER_PORT", None)
+                else:
+                    os.environ["SCRAPER_SERVER_PORT"] = original_port
+                if original_key is None:
+                    os.environ.pop("SCRAPER_SCRAPER_API_KEY", None)
+                else:
+                    os.environ["SCRAPER_SCRAPER_API_KEY"] = original_key
         finally:
             tmp.unlink(missing_ok=True)
 
