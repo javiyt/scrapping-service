@@ -154,6 +154,7 @@ class TestProxySelection:
         from app.core.config import Settings
 
         settings = Settings(
+            scraper_api_key="test-key",
             proxy_enabled=overrides.get("proxy_enabled", False),
             proxy_url=overrides.get("proxy_url", None),
             proxy_allow_request_override=overrides.get("proxy_allow_request_override", False),

@@ -159,6 +159,16 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid scraper mode '{v}'; must be one of: http, browser, auto")
         return v
 
+    @field_validator("scraper_api_key")
+    @classmethod
+    def _validate_api_key(cls, v: str) -> str:
+        if v == "change-me":
+            raise ValueError(
+                "API key must be changed from the default 'change-me'. "
+                "Set SCRAPER_API_KEY environment variable or update .env file."
+            )
+        return v
+
     # ------------------------------------------------------------------ loading
 
     @classmethod

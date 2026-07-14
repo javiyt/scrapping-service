@@ -1,8 +1,19 @@
 """Shared test fixtures for the scraper API tests."""
 
+import os
+
 import pytest
 
 from app.auth.resolver import reset_profile_resolver
+
+
+def pytest_configure(config):
+    """Set test API key before any test collection or imports.
+
+    This hook runs before conftest fixtures, ensuring the env var is set
+    when app modules are imported during test collection.
+    """
+    os.environ["SCRAPER_SCRAPER_API_KEY"] = "test-key-for-tests"
 
 
 @pytest.fixture(autouse=True)

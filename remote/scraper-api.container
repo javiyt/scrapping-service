@@ -8,6 +8,7 @@ Image=localhost/scraper-api:latest
 ContainerName=scraper-api
 PublishPort=8080:8080
 Volume=%h/scraper-api/configs/config.yaml:/config/config.yaml:ro,z
+Volume=%h/scraper-api/.env:/app/.env:ro,z
 Volume=%h/scraper-api/data:/data:z
 Volume=%h/scraper-api/debug:/debug:z
 Volume=%h/scraper-api/logs:/logs:z
@@ -17,6 +18,10 @@ Environment=SCRAPER_CACHE_SQLITE_PATH=/data/scraper-cache.db
 Environment=SCRAPER_DEBUG_DIR=/debug
 Environment=TZ=Europe/Madrid
 EnvironmentFile=%h/scraper-api/.env
+HealthCmd=python -c "import urllib.request; import sys; urllib.request.urlopen('http://localhost:8080/health'); sys.exit(0)"
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
 
 [Service]
 Restart=always

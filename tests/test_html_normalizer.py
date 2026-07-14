@@ -13,7 +13,7 @@ from app.main import app
 
 # ===================================================================== helpers
 
-VALID_API_KEY = "change-me"
+VALID_API_KEY = "test-key-for-tests"
 AUTH_HEADER = {"Authorization": f"Bearer {VALID_API_KEY}"}
 
 SAMPLE_RESULT_WITH_LINKS = {

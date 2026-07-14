@@ -40,9 +40,9 @@ auth:
       key: ${SCRAPER_API_KEY}
       description: Default internal client
       enabled: true
-    # - name: fanatics
-    #   key: ${SCRAPER_API_KEY_FANATICS}
-    #   description: Fanatics price tracker
+    # - name: exampleprofile
+    #   key: ${SCRAPER_API_KEY_EXAMPLEPROFILE}
+    #   description: Example profile
     #   enabled: true
     #   overrides:
     #     scraper:
@@ -54,15 +54,15 @@ auth:
     #       stale_if_error: true
     #     security:
     #       allowed_domains:
-    #         - fanatics.es
-    #         - www.fanatics.es
+    #         - example.com
+    #         - www.example.com
     #     domains:
-    #       fanatics.es:
+    #       example.com:
     #         allowed: true
     #         min_delay_seconds: 6
     #         max_concurrent_requests: 1
     #         default_ttl_seconds: 21600
-    #       www.fanatics.es:
+    #       www.example.com:
     #         allowed: true
     #         min_delay_seconds: 6
     #         max_concurrent_requests: 1
