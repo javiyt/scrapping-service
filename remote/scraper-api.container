@@ -6,7 +6,7 @@ After=network-online.target
 [Container]
 Image=localhost/scraper-api:latest
 ContainerName=scraper-api
-PublishPort=8080:8080
+Network=host
 Volume=%h/scraper-api/configs/config.yaml:/config/config.yaml:ro,z
 Volume=%h/scraper-api/data:/data:z
 Volume=%h/scraper-api/debug:/debug:z
@@ -17,7 +17,7 @@ Environment=SCRAPER_CACHE_SQLITE_PATH=/data/scraper-cache.db
 Environment=SCRAPER_DEBUG_DIR=/debug
 Environment=TZ=Europe/Madrid
 EnvironmentFile=%h/scraper-api/.env
-HealthCmd=python -c "import urllib.request; import sys; urllib.request.urlopen('http://localhost:8080/health'); sys.exit(0)"
+HealthCmd=python -c "import urllib.request; import sys; urllib.request.urlopen('http://127.0.0.1:${SCRAPER_SERVER_PORT}/health'); sys.exit(0)"
 HealthInterval=30s
 HealthTimeout=10s
 HealthRetries=3
