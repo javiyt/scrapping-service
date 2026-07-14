@@ -44,23 +44,23 @@ class TestDomainPolicy:
 
 class TestDomainRateLimiter:
     def test_get_policy_returns_default_for_unknown(self):
-        limiter = DomainRateLimiter(Settings(scraper_api_key="test-key", _env_file=None))
+        limiter = DomainRateLimiter(Settings(api_key="test-key", _env_file=None))
         policy = limiter.get_policy("unknown.com")
         assert policy.allowed is True
 
     def test_set_policy_overrides(self):
-        limiter = DomainRateLimiter(Settings(scraper_api_key="test-key", _env_file=None))
+        limiter = DomainRateLimiter(Settings(api_key="test-key", _env_file=None))
         policy = DomainPolicy(allowed=False)
         limiter.set_policy("test.com", policy)
         assert limiter.get_policy("test.com").allowed is False
 
     def test_can_proceed_returns_true_for_unknown(self):
-        limiter = DomainRateLimiter(Settings(scraper_api_key="test-key", _env_file=None))
+        limiter = DomainRateLimiter(Settings(api_key="test-key", _env_file=None))
         assert limiter.can_proceed("fresh.com") is True
 
     def test_can_proceed_false_when_min_delay_active(self):
 
-        limiter = DomainRateLimiter(Settings(scraper_api_key="test-key", _env_file=None))
+        limiter = DomainRateLimiter(Settings(api_key="test-key", _env_file=None))
         limiter.set_policy("rate.com", DomainPolicy(min_delay_seconds=5.0))
         limiter.acquire("rate.com")
         limiter.release("rate.com")
@@ -72,14 +72,14 @@ class TestDomainRateLimiter:
     def test_can_proceed_disallowed_domain(self):
         settings = Settings(
             domains={"blocked.com": {"allowed": False}},
-            scraper_api_key="test-key",
+            api_key="test-key",
             _env_file=None,
         )
         limiter = DomainRateLimiter(settings)
         assert limiter.can_proceed("blocked.com") is False
 
     def test_acquire_and_release(self):
-        limiter = DomainRateLimiter(Settings(scraper_api_key="test-key", _env_file=None))
+        limiter = DomainRateLimiter(Settings(api_key="test-key", _env_file=None))
         # Set a policy with no min delay so release doesn't trigger rate limit.
         from app.scraper.domain_policy import DomainPolicy
 
@@ -94,7 +94,7 @@ class TestDomainRateLimiter:
     async def test_wait_if_needed_disallowed_raises(self):
         settings = Settings(
             domains={"evil.com": {"allowed": False}},
-            scraper_api_key="test-key",
+            api_key="test-key",
             _env_file=None,
         )
         limiter = DomainRateLimiter(settings)
@@ -102,19 +102,19 @@ class TestDomainRateLimiter:
             await limiter.wait_if_needed("evil.com")
 
     def test_default_policy_property(self):
-        limiter = DomainRateLimiter(Settings(scraper_api_key="test-key", _env_file=None))
+        limiter = DomainRateLimiter(Settings(api_key="test-key", _env_file=None))
         policy = limiter.default_policy
         assert policy.allowed is True
 
     @pytest.mark.asyncio
     async def test_wait_if_needed_passes_when_free(self):
-        limiter = DomainRateLimiter(Settings(scraper_api_key="test-key", _env_file=None))
+        limiter = DomainRateLimiter(Settings(api_key="test-key", _env_file=None))
         await limiter.wait_if_needed("fresh.com")
         assert limiter.can_proceed("fresh.com") is True
 
     @pytest.mark.asyncio
     async def test_wait_if_needed_waits_for_concurrency(self):
-        limiter = DomainRateLimiter(Settings(scraper_api_key="test-key", _env_file=None))
+        limiter = DomainRateLimiter(Settings(api_key="test-key", _env_file=None))
         from app.scraper.domain_policy import DomainPolicy
 
         limiter.set_policy("busy.com", DomainPolicy(min_delay_seconds=0, max_concurrent_requests=2))
@@ -136,7 +136,7 @@ class TestDomainRateLimiter:
 
     @pytest.mark.asyncio
     async def test_wait_if_needed_waits_for_min_delay(self):
-        limiter = DomainRateLimiter(Settings(scraper_api_key="test-key", _env_file=None))
+        limiter = DomainRateLimiter(Settings(api_key="test-key", _env_file=None))
         from app.scraper.domain_policy import DomainPolicy
 
         limiter.set_policy(

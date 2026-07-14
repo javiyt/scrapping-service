@@ -222,7 +222,16 @@ if [[ "$WITHOUT_CONFIG" != "true" ]]; then
 fi
 
 if [[ "$WITH_ENV" == "true" ]]; then
-    [[ -f "$(dirname "$0")/../.env" ]] && remote_copy "$(dirname "$0")/../.env" "${REMOTE_DIR}/.env"
+    local_env="$(dirname "$0")/../.env"
+    if [[ -f "$local_env" ]]; then
+        # Refuse to deploy a .env that still carries the placeholder API key.
+        if grep -qE '^SCRAPER_API_KEY=change-me' "$local_env"; then
+            echo "✗ Aborting: local .env has SCRAPER_API_KEY=change-me (the default placeholder)."
+            echo "  Set a real key in .env before deploying with --with-env."
+            exit 1
+        fi
+        remote_copy "$local_env" "${REMOTE_DIR}/.env"
+    fi
     remote_exec "chmod 600 ${REMOTE_DIR}/.env"
 fi
 
@@ -393,14 +402,31 @@ if [[ "$NO_HEALTHCHECK" != "true" && "$SERVICE_STARTED" == "true" ]]; then
             echo "  # Container status:"
             remote_exec "podman inspect $CONTAINER_ID --format='Status={{.State.Status}}' 2>&1 || true" || true
             echo ""
+            echo "  # Container logs:"
+            CONTAINER_LOGS=$(remote_exec "podman logs --tail 30 $CONTAINER_ID 2>&1" || true)
+            echo "$CONTAINER_LOGS"
+            echo ""
+
+            # Surface a specific fix hint for the most common startup failures.
+            if echo "$CONTAINER_LOGS" | grep -q "API key must be changed"; then
+                echo "  ⚠ Root cause: SCRAPER_API_KEY is still the default 'change-me'."
+                echo "    Fix on the Pi:"
+                echo "      ssh ${REMOTE_USER}@${REMOTE_HOST} \\"
+                echo "        \"sed -i 's/^SCRAPER_API_KEY=.*/SCRAPER_API_KEY=<your-secret>/' ${REMOTE_DIR}/.env\""
+                echo "    Or edit your local .env and redeploy with --with-env."
+                echo ""
+            elif echo "$CONTAINER_LOGS" | grep -q "ValidationError"; then
+                echo "  ⚠ Root cause: configuration validation failed (see logs above)."
+                echo "    Check ${REMOTE_DIR}/.env on the Pi and correct the offending value."
+                echo ""
+            elif echo "$CONTAINER_LOGS" | grep -q "PermissionError"; then
+                echo "  ⚠ Root cause: a mounted file is not readable by the container user."
+                echo "    Check volume mounts and file permissions on the Pi."
+                echo ""
+            fi
+
             echo "  # Deployed Quadlet port config:"
             remote_exec "grep -E '(PublishPort|SCRAPER_SERVER_PORT|ContainerName)' ~/.config/containers/systemd/scraper-api.container" || true
-            echo ""
-            echo "  # Container env (running):"
-            remote_exec "podman exec $CONTAINER_ID env | grep -E 'SERVER_PORT|PORT|SCRAPER_' 2>/dev/null || echo 'container not running or no exec'" || true
-            echo ""
-            echo "  # Container logs:"
-            remote_exec "podman logs --tail 20 $CONTAINER_ID 2>&1 || true" || true
             echo ""
             echo "  # Port mapping:"
             remote_exec "podman port $CONTAINER_ID" || true

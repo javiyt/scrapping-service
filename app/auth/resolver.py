@@ -127,8 +127,8 @@ class ProfileResolver:
 
     def _setup_single_key_fallback(self, settings: Settings) -> None:
         """Set up a single 'default' profile from the legacy
-        ``scraper_api_key`` setting."""
-        key = settings.scraper_api_key
+        ``api_key`` setting."""
+        key = settings.api_key
         if not key:
             logger.warning("No API key configured — auth is effectively disabled")
             return
