@@ -8,7 +8,6 @@ Image=localhost/scraper-api:latest
 ContainerName=scraper-api
 PublishPort=8080:8080
 Volume=%h/scraper-api/configs/config.yaml:/config/config.yaml:ro,z
-Volume=%h/scraper-api/.env:/app/.env:ro,z
 Volume=%h/scraper-api/data:/data:z
 Volume=%h/scraper-api/debug:/debug:z
 Volume=%h/scraper-api/logs:/logs:z
