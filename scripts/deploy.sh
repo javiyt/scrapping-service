@@ -362,12 +362,18 @@ if [[ "$NO_HEALTHCHECK" != "true" && "$SERVICE_STARTED" == "true" ]]; then
     echo "▸ Waiting for container to be ready..."
     sleep 5
 
-    # Health check using curl from the HOST (not inside container)
-    # The container port 8080 is mapped to localhost:${APP_PORT} on the host
+    # Health check from the deploy machine targeting the remote host directly.
+    # Rootless Podman on Raspberry Pi can fail to serve published ports via
+    # localhost within the same SSH session (pasta/slirp4netns quirk), but
+    # external access always works — and the deploy machine can already reach
+    # the Pi (it just SSHed in). Runs curl locally, no SSH hop needed.
     HEALTH_OK=false
     for i in $(seq 1 24); do
-        HEALTH_RESPONSE=$(remote_exec "curl -s -w '%{http_code}' -o /dev/null --connect-timeout 5 --max-time 10 http://localhost:${APP_PORT}/health" 2>/dev/null || echo "FAILED")
-        if echo "$HEALTH_RESPONSE" | grep -q 200; then
+        HEALTH_RESPONSE=$(curl -s -w '%{http_code}' -o /dev/null \
+            --connect-timeout 5 --max-time 10 \
+            "http://${REMOTE_HOST}:${APP_PORT}/health" 2>/dev/null) \
+            || HEALTH_RESPONSE="FAILED"
+        if [[ "$HEALTH_RESPONSE" == "200" ]]; then
             HEALTH_OK=true
             break
         fi
