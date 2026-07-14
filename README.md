@@ -283,7 +283,7 @@ environment variable overrides on top.
 | Variable                            | Default                  | Description                               |
 |-------------------------------------|--------------------------|-------------------------------------------|
 | `SCRAPER_API_KEY`                   | `change-me`              | API key for auth (legacy single-key mode) |
-| `SCRAPER_API_KEY_FANATICS`          | —                        | API key for the ``fanatics`` profile      |
+| `SCRAPER_API_KEY_EXAMPLEPROFILE`    | —                        | API key for the ``exampleprofile`` profile |
 | `SCRAPER_API_KEY_DEBUG`             | —                        | API key for the ``debug`` profile         |
 | `SCRAPER_SERVER_HOST`               | `0.0.0.0`                | Bind address                              |
 | `SCRAPER_SERVER_PORT`               | `8080`                   | HTTP port                                 |
@@ -530,9 +530,9 @@ auth:
       key: ${SCRAPER_API_KEY}
       description: Default internal client
       enabled: true
-    - name: fanatics
-      key: ${SCRAPER_API_KEY_FANATICS}
-      description: Fanatics price tracker
+    - name: exampleprofile
+      key: ${SCRAPER_API_KEY_EXAMPLEPROFILE}
+      description: Example profile
       enabled: true
       overrides:
         scraper:
@@ -542,7 +542,7 @@ auth:
           default_ttl_seconds: 21600
         security:
           allowed_domains:
-            - fanatics.es
+            - example.com
 ```
 
 Each client authenticates with their own API key and receives the profile's
@@ -606,7 +606,7 @@ included in scrape response metadata:
 {
   "metadata": {
     "mode": "http",
-    "auth_profile": "fanatics"
+    "auth_profile": "exampleprofile"
   }
 }
 ```

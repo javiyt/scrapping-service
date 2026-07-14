@@ -178,7 +178,7 @@ class TestAuthSettingsModel:
             expose_profile_in_response=True,
             api_keys=[
                 AuthProfile(name="default", key="key1"),
-                AuthProfile(name="fanatics", key="key2"),
+                AuthProfile(name="exampleprofile", key="key2"),
             ],
         )
         assert len(settings.api_keys) == 2
@@ -241,16 +241,16 @@ class TestProfileResolverMultiKey:
                 "enabled": True,
             },
             {
-                "name": "fanatics",
+                "name": "exampleprofile",
                 "key": "fan-key-123",
                 "description": "Fanatics tracker",
                 "enabled": True,
                 "overrides": {
                     "scraper": {"default_mode": "browser", "timeout_seconds": 60},
                     "cache": {"default_ttl_seconds": 21600},
-                    "security": {"allowed_domains": ["fanatics.es", "www.fanatics.es"]},
+                    "security": {"allowed_domains": ["exampleprofile.es", "www.exampleprofile.es"]},
                     "domains": {
-                        "fanatics.es": {
+                        "exampleprofile.es": {
                             "allowed": True,
                             "min_delay_seconds": 6,
                             "max_concurrent_requests": 1,
@@ -282,9 +282,9 @@ class TestProfileResolverMultiKey:
         assert ctx_default is not None
         assert ctx_default.profile_name == "default"
 
-        ctx_fanatics = resolver.authenticate("fan-key-123")
-        assert ctx_fanatics is not None
-        assert ctx_fanatics.profile_name == "fanatics"
+        ctx_exampleprofile = resolver.authenticate("fan-key-123")
+        assert ctx_exampleprofile is not None
+        assert ctx_exampleprofile.profile_name == "exampleprofile"
 
     def test_disabled_profile_rejected(self, resolver):
         ctx = resolver.authenticate("debug-key")
@@ -307,33 +307,33 @@ class TestProfileResolverMultiKey:
         assert effective.scraper_default_mode == "auto"
 
     def test_profile_overrides_allowed_domains(self, resolver):
-        effective = resolver.effective_settings_for("fanatics")
-        assert "fanatics.es" in effective.security_allowed_domains
-        assert "www.fanatics.es" in effective.security_allowed_domains
+        effective = resolver.effective_settings_for("exampleprofile")
+        assert "exampleprofile.es" in effective.security_allowed_domains
+        assert "www.exampleprofile.es" in effective.security_allowed_domains
 
     def test_profile_overrides_cache_ttl(self, resolver):
-        effective = resolver.effective_settings_for("fanatics")
+        effective = resolver.effective_settings_for("exampleprofile")
         assert effective.cache_default_ttl_seconds == 21600
 
     def test_profile_overrides_scraper_mode(self, resolver):
-        effective = resolver.effective_settings_for("fanatics")
+        effective = resolver.effective_settings_for("exampleprofile")
         assert effective.scraper_default_mode == "browser"
 
     def test_profile_overrides_timeout(self, resolver):
-        effective = resolver.effective_settings_for("fanatics")
+        effective = resolver.effective_settings_for("exampleprofile")
         assert effective.scraper_timeout_seconds == 60
 
     def test_global_settings_not_mutated(self, resolver):
         original = resolver._global
         original_mode = original.scraper_default_mode
-        effective = resolver.effective_settings_for("fanatics")
+        effective = resolver.effective_settings_for("exampleprofile")
         assert effective.scraper_default_mode == "browser"
         assert original.scraper_default_mode == original_mode
 
     def test_profile_domain_overrides_merged(self, resolver):
-        effective = resolver.effective_settings_for("fanatics")
-        assert "fanatics.es" in effective.domains
-        domain_cfg = effective.domains["fanatics.es"]
+        effective = resolver.effective_settings_for("exampleprofile")
+        assert "exampleprofile.es" in effective.domains
+        domain_cfg = effective.domains["exampleprofile.es"]
         assert domain_cfg["min_delay_seconds"] == 6
 
     def test_no_expose_by_default(self, resolver):
@@ -580,7 +580,7 @@ class TestAPIWithProfiles:
                 "enabled": True,
             },
             {
-                "name": "fanatics",
+                "name": "exampleprofile",
                 "key": "fan-key",
                 "description": "Fanatics",
                 "enabled": True,
@@ -888,7 +888,7 @@ class TestAPIWithProfiles:
         from app.jobs.service import JobService
         from app.metrics.prometheus import get_metrics
 
-        app.state.settings = AppSettings()
+        app.state.settings = AppSettings(scraper_api_key="test-key")
         job_service = JobService(
             scraper=app.state.scraper,
             settings=app.state.settings,
@@ -1115,5 +1115,4 @@ class TestConfigExample:
         env_path = Path(".env.example")
         assert env_path.exists()
         content = env_path.read_text()
-        assert "SCRAPER_API_KEY_FANATICS" in content
         assert "SCRAPER_API_KEY_DEBUG" in content

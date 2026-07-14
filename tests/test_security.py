@@ -106,35 +106,35 @@ class TestUrlValidation:
         assert not valid
 
     def test_allowed_domain_www_normalised(self):
-        """'fanatics.es' should match when only 'www.fanatics.es' is listed."""
+        """'example.com' should match when only 'www.example.com' is listed."""
         valid, reason = validate_url(
-            "https://fanatics.es/page",
-            allowed_domains=["www.fanatics.es"],
+            "https://example.com/page",
+            allowed_domains=["www.example.com"],
         )
         assert valid, reason
 
     def test_allowed_domain_www_in_url_normalised(self):
-        """'www.fanatics.es' should match when only 'fanatics.es' is listed."""
+        """'www.example.com' should match when only 'example.com' is listed."""
         valid, reason = validate_url(
-            "https://www.fanatics.es/page",
-            allowed_domains=["fanatics.es"],
+            "https://www.example.com/page",
+            allowed_domains=["example.com"],
         )
         assert valid, reason
 
     def test_allowed_domain_both_with_www_normalised(self):
         """Both variants with www. listed — still matches."""
         valid, reason = validate_url(
-            "https://fanatics.es/page",
-            allowed_domains=["www.fanatics.es", "www.otro.es"],
+            "https://example.com/page",
+            allowed_domains=["www.example.com", "www.otro.es"],
         )
         assert valid, reason
 
     def test_reject_subdomain_not_listed(self):
         """A subdomain of a listed domain that isn't explicitly allowed should
-        still be rejected (e.g. 'sub.fanatics.es' not in ['fanatics.es'])."""
+        still be rejected (e.g. 'sub.example.com' not in ['example.com'])."""
         valid, reason = validate_url(
-            "https://sub.fanatics.es/page",
-            allowed_domains=["fanatics.es"],
+            "https://sub.example.com/page",
+            allowed_domains=["example.com"],
         )
         assert not valid
 
