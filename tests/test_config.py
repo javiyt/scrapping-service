@@ -146,7 +146,10 @@ class TestConfigFromYaml:
         assert s.get_domain_ttl("unknown.com") == s.cache_default_ttl_seconds
 
     def test_get_domain_config(self):
-        s = Settings(scraper_api_key="test-key", domains={"example.com": {"allowed": True, "min_delay_seconds": 5}})
+        s = Settings(
+            scraper_api_key="test-key",
+            domains={"example.com": {"allowed": True, "min_delay_seconds": 5}},
+        )
         cfg = s.get_domain_config("example.com")
         assert cfg == {"allowed": True, "min_delay_seconds": 5}
         assert s.get_domain_config("unknown.com") == {}
