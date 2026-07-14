@@ -1,10 +1,11 @@
 [Unit]
 Description=Scraper API container
-Documentation=https://github.com/your-org/scrapping-service
+Documentation=https://github.com/javiyt/scrapping-service
 After=network-online.target
 
 [Container]
 Image=localhost/scraper-api:latest
+ContainerName=scraper-api
 PublishPort=8080:8080
 Volume=%h/scraper-api/configs/config.yaml:/config/config.yaml:ro,z
 Volume=%h/scraper-api/data:/data:z
