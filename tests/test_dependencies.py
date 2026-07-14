@@ -16,7 +16,9 @@ class TestVerifyApiKey:
     async def test_auth_disabled_returns_none(self):
         """When server_api_key_required is False, verify_api_key returns None."""
         request = AsyncMock(spec=Request)
-        settings = Settings(server_api_key_required=False, scraper_api_key="test-key", _env_file=None)
+        settings = Settings(
+            server_api_key_required=False, scraper_api_key="test-key", _env_file=None
+        )
         result = await verify_api_key(request, credentials=None, settings=settings)
         assert result is None
 
