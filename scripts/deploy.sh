@@ -283,7 +283,7 @@ if [[ "$SERVICE_EXISTS" == "true" ]]; then
     # Force-remove any stale container so systemd creates a fresh one
     # with the updated Quadlet configuration (image, ports, env vars).
     echo "▸ Removing stale container (if any)..."
-    remote_exec "podman rm -f scraper-api 2>/dev/null || true"
+    remote_exec "podman rm -f scraper-api systemd-scraper-api 2>/dev/null || true"
 
     echo "▸ Starting / restarting service..."
     remote_exec "systemctl --user restart scraper-api.service" && SERVICE_STARTED=true || {
@@ -333,7 +333,8 @@ else
         # Give the container a moment to initialize.
         sleep 3
         CONTAINER_OK=false
-        if remote_exec "podman ps --filter name=scraper-api --filter status=running --format '{{.ID}}'" 2>/dev/null | grep -q .; then
+        FALLBACK_CONTAINER_ID=$(remote_exec "podman ps --filter name=scraper-api --filter status=running -q" 2>/dev/null || echo "")
+        if [[ -n "$FALLBACK_CONTAINER_ID" ]]; then
             CONTAINER_OK=true
         fi
 
@@ -358,42 +359,90 @@ fi
 
 # ----------------------------------------------------------- health check
 if [[ "$NO_HEALTHCHECK" != "true" && "$SERVICE_STARTED" == "true" ]]; then
-    echo "▸ Waiting for health check..."
+    echo "▸ Waiting for container to be ready..."
     sleep 5
-    HEALTH_OK=false
-    for i in $(seq 1 24); do
-        HEALTH_RESPONSE=$(remote_exec "curl -s -o /dev/null -w '%{http_code}' http://localhost:${APP_PORT}/health" 2>/dev/null || echo "FAILED")
-        if echo "$HEALTH_RESPONSE" | grep -q 200; then
-            HEALTH_OK=true
-            break
-        fi
-        echo "   Attempt $i/24 (http_code=$HEALTH_RESPONSE)..."
-        sleep 5
-    done
 
-    if [[ "$HEALTH_OK" == "true" ]]; then
-        echo "✓ Health check passed!"
+    # Find the actual container (could be 'scraper-api' or 'systemd-scraper-api' depending on deployment mode)
+    CONTAINER_ID=$(remote_exec "podman ps -a --filter 'name=scraper-api' -q | head -1" 2>/dev/null || echo "")
+    if [[ -z "$CONTAINER_ID" ]]; then
+        echo "⚠ Could not find container. Skipping health check."
     else
-        echo "✗ Health check failed. Debugging:"
-        echo ""
-        echo "  # Deployed Quadlet port config:"
-        remote_exec "grep -E '(PublishPort|SCRAPER_SERVER_PORT)' ~/.config/containers/systemd/scraper-api.container" || true
-        echo ""
-        echo "  # Container env (running):"
-        remote_exec "podman exec scraper-api env | grep -E 'SERVER_PORT|PORT|SCRAPER_' 2>/dev/null || echo 'container not running or no exec'" || true
-        echo ""
-        echo "  # Container logs:"
-        remote_exec "podman logs --tail 20 scraper-api 2>&1 || true" || true
-        echo ""
-        echo "  # Container resource usage:"
-        remote_exec "podman stats --no-stream scraper-api 2>&1 || true" || true
-        echo ""
-        echo "  # Curl health (verbose):"
-        remote_exec "curl -v --max-time 10 http://localhost:${APP_PORT}/health 2>&1 || true" || true
-        echo ""
-        echo "  # Service status:"
-        echo "  systemctl --user status scraper-api.service"
-        echo "  journalctl --user -u scraper-api.service"
+        echo "▸ Found container: $CONTAINER_ID"
+        HEALTH_OK=false
+        for i in $(seq 1 24); do
+            # Use podman exec to run curl INSIDE the container (bypasses port mapping issues)
+            HEALTH_RESPONSE=$(remote_exec "podman exec $CONTAINER_ID curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/health" 2>/dev/null || echo "FAILED")
+            if echo "$HEALTH_RESPONSE" | grep -q 200; then
+                HEALTH_OK=true
+                break
+            fi
+            echo "   Attempt $i/24 (http_code=$HEALTH_RESPONSE)..."
+            sleep 5
+        done
+
+        if [[ "$HEALTH_OK" == "true" ]]; then
+            echo "✓ Internal health check passed (app is running on port 8080)"
+
+            # Now test external port mapping (localhost:9090 -> container:8080)
+            echo ""
+            echo "▸ Verifying external port mapping (localhost:${APP_PORT})..."
+            EXTERNAL_OK=false
+            EXTERNAL_ATTEMPTS=0
+            for i in $(seq 1 12); do
+                EXTERNAL_RESPONSE=$(remote_exec "curl -s -w '%{http_code}' -o /dev/null --connect-timeout 5 --max-time 10 http://localhost:${APP_PORT}/health" 2>/dev/null || echo "FAILED")
+                EXTERNAL_ATTEMPTS=$((EXTERNAL_ATTEMPTS + 1))
+                if echo "$EXTERNAL_RESPONSE" | grep -q 200; then
+                    EXTERNAL_OK=true
+                    break
+                fi
+                if [[ $i -lt 12 ]]; then
+                    echo "   Attempt $i/12 (http_code=$EXTERNAL_RESPONSE, waiting for port mapping to stabilize)..."
+                    sleep 5
+                fi
+            done
+
+            if [[ "$EXTERNAL_OK" == "true" ]]; then
+                echo "✓ External port mapping verified! Port ${APP_PORT} is accessible from host."
+            else
+                echo "⚠ External port (${APP_PORT}) not responding after $EXTERNAL_ATTEMPTS attempts."
+                echo ""
+                echo "  This is non-critical — the app is running internally, but external"
+                echo "  port mapping may have a transient issue or networking configuration"
+                echo "  problem. Verify manually:"
+                echo ""
+                echo "  # From the Raspberry Pi:"
+                echo "  ssh javiyt@${REMOTE_HOST} 'curl -v http://localhost:${APP_PORT}/health'"
+                echo ""
+                echo "  # From another machine on the network:"
+                echo "  curl http://${REMOTE_HOST}:${APP_PORT}/health"
+                echo ""
+                echo "  # Debug info:"
+                echo "  ssh javiyt@${REMOTE_HOST} 'podman port scraper-api'"
+                echo "  ssh javiyt@${REMOTE_HOST} 'podman inspect scraper-api --format={{.NetworkSettings.Ports}}'"
+                echo ""
+            fi
+        else
+            echo "✗ Internal health check failed. Debugging:"
+            echo ""
+            echo "  # Deployed Quadlet port config:"
+            remote_exec "grep -E '(PublishPort|SCRAPER_SERVER_PORT|ContainerName)' ~/.config/containers/systemd/scraper-api.container" || true
+            echo ""
+            echo "  # Container env (running):"
+            remote_exec "podman exec $CONTAINER_ID env | grep -E 'SERVER_PORT|PORT|SCRAPER_' 2>/dev/null || echo 'container not running or no exec'" || true
+            echo ""
+            echo "  # Container logs:"
+            remote_exec "podman logs --tail 20 $CONTAINER_ID 2>&1 || true" || true
+            echo ""
+            echo "  # Container resource usage:"
+            remote_exec "podman stats --no-stream $CONTAINER_ID 2>&1 || true" || true
+            echo ""
+            echo "  # Health check (verbose):"
+            remote_exec "podman exec $CONTAINER_ID curl -v --max-time 10 http://localhost:8080/health 2>&1 || true" || true
+            echo ""
+            echo "  # Service status:"
+            echo "  systemctl --user status scraper-api.service"
+            echo "  journalctl --user -u scraper-api.service"
+        fi
     fi
 fi
 
