@@ -17,7 +17,10 @@ Environment=SCRAPER_CACHE_SQLITE_PATH=/data/scraper-cache.db
 Environment=SCRAPER_DEBUG_DIR=/debug
 Environment=TZ=Europe/Madrid
 EnvironmentFile=%h/scraper-api/.env
-HealthCmd=python -c "import urllib.request; import sys; urllib.request.urlopen('http://127.0.0.1:${SCRAPER_SERVER_PORT}/health'); sys.exit(0)"
+Exec=uvicorn app.main:app --host 0.0.0.0 --port 8080 --log-level info --timeout-keep-alive 30 --limit-max-requests 5000
+# Note: deploy.sh patches the port, log-level, timeout-keep-alive, and limit-max-requests
+# based on config/config.yaml or .env values
+HealthCmd=python -c "import urllib.request; import sys; urllib.request.urlopen('http://127.0.0.1:8080/health'); sys.exit(0)"
 HealthInterval=30s
 HealthTimeout=10s
 HealthRetries=3
