@@ -176,7 +176,9 @@ class Settings(BaseSettings):
         v = v.lower()
         valid_levels = {"critical", "error", "warning", "info", "debug", "trace"}
         if v not in valid_levels:
-            raise ValueError(f"Invalid log level '{v}'; must be one of: {', '.join(sorted(valid_levels))}")
+            raise ValueError(
+                f"Invalid log level '{v}'; must be one of: {', '.join(sorted(valid_levels))}"
+            )
         return v
 
     # ------------------------------------------------------------------ loading
