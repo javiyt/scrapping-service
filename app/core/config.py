@@ -169,6 +169,18 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("log_level")
+    @classmethod
+    def _validate_log_level(cls, v: str) -> str:
+        # Normalize to lowercase for uvicorn compatibility
+        v = v.lower()
+        valid_levels = {"critical", "error", "warning", "info", "debug", "trace"}
+        if v not in valid_levels:
+            raise ValueError(
+                f"Invalid log level '{v}'; must be one of: {', '.join(sorted(valid_levels))}"
+            )
+        return v
+
     # ------------------------------------------------------------------ loading
 
     @classmethod
