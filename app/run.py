@@ -17,8 +17,7 @@ def normalize_log_level(log_level: str) -> str:
     valid_levels = {"critical", "error", "warning", "info", "debug", "trace"}
     if log_level not in valid_levels:
         raise ValueError(
-            f"Invalid log level '{log_level}'; must be one of: "
-            f"{', '.join(sorted(valid_levels))}"
+            f"Invalid log level '{log_level}'; must be one of: {', '.join(sorted(valid_levels))}"
         )
     return log_level
 
@@ -69,12 +68,8 @@ Examples:
     # Resolve configuration: CLI args > environment > defaults
     port = args.port or os.environ.get("SCRAPER_SERVER_PORT", "8080")
     log_level = args.log_level or os.environ.get("LOG_LEVEL", "info")
-    timeout_keep_alive = (
-        args.timeout_keep_alive or os.environ.get("TIMEOUT_KEEP_ALIVE", "30")
-    )
-    limit_max_requests = (
-        args.limit_max_requests or os.environ.get("LIMIT_MAX_REQUESTS", "5000")
-    )
+    timeout_keep_alive = args.timeout_keep_alive or os.environ.get("TIMEOUT_KEEP_ALIVE", "30")
+    limit_max_requests = args.limit_max_requests or os.environ.get("LIMIT_MAX_REQUESTS", "5000")
     reload = args.reload or os.environ.get("DEVELOPMENT") == "1"
 
     # Normalize and validate log level
