@@ -73,13 +73,72 @@ APP_PORT=$(_read_port)
 # Sanitize port to plain digits (strips any \r, spaces, etc.)
 APP_PORT=$(echo "$APP_PORT" | tr -cd '0-9')
 
-# Prepares a patched copy of the Quadlet file with the correct port.
+# ---------------------------------------------------------- read log level
+_read_log_level() {
+    local log_level="${LOG_LEVEL:-}"
+    local project_root
+    project_root="$(cd "$(dirname "$0")/.." && pwd)"
+
+    if [[ -z "$log_level" ]]; then
+        local env_file="${project_root}/.env"
+        if [[ -f "$env_file" ]]; then
+            log_level=$(grep -E '^LOG_LEVEL=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs)
+        fi
+    fi
+
+    echo "${log_level:-info}"
+}
+
+LOG_LEVEL=$(_read_log_level)
+
+# ---------------------------------------------------------- read other uvicorn params
+_read_timeout_keep_alive() {
+    local timeout="${TIMEOUT_KEEP_ALIVE:-}"
+    local project_root
+    project_root="$(cd "$(dirname "$0")/.." && pwd)"
+
+    if [[ -z "$timeout" ]]; then
+        local env_file="${project_root}/.env"
+        if [[ -f "$env_file" ]]; then
+            timeout=$(grep -E '^TIMEOUT_KEEP_ALIVE=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs)
+        fi
+    fi
+
+    echo "${timeout:-30}"
+}
+
+_read_limit_max_requests() {
+    local limit="${LIMIT_MAX_REQUESTS:-}"
+    local project_root
+    project_root="$(cd "$(dirname "$0")/.." && pwd)"
+
+    if [[ -z "$limit" ]]; then
+        local env_file="${project_root}/.env"
+        if [[ -f "$env_file" ]]; then
+            limit=$(grep -E '^LIMIT_MAX_REQUESTS=' "$env_file" | head -1 | cut -d= -f2- | tr -d '"' | tr -d "'" | xargs)
+        fi
+    fi
+
+    echo "${limit:-5000}"
+}
+
+TIMEOUT_KEEP_ALIVE=$(_read_timeout_keep_alive)
+LIMIT_MAX_REQUESTS=$(_read_limit_max_requests)
+
+# Prepares a patched copy of the Quadlet file with the correct configuration.
+# Patches Environment=, Exec=, and HealthCmd= lines to use actual values from config.
 QUADLET_SRC="$(dirname "$0")/../remote/scraper-api.container"
 QUADLET_PATCHED=""
-if [[ "$APP_PORT" != "8080" ]]; then
-    echo "▸ Patching Quadlet port to ${APP_PORT}..."
+if [[ "$APP_PORT" != "8080" ]] || [[ "$LOG_LEVEL" != "info" ]] || [[ "$TIMEOUT_KEEP_ALIVE" != "30" ]] || [[ "$LIMIT_MAX_REQUESTS" != "5000" ]]; then
+    echo "▸ Patching Quadlet configuration..."
+    echo "  Port: ${APP_PORT}"
+    echo "  Log level: ${LOG_LEVEL}"
+    echo "  Timeout keep-alive: ${TIMEOUT_KEEP_ALIVE}"
+    echo "  Limit max requests: ${LIMIT_MAX_REQUESTS}"
     QUADLET_PATCHED="$(mktemp /tmp/scraper-api.container.XXXXXX)"
     sed -e "s/^Environment=SCRAPER_SERVER_PORT=8080$/Environment=SCRAPER_SERVER_PORT=${APP_PORT}/" \
+        -e "s|^Exec=uvicorn app.main:app --host 0.0.0.0 --port 8080 --log-level info --timeout-keep-alive 30 --limit-max-requests 5000|Exec=uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT} --log-level ${LOG_LEVEL} --timeout-keep-alive ${TIMEOUT_KEEP_ALIVE} --limit-max-requests ${LIMIT_MAX_REQUESTS}|" \
+        -e "s|http://127.0.0.1:8080/health|http://127.0.0.1:${APP_PORT}/health|" \
         "$QUADLET_SRC" > "$QUADLET_PATCHED"
 fi
 
