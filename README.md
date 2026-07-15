@@ -93,9 +93,39 @@ cp configs/config.example.yaml configs/config.yaml
 cp .env.example .env
 # Edit .env — set SCRAPER_API_KEY to a strong secret
 
-# Run (port defaults to 8080; set SCRAPER_SERVER_PORT env var or
-# change server.port in configs/config.yaml to override)
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
+# Run with app/run.py wrapper (normalizes configuration, same as production)
+python app/run.py
+
+# With CLI arguments (overrides environment variables and defaults)
+python app/run.py --port 9090 --log-level debug --reload
+```
+
+**Configuration methods (CLI args > environment variables > defaults):**
+
+```bash
+# Via CLI arguments (highest priority)
+python app/run.py --port 9090 --log-level debug
+
+# Via environment variables
+export SCRAPER_SERVER_PORT=9090
+export LOG_LEVEL=debug
+export TIMEOUT_KEEP_ALIVE=30
+export LIMIT_MAX_REQUESTS=5000
+python app/run.py
+
+# Mixed (CLI args override env vars)
+export SCRAPER_SERVER_PORT=8080
+python app/run.py --port 9090  # Runs on 9090, not 8080
+```
+
+**Available CLI options:**
+
+```
+--port PORT                    Port to listen on (default: 8080)
+--log-level LEVEL              Log level (accepts any case: info, INFO, Debug, etc.)
+--timeout-keep-alive SECONDS   Keep-alive timeout (default: 30)
+--limit-max-requests COUNT     Max requests per worker (default: 5000)
+--reload                       Auto-reload on file changes (dev mode)
 ```
 
 ### Run tests
@@ -289,7 +319,9 @@ environment variable overrides on top.
 | `SCRAPER_SERVER_PORT`               | `8080`                   | HTTP port                                 |
 | `SCRAPER_CACHE_SQLITE_PATH`         | `/data/scraper-cache.db` | Cache database path                       |
 | `SCRAPER_CACHE_DEFAULT_TTL_SECONDS` | `21600`                  | Default cache TTL (6 hours)               |
-| `SCRAPER_LOG_LEVEL`                 | `INFO`                   | Log level                                 |
+| `LOG_LEVEL`                         | `info`                   | Log level (info, debug, warning, error, critical, trace) — case-insensitive |
+| `TIMEOUT_KEEP_ALIVE`                | `30`                     | Uvicorn keep-alive timeout (seconds)      |
+| `LIMIT_MAX_REQUESTS`                | `5000`                   | Max requests per worker before restart    |
 | `CONFIG_PATH`                       | —                        | Path to YAML config file                  |
 
 ### YAML config
@@ -1085,7 +1117,7 @@ podman build -t localhost/scraper-api:latest .
 
 ### Quadlet
 
-The `remote/scraper-api.container` file is a Podman Quadlet unit.
+The `remote/scraper-api.container` file is a Podman Quadlet unit that runs the service via `app/run.py`, which normalizes environment variables and starts Uvicorn.
 
 ```bash
 # Install the Quadlet
@@ -1100,8 +1132,26 @@ systemctl --user start scraper-api.service
 # Check logs
 journalctl --user -u scraper-api.service -f
 
-# Test
+# Test (adjust port if you configured a different SCRAPER_SERVER_PORT)
 curl http://localhost:8080/health
+```
+
+**Configuring port and other parameters:**
+
+The Quadlet file uses environment variables that can be overridden via `.env`:
+
+```bash
+# In ~/.scraper-api/.env on the Pi:
+SCRAPER_SERVER_PORT=9090
+LOG_LEVEL=debug
+TIMEOUT_KEEP_ALIVE=30
+LIMIT_MAX_REQUESTS=5000
+```
+
+Then deploy with the `deploy.sh` script (it reads your local `.env` and patches the remote Quadlet):
+
+```bash
+./scripts/deploy.sh javiyt@raspberry5 --with-env
 ```
 
 ### Deploy script

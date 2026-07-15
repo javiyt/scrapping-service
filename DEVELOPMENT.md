@@ -20,10 +20,45 @@ source .venv/bin/activate
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
 
-# Run the API (config loads from configs/config.yaml by default).
-# Port can be set via SCRAPER_SERVER_PORT env var or by editing
-# configs/config.yaml (server.port). Default is 8080.
-uvicorn app.main:app --reload --port 8080
+# Run the API (config loads from configs/config.yaml by default)
+# Use the app/run.py wrapper (same as production, normalizes config)
+python app/run.py
+
+# Quick shortcuts with CLI arguments:
+python app/run.py --port 9090
+python app/run.py --port 9090 --log-level debug
+python app/run.py --reload  # Enable auto-reload on file changes
+```
+
+### Configuration: CLI arguments, environment variables, or defaults
+
+The `app/run.py` wrapper supports multiple configuration methods (CLI args take priority):
+
+```bash
+# Via CLI arguments (highest priority)
+python app/run.py --port 9090 --log-level debug --reload
+
+# Via environment variables
+export SCRAPER_SERVER_PORT=9090
+export LOG_LEVEL=debug
+export TIMEOUT_KEEP_ALIVE=30
+export LIMIT_MAX_REQUESTS=5000
+python app/run.py
+
+# Mixed: CLI args override environment variables
+export SCRAPER_SERVER_PORT=8080
+python app/run.py --port 9090  # Runs on 9090, not 8080
+```
+
+**Configuration options:**
+
+```bash
+--port PORT                    # Port to listen on (default: 8080)
+--log-level LEVEL              # Log level: info, debug, warning, error, critical, trace
+                               # (accepts any case: INFO, info, Debug, etc.)
+--timeout-keep-alive SECONDS   # Keep-alive timeout (default: 30)
+--limit-max-requests COUNT     # Max requests per worker (default: 5000)
+--reload                       # Enable auto-reload on file changes (dev mode)
 ```
 
 The app reads configuration from `configs/config.yaml` by default. See
