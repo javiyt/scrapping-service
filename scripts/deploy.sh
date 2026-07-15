@@ -126,7 +126,8 @@ TIMEOUT_KEEP_ALIVE=$(_read_timeout_keep_alive)
 LIMIT_MAX_REQUESTS=$(_read_limit_max_requests)
 
 # Prepares a patched copy of the Quadlet file with the correct configuration.
-# Patches Environment=, Exec=, and HealthCmd= lines to use actual values from config.
+# Patches Environment= lines with actual values from config.
+# The app/run.py wrapper script normalizes LOG_LEVEL and reads these env vars.
 QUADLET_SRC="$(dirname "$0")/../remote/scraper-api.container"
 QUADLET_PATCHED=""
 if [[ "$APP_PORT" != "8080" ]] || [[ "$LOG_LEVEL" != "info" ]] || [[ "$TIMEOUT_KEEP_ALIVE" != "30" ]] || [[ "$LIMIT_MAX_REQUESTS" != "5000" ]]; then
@@ -137,8 +138,9 @@ if [[ "$APP_PORT" != "8080" ]] || [[ "$LOG_LEVEL" != "info" ]] || [[ "$TIMEOUT_K
     echo "  Limit max requests: ${LIMIT_MAX_REQUESTS}"
     QUADLET_PATCHED="$(mktemp /tmp/scraper-api.container.XXXXXX)"
     sed -e "s/^Environment=SCRAPER_SERVER_PORT=8080$/Environment=SCRAPER_SERVER_PORT=${APP_PORT}/" \
-        -e "s|^Exec=uvicorn app.main:app --host 0.0.0.0 --port 8080 --log-level info --timeout-keep-alive 30 --limit-max-requests 5000|Exec=uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT} --log-level ${LOG_LEVEL} --timeout-keep-alive ${TIMEOUT_KEEP_ALIVE} --limit-max-requests ${LIMIT_MAX_REQUESTS}|" \
-        -e "s|http://127.0.0.1:8080/health|http://127.0.0.1:${APP_PORT}/health|" \
+        -e "s/^Environment=LOG_LEVEL=info$/Environment=LOG_LEVEL=${LOG_LEVEL}/" \
+        -e "s/^Environment=TIMEOUT_KEEP_ALIVE=30$/Environment=TIMEOUT_KEEP_ALIVE=${TIMEOUT_KEEP_ALIVE}/" \
+        -e "s/^Environment=LIMIT_MAX_REQUESTS=5000$/Environment=LIMIT_MAX_REQUESTS=${LIMIT_MAX_REQUESTS}/" \
         "$QUADLET_SRC" > "$QUADLET_PATCHED"
 fi
 

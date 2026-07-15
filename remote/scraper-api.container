@@ -13,13 +13,16 @@ Volume=%h/scraper-api/debug:/debug:z
 Volume=%h/scraper-api/logs:/logs:z
 Environment=CONFIG_PATH=/config/config.yaml
 Environment=SCRAPER_SERVER_PORT=8080
+Environment=LOG_LEVEL=info
+Environment=TIMEOUT_KEEP_ALIVE=30
+Environment=LIMIT_MAX_REQUESTS=5000
 Environment=SCRAPER_CACHE_SQLITE_PATH=/data/scraper-cache.db
 Environment=SCRAPER_DEBUG_DIR=/debug
 Environment=TZ=Europe/Madrid
 EnvironmentFile=%h/scraper-api/.env
-Exec=uvicorn app.main:app --host 0.0.0.0 --port 8080 --log-level info --timeout-keep-alive 30 --limit-max-requests 5000
-# Note: deploy.sh patches the port, log-level, timeout-keep-alive, and limit-max-requests
-# based on config/config.yaml or .env values
+Exec=python /app/app/run.py
+# Note: deploy.sh patches Environment= values based on config/config.yaml or .env
+# The app/run.py wrapper normalizes LOG_LEVEL and builds the uvicorn command
 HealthCmd=python -c "import urllib.request; import sys; urllib.request.urlopen('http://127.0.0.1:8080/health'); sys.exit(0)"
 HealthInterval=30s
 HealthTimeout=10s
