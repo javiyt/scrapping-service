@@ -141,6 +141,7 @@ if [[ "$APP_PORT" != "8080" ]] || [[ "$LOG_LEVEL" != "info" ]] || [[ "$TIMEOUT_K
         -e "s/^Environment=LOG_LEVEL=info$/Environment=LOG_LEVEL=${LOG_LEVEL}/" \
         -e "s/^Environment=TIMEOUT_KEEP_ALIVE=30$/Environment=TIMEOUT_KEEP_ALIVE=${TIMEOUT_KEEP_ALIVE}/" \
         -e "s/^Environment=LIMIT_MAX_REQUESTS=5000$/Environment=LIMIT_MAX_REQUESTS=${LIMIT_MAX_REQUESTS}/" \
+        -e "s|http://127.0.0.1:8080/health|http://127.0.0.1:${APP_PORT}/health|" \
         "$QUADLET_SRC" > "$QUADLET_PATCHED"
 fi
 
