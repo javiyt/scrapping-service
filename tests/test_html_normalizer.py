@@ -35,8 +35,17 @@ SAMPLE_RESULT_WITH_LINKS = {
         "<style>body { color: red; }</style>"
         "<!-- comment here -->"
         "<noscript>JS required</noscript>"
+        '<div data-reactroot="" data-id="42">tracked</div>'
+        "<div hidden>hidden attr</div>"
+        '<div aria-hidden="true">aria hidden</div>'
+        '<div style="display:none">style hidden</div>'
+        "<template>template hidden</template>"
         '<a href="/relative">link</a>'
         '<img src="/img.png" srcset="/img-320.png 320w, /img-640.png 640w">'
+        '<picture><source srcset="/hero.webp"><img src="/hero.png"></picture>'
+        "<svg><path></path></svg>"
+        '<iframe src="/frame"></iframe>'
+        '<audio src="/clip.mp3"></audio>'
         '<form action="/submit"></form>'
         '<video poster="/poster.jpg"></video>'
         "</body></html>"
@@ -248,6 +257,90 @@ class TestRemoveNoscript:
         assert "<noscript>" not in response.json()["html"]
 
 
+class TestRemoveDataAttrs:
+    def test_data_attrs_removed(self):
+        mock = _mock_scraper(return_value=SAMPLE_RESULT_WITH_LINKS)
+        client = _patch_scraper(mock)
+
+        response = client.post(
+            "/v1/scrape",
+            json={
+                "url": "https://example.com",
+                "normalize": {"enabled": True, "remove_data_attrs": True},
+            },
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200
+        html = response.json()["html"]
+        assert "data-reactroot" not in html
+        assert "data-id" not in html
+        assert "tracked" in html
+
+
+class TestRemoveHidden:
+    def test_hidden_nodes_removed(self):
+        mock = _mock_scraper(return_value=SAMPLE_RESULT_WITH_LINKS)
+        client = _patch_scraper(mock)
+
+        response = client.post(
+            "/v1/scrape",
+            json={
+                "url": "https://example.com",
+                "normalize": {"enabled": True, "remove_hidden": True},
+            },
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200
+        html = response.json()["html"]
+        assert "hidden attr" not in html
+        assert "aria hidden" not in html
+        assert "style hidden" not in html
+        assert "template hidden" not in html
+
+
+class TestRemoveMedia:
+    def test_media_removed(self):
+        mock = _mock_scraper(return_value=SAMPLE_RESULT_WITH_LINKS)
+        client = _patch_scraper(mock)
+
+        response = client.post(
+            "/v1/scrape",
+            json={
+                "url": "https://example.com",
+                "normalize": {"enabled": True, "remove_media": True},
+            },
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200
+        html = response.json()["html"]
+        for tag_name in ("img", "picture", "source", "svg", "iframe", "audio", "video"):
+            assert f"<{tag_name}" not in html
+
+
+class TestPresets:
+    def test_content_preset_enables_common_content_cleanup_without_enabled(self):
+        mock = _mock_scraper(return_value=SAMPLE_RESULT_WITH_LINKS)
+        client = _patch_scraper(mock)
+
+        response = client.post(
+            "/v1/scrape",
+            json={"url": "https://example.com", "normalize": {"preset": "content"}},
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        html = data["html"]
+        assert "<script" not in html
+        assert "<style" not in html
+        assert "<meta" not in html
+        assert "<noscript" not in html
+        assert "data-reactroot" not in html
+        assert "hidden attr" not in html
+        assert "<img" in html
+        assert data["metadata"]["normalized"] is True
+        assert data["metadata"]["normalization"]["remove_data_attrs"] is True
+
+
 # ============================================================== Absolute URLs
 
 
@@ -333,6 +426,44 @@ class TestMinify:
         assert "<html>" in html
         assert "<body>" in html
         assert "<h1>Hello</h1>" in html
+
+
+# ============================================================ Response format
+
+
+class TestResponseFormat:
+    def test_v2_text_response_format_returns_visible_text_content(self):
+        mock = _mock_scraper(return_value=SAMPLE_RESULT_WITH_LINKS)
+        client = _patch_scraper(mock)
+
+        response = client.post(
+            "/v2/scrape",
+            json={"url": "https://example.com", "response_format": "text"},
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "html" not in data
+        assert "<" not in data["content"]
+        assert "Hello World" in data["content"]
+        assert "alert" not in data["content"]
+        assert data["metadata"]["response_format"] == "text"
+        assert data["metadata"]["content_length"] == len(data["content"])
+
+    def test_v2_html_response_format_returns_html_content(self):
+        mock = _mock_scraper(return_value=SAMPLE_RESULT_SIMPLE)
+        client = _patch_scraper(mock)
+
+        response = client.post(
+            "/v2/scrape",
+            json={"url": "https://example.com", "response_format": "html"},
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "html" not in data
+        assert data["content"] == "<html><body><h1>Hello</h1></body></html>"
+        assert data["metadata"]["response_format"] == "html"
 
 
 # ==================================================== Metadata in response

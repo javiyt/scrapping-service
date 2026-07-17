@@ -44,6 +44,7 @@ class Job(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     extract_config: dict[str, Any] | None = None
     normalize_config: dict[str, Any] | None = None
+    response_format: str | None = None
     profile_name: str | None = None
     # A safe snapshot of effective settings overrides (no API keys).
     # This is a dict of section -> overrides, e.g. {"scraper": {"default_mode": "browser"}}

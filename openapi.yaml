@@ -122,7 +122,12 @@ components:
         enabled:
           type: boolean
           default: false
-          description: Master toggle for HTML normalization
+          description: Master toggle for HTML normalization. A preset also enables normalization.
+        preset:
+          type: string
+          enum: [light, content, aggressive]
+          nullable: true
+          description: Optional normalization preset
         absolute_urls:
           type: boolean
           default: false
@@ -147,6 +152,18 @@ components:
           type: boolean
           default: false
           description: Remove <noscript> elements
+        remove_data_attrs:
+          type: boolean
+          default: false
+          description: Remove data-* attributes
+        remove_hidden:
+          type: boolean
+          default: false
+          description: Remove explicitly hidden nodes
+        remove_media:
+          type: boolean
+          default: false
+          description: Remove media and embedded-content tags
         collapse_whitespace:
           type: boolean
           default: false
@@ -300,6 +317,61 @@ components:
         normalization:
           type: object
           description: Which features were applied
+
+    V2ScrapeRequest:
+      allOf:
+        - $ref: '#/components/schemas/ScrapeRequest'
+        - type: object
+          properties:
+            response_format:
+              type: string
+              enum: [html, text]
+              default: html
+              description: Format returned in the content field
+
+    V2Metadata:
+      allOf:
+        - $ref: '#/components/schemas/Metadata'
+        - type: object
+          properties:
+            response_format:
+              type: string
+              enum: [html, text]
+              default: html
+              description: Format of the returned content field
+
+    V2ScrapeResponse:
+      type: object
+      properties:
+        url:
+          type: string
+        final_url:
+          type: string
+        status_code:
+          type: integer
+        from_cache:
+          type: boolean
+          default: false
+        stale:
+          type: boolean
+          default: false
+        fetched_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        content:
+          type: string
+          description: Scraped content in the requested response_format
+        metadata:
+          $ref: '#/components/schemas/V2Metadata'
+        extracted:
+          type: object
+          description: Structured data from CSS selectors
+        extraction_error:
+          type: object
+          description: Error when required extraction field failed
 
     BatchItem:
       type: object
@@ -592,6 +664,51 @@ paths:
              application/json:
                schema:
                  $ref: '#/components/schemas/ErrorResponse'
+
+         '422':
+           description: Validation error
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v2/scrape:
+     post:
+       operationId: scrapeUrlV2
+       summary: Scrape single URL (v2)
+       description: |
+         Scrape a single URL and return ``content`` in the requested
+         ``response_format``. Unlike ``/v1/scrape``, this endpoint does not
+         overload the ``html`` field for non-HTML formats.
+
+       tags: [Scrape]
+       security:
+         - bearerAuth: []
+       requestBody:
+         required: true
+         content:
+           application/json:
+             schema:
+               $ref: '#/components/schemas/V2ScrapeRequest'
+       responses:
+         '200':
+           description: Successful scrape
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/V2ScrapeResponse'
+         '400':
+           description: Bad Request
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
          '422':
            description: Validation error
            content:
@@ -833,7 +950,7 @@ paths:
              schema:
                $ref: '#/components/schemas/ScrapeRequest'
        responses:
-         '201':
+         '200':
            description: Job created successfully
            content:
              application/json:
@@ -857,6 +974,73 @@ paths:
      get:
        operationId: listJobs
        summary: List all jobs
+       description: Returns all async jobs (newest first) with their current status.
+       tags: [Jobs]
+       security:
+         - bearerAuth: []
+       responses:
+         '200':
+           description: List of jobs
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/JobListResponse'
+         '400':
+           description: Bad Request
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v2/jobs:
+     post:
+       operationId: createJobV2
+       summary: Create async scrape job (v2)
+       description: |
+         Queue a new async scrape job using the v2 scrape contract. Results are
+         stored with ``content`` when ``response_format`` is provided, matching
+         ``/v2/scrape``.
+
+       tags: [Jobs]
+       security:
+         - bearerAuth: []
+       requestBody:
+         required: true
+         content:
+           application/json:
+             schema:
+               $ref: '#/components/schemas/V2ScrapeRequest'
+       responses:
+         '200':
+           description: Job created successfully
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/JobResponse'
+         '400':
+           description: Bad Request
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '422':
+           description: Validation error
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '503':
+           description: Async jobs are disabled
+
+     get:
+       operationId: listJobsV2
+       summary: List all jobs (v2 alias)
        description: Returns all async jobs (newest first) with their current status.
        tags: [Jobs]
        security:
@@ -984,3 +1168,98 @@ paths:
              application/json:
                schema:
                  $ref: '#/components/schemas/ErrorResponse'
+
+   /v2/jobs/{job_id}:
+     get:
+       operationId: getJobV2
+       summary: Get job status (v2 alias)
+       description: Return the current state and result of an async job.
+       tags: [Jobs]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: job_id
+           in: path
+           required: true
+           schema:
+             type: string
+           description: Job ID to retrieve
+       responses:
+         '200':
+           description: Job details returned
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/JobResponse'
+         '400':
+           description: Bad Request
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Job not found
+
+     delete:
+       operationId: deleteJobV2
+       summary: Delete job (v2 alias)
+       description: Remove an async job from the store. Returns confirmation message.
+       tags: [Jobs]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: job_id
+           in: path
+           required: true
+           schema:
+             type: string
+           description: Job ID to delete
+       responses:
+         '200':
+           description: Job deleted successfully
+           content:
+             application/json:
+               schema:
+                 type: object
+                 properties:
+                   message:
+                     type: string
+         '400':
+           description: Bad Request
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Job not found
+
+   /v2/jobs/{job_id}/cancel:
+     post:
+       operationId: cancelJobV2
+       summary: Cancel queued job (v2 alias)
+       description: Cancel a queued job. No-op if the job is already running or finished.
+       tags: [Jobs]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: job_id
+           in: path
+           required: true
+           schema:
+             type: string
+           description: Job ID to cancel
+       responses:
+         '200':
+           description: Job cancelled or no-op (already running/finished)
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/JobResponse'
+         '400':
+           description: Bad Request
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Job not found

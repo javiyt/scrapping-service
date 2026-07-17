@@ -1,7 +1,7 @@
 """Request and response schemas for scraping endpoints."""
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -89,7 +89,17 @@ class NormalizeConfig(BaseModel):
 
     enabled: bool = Field(
         default=False,
-        description="Master toggle — must be true for any normalisation to run.",
+        description=(
+            "Master toggle. A non-empty preset also enables normalisation for that request."
+        ),
+    )
+    preset: Literal["light", "content", "aggressive"] | None = Field(
+        default=None,
+        description=(
+            "Optional preset. ``light`` removes comments/noscript and compacts "
+            "whitespace; ``content`` also removes scripts, styles, meta, hidden "
+            "nodes and data attributes; ``aggressive`` also removes media."
+        ),
     )
     absolute_urls: bool = Field(
         default=False,
@@ -115,6 +125,25 @@ class NormalizeConfig(BaseModel):
     remove_noscript: bool = Field(
         default=False,
         description="Remove all ``<noscript>`` elements.",
+    )
+    remove_data_attrs: bool = Field(
+        default=False,
+        description="Remove all ``data-*`` attributes.",
+    )
+    remove_hidden: bool = Field(
+        default=False,
+        description=(
+            "Remove explicitly hidden nodes, including ``hidden``, "
+            '``aria-hidden="true"``, hidden inline styles, ``<template>`` and '
+            "hidden inputs."
+        ),
+    )
+    remove_media: bool = Field(
+        default=False,
+        description=(
+            "Remove media and embedded-content tags such as ``img``, ``picture``, "
+            "``svg``, ``iframe``, ``video`` and ``audio``."
+        ),
     )
     collapse_whitespace: bool = Field(
         default=False,
@@ -300,6 +329,49 @@ class ScrapeResponse(BaseModel):
     expires_at: str | None = None
     html: str
     metadata: Metadata
+    extracted: dict[str, Any] | None = Field(
+        default=None,
+        description="Structured data extracted via CSS selectors. "
+        "``None`` when extraction is disabled or when a required field fails.",
+    )
+    extraction_error: dict[str, Any] | None = Field(
+        default=None,
+        description="Structured error when a required extraction field cannot be resolved. "
+        "``None`` when extraction succeeds or is disabled.",
+    )
+
+
+# ========================================================== V2 scrape schemas
+class V2ScrapeRequest(ScrapeRequest):
+    """Request body for the ``/v2/scrape`` endpoint."""
+
+    response_format: Literal["html", "text"] = Field(
+        default="html",
+        description="Format returned in the ``content`` field.",
+    )
+
+
+class V2Metadata(Metadata):
+    """Metadata attached to v2 scrape responses."""
+
+    response_format: Literal["html", "text"] = Field(
+        default="html",
+        description="Format of the returned ``content`` field.",
+    )
+
+
+class V2ScrapeResponse(BaseModel):
+    """Successful v2 scrape response."""
+
+    url: str
+    final_url: str
+    status_code: int
+    from_cache: bool = False
+    stale: bool = False
+    fetched_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    expires_at: str | None = None
+    content: str
+    metadata: V2Metadata
     extracted: dict[str, Any] | None = Field(
         default=None,
         description="Structured data extracted via CSS selectors. "
