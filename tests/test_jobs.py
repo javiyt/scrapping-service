@@ -258,6 +258,24 @@ class TestJobEndpoints:
         data = response.json()
         assert data["status"] == "queued"
 
+    def test_create_v2_job_with_response_format(self):
+        response = self._client().post(
+            "/v2/jobs",
+            json={
+                "url": "https://example.com",
+                "normalize": {"preset": "content"},
+                "response_format": "text",
+            },
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["status"] == "queued"
+
+        job = self._job_service.get_job(data["job_id"])
+        assert job is not None
+        assert job.response_format == "text"
+
     # --------------------------------------------------------------- get
 
     def test_get_job_by_id(self):
@@ -394,6 +412,31 @@ class TestJobEndpoints:
             assert fetched.result is not None
             assert fetched.result["html"] == "<html>Hello World</html>"
             assert fetched.finished_at is not None
+        finally:
+            await svc.stop()
+
+    @pytest.mark.asyncio
+    async def test_successful_v2_job_stores_content_result(self):
+        """Process a v2 job and verify the formatted content result is stored."""
+        svc = self._job_service
+        await svc.start()
+
+        try:
+            job = await svc.create_job(
+                url="https://example.com",
+                scrape_config={"url": "https://example.com", "mode": "http"},
+                normalize_config={"preset": "content"},
+                response_format="text",
+            )
+            await asyncio.sleep(0.2)
+
+            fetched = svc.get_job(job.job_id)
+            assert fetched is not None
+            assert fetched.status == JobStatus.SUCCEEDED
+            assert fetched.result is not None
+            assert "html" not in fetched.result
+            assert fetched.result["content"] == "Hello World"
+            assert fetched.result["metadata"]["response_format"] == "text"
         finally:
             await svc.stop()
 

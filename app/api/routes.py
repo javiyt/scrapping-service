@@ -32,85 +32,19 @@ from app.schemas.scrape import (
     BatchScrapeResponse,
     CacheCleanupRequest,
     CacheStats,
-    ExtractConfig,
     PurgeResponse,
     ScrapeRequest,
     ScrapeResponse,
+    V2ScrapeRequest,
+    V2ScrapeResponse,
 )
-from app.scraper.extractor import ExtractionError
-from app.scraper.extractor import extract as run_extraction
-from app.scraper.html_normalizer import normalize_html
+from app.scraper.response_processing import format_scrape_content, process_scrape_response
 from app.scraper.service import ScraperService
 
 logger = logging.getLogger("scraper-api.routes")
 
 
 # ------------------------------------------------------------------- helpers
-
-
-def _normalize_response(
-    result: dict,
-    normalize_config: dict | None,
-) -> dict:
-    """Apply HTML normalisation to a copy of *result* (if enabled).
-
-    Returns a new dict so that the caller's original data (including any
-    module-level sample dicts used in tests) is never mutated.
-    """
-    if not normalize_config or not normalize_config.get("enabled"):
-        return result
-
-    raw_html = result.get("html", "")
-    base_url = result.get("final_url", "")
-    if not raw_html:
-        return result
-
-    normalized_html, applied = normalize_html(raw_html, base_url, **normalize_config)
-
-    metadata = dict(result.get("metadata", {}))
-    metadata["normalized"] = True
-    metadata["normalization"] = applied
-    metadata["content_length"] = len(normalized_html)
-
-    return {
-        **result,
-        "html": normalized_html,
-        "metadata": metadata,
-    }
-
-
-def _extract_response(
-    result: dict,
-    extract_config: ExtractConfig,
-) -> dict:
-    """Apply CSS-selector-based extraction to a response dict (if enabled).
-
-    Extraction runs on whatever ``html`` the response currently holds —
-    that is, after normalisation if it was applied, or raw HTML otherwise.
-
-    Returns the result dict with ``extracted`` (and optionally
-    ``extraction_error``) added.
-    """
-    if not extract_config.enabled or not extract_config.fields:
-        return result
-
-    html_to_extract = result.get("html", "")
-    if not html_to_extract:
-        return result
-
-    fields = {name: field.model_dump() for name, field in extract_config.fields.items()}
-    # Resolve base URL: explicit extract.base_url » final_url » request url
-    base_url = extract_config.base_url or result.get("final_url") or result.get("url", "")
-
-    try:
-        extracted_data = run_extraction(html_to_extract, fields, base_url=base_url)
-        return {**result, "extracted": extracted_data}
-    except ExtractionError as exc:
-        return {
-            **result,
-            "extracted": None,
-            "extraction_error": exc.to_dict(),
-        }
 
 
 def _maybe_add_auth_profile(
@@ -229,14 +163,17 @@ async def scrape_url(
         else:
             metrics_collector.inc("cache_misses_total")
 
-        # Apply HTML normalisation at response time (cache always stores raw).
-        result = _normalize_response(result, request.normalize.model_dump())
-
-        # Apply CSS-selector extraction (operates on whatever HTML the
-        # response currently holds — normalised if enabled, raw otherwise).
         if request.extract.enabled and request.extract.fields:
             metrics_collector.inc("extraction_requests_total")
-            result = _extract_response(result, request.extract)
+
+        # Apply response-time transforms after cache/fetch. Normalisation never
+        # modifies the cached raw HTML.
+        result = process_scrape_response(
+            result,
+            normalize_config=request.normalize.model_dump(),
+            extract_config=request.extract,
+        )
+        if request.extract.enabled and request.extract.fields:
             if result.get("extraction_error"):
                 metrics_collector.inc("extraction_error_total")
             else:
@@ -247,6 +184,79 @@ async def scrape_url(
             result["metadata"]["elapsed_ms"] = elapsed
 
         # Optionally attach auth profile name to metadata.
+        result = _maybe_add_auth_profile(result, auth_context, expose_profile)
+
+        return result
+
+    except ScraperError as exc:
+        elapsed = int((time.monotonic() - start) * 1000)
+        metrics_collector.inc("scrape_error_total")
+        metrics_collector.observe_latency(elapsed)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=exc.to_dict(),
+        )
+
+
+# ============================================================== /v2/scrape
+
+
+@router.post("/v2/scrape", response_model=V2ScrapeResponse, tags=["Scrape"])
+async def scrape_url_v2(
+    request: V2ScrapeRequest,
+    scraper: ScraperService = Depends(get_scraper),
+    metrics_collector: MetricsCollector = Depends(get_metrics),
+    auth_context: AuthContext | None = Depends(get_auth_context),
+    expose_profile: bool = Depends(get_expose_profile),
+):
+    """Scrape a single URL and return content in the requested format."""
+    metrics_collector.inc("scrape_requests_total")
+    start = time.monotonic()
+
+    try:
+        result = await scraper.scrape(
+            url=request.url,
+            mode=request.mode,
+            cache_ttl_seconds=request.cache_ttl_seconds,
+            force_refresh=request.force_refresh,
+            wait_until=request.wait_until,
+            wait_selector=request.wait_selector,
+            timeout_seconds=request.timeout_seconds,
+            scroll_config=request.scroll.model_dump(),
+            debug_config=request.debug.model_dump(),
+            proxy_config=request.proxy.model_dump(),
+        )
+
+        elapsed = int((time.monotonic() - start) * 1000)
+        metrics_collector.inc("scrape_success_total")
+        metrics_collector.observe_latency(elapsed)
+
+        if result.get("from_cache"):
+            metrics_collector.inc("cache_hits_total")
+            if result.get("stale"):
+                metrics_collector.inc("cache_hits_total")
+        else:
+            metrics_collector.inc("cache_misses_total")
+
+        if request.extract.enabled and request.extract.fields:
+            metrics_collector.inc("extraction_requests_total")
+
+        result = process_scrape_response(
+            result,
+            normalize_config=request.normalize.model_dump(),
+            extract_config=request.extract,
+        )
+        if request.extract.enabled and request.extract.fields:
+            if result.get("extraction_error"):
+                metrics_collector.inc("extraction_error_total")
+            else:
+                metrics_collector.inc("extraction_success_total")
+
+        result = format_scrape_content(result, request.response_format)
+
+        if "metadata" in result:
+            result["metadata"]["elapsed_ms"] = elapsed
+
         result = _maybe_add_auth_profile(result, auth_context, expose_profile)
 
         return result
@@ -296,13 +306,15 @@ async def scrape_batch(
                     debug_config=item.debug.model_dump(),
                     proxy_config=item.proxy.model_dump(),
                 )
-                # Apply HTML normalisation per item at response time.
-                result = _normalize_response(result, item.normalize.model_dump())
-
-                # Apply extraction per item.
                 if item.extract.enabled and item.extract.fields:
                     metrics_collector.inc("extraction_requests_total")
-                    result = _extract_response(result, item.extract)
+
+                result = process_scrape_response(
+                    result,
+                    normalize_config=item.normalize.model_dump(),
+                    extract_config=item.extract,
+                )
+                if item.extract.enabled and item.extract.fields:
                     if result.get("extraction_error"):
                         metrics_collector.inc("extraction_error_total")
                     else:
@@ -561,6 +573,53 @@ async def create_job(
     return _job_to_response(job, expose_profile=expose_profile)
 
 
+@router.post("/v2/jobs", response_model=JobResponse, tags=["Jobs"])
+async def create_job_v2(
+    request: V2ScrapeRequest,
+    jobs: JobService = Depends(get_job_service),
+    auth_context: AuthContext | None = Depends(get_auth_context),
+    expose_profile: bool = Depends(get_expose_profile),
+    effective_settings: Settings = Depends(get_effective_settings),
+):
+    """Create a new async scrape job using the v2 response contract."""
+    if not jobs._settings.jobs_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "type": "internal_error",
+                    "message": "Async jobs are disabled",
+                    "details": {},
+                }
+            },
+        )
+
+    scrape_config = {
+        "url": request.url,
+        "mode": request.mode,
+        "cache_ttl_seconds": request.cache_ttl_seconds,
+        "force_refresh": request.force_refresh,
+        "wait_until": request.wait_until,
+        "wait_selector": request.wait_selector,
+        "timeout_seconds": request.timeout_seconds,
+        "scroll_config": request.scroll.model_dump(),
+        "debug_config": request.debug.model_dump(),
+        "proxy_config": request.proxy.model_dump(),
+    }
+
+    job = await jobs.create_job(
+        url=request.url,
+        scrape_config=scrape_config,
+        normalize_config=request.normalize.model_dump(),
+        extract_config=request.extract.model_dump() if request.extract.fields else None,
+        response_format=request.response_format,
+        profile_name=auth_context.profile_name if auth_context else None,
+        effective_settings=effective_settings,
+    )
+    return _job_to_response(job, expose_profile=expose_profile)
+
+
+@router.get("/v2/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
 @router.get("/v1/jobs/{job_id}", response_model=JobResponse, tags=["Jobs"])
 async def get_job(
     job_id: str,
@@ -583,6 +642,7 @@ async def get_job(
     return _job_to_response(job, expose_profile=expose_profile)
 
 
+@router.get("/v2/jobs", response_model=JobListResponse, tags=["Jobs"])
 @router.get("/v1/jobs", response_model=JobListResponse, tags=["Jobs"])
 async def list_jobs(
     jobs: JobService = Depends(get_job_service),
@@ -594,6 +654,7 @@ async def list_jobs(
     return {"jobs": responses, "total": len(responses)}
 
 
+@router.delete("/v2/jobs/{job_id}", tags=["Jobs"])
 @router.delete("/v1/jobs/{job_id}", tags=["Jobs"])
 async def delete_job(
     job_id: str,
@@ -615,6 +676,7 @@ async def delete_job(
     return {"message": f"Job {job_id} deleted"}
 
 
+@router.post("/v2/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])
 @router.post("/v1/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])
 async def cancel_job(
     job_id: str,

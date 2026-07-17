@@ -19,6 +19,7 @@ from app.core.config import Settings
 from app.core.errors import ScraperError
 from app.jobs.models import Job, JobStatus
 from app.metrics.prometheus import MetricsCollector
+from app.scraper.response_processing import format_scrape_content, process_scrape_response
 from app.scraper.service import ScraperService
 
 logger = logging.getLogger("scraper-api.jobs")
@@ -101,6 +102,7 @@ class JobService:
         *,
         extract_config: dict[str, Any] | None = None,
         normalize_config: dict[str, Any] | None = None,
+        response_format: str | None = None,
         profile_name: str | None = None,
         effective_settings: Settings | None = None,
     ) -> Job:
@@ -114,6 +116,7 @@ class JobService:
             scrape_config: Parameters for :meth:`ScraperService.scrape`.
             extract_config: Optional extraction config.
             normalize_config: Optional normalisation config.
+            response_format: Optional v2 response format.
             profile_name: The authenticated profile name.
             effective_settings: The profile-effective settings snapshot.
                 API keys are never stored in the job object.
@@ -135,6 +138,7 @@ class JobService:
                 config=scrape_config,
                 extract_config=extract_config,
                 normalize_config=normalize_config,
+                response_format=response_format,
                 profile_name=profile_name,
                 effective_settings_overrides=overrides_snapshot,
                 created_at=datetime.now(UTC),
@@ -282,10 +286,16 @@ class JobService:
             scraper = self._build_scraper_for_job(job)
 
             try:
-                # Merge normalize and extract configs into scrape parameters.
                 scrape_params = dict(job.config)
 
                 result = await scraper.scrape(**scrape_params)
+                result = process_scrape_response(
+                    result,
+                    normalize_config=job.normalize_config,
+                    extract_config=job.extract_config,
+                )
+                if job.response_format is not None:
+                    result = format_scrape_content(result, job.response_format)
 
                 async with self._lock:
                     job.result = result

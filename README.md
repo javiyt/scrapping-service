@@ -751,22 +751,16 @@ Include a ``normalize`` object in any scrape request:
 {
   "url": "https://example.com",
   "normalize": {
-    "enabled": true,
-    "absolute_urls": true,
-    "remove_scripts": true,
-    "remove_styles": false,
-    "remove_comments": false,
-    "remove_meta": false,
-    "remove_noscript": false,
-    "collapse_whitespace": false,
-    "minify": false
+    "preset": "content",
+    "absolute_urls": true
   }
 }
 ```
 
 | Field                   | Type | Default | Description                                                  |
 |-------------------------|------|---------|--------------------------------------------------------------|
-| ``enabled``             | bool | false   | Master switch — must be ``true`` for any normalisation.      |
+| ``enabled``             | bool | false   | Master switch. A non-empty ``preset`` also enables it.       |
+| ``preset``              | str  | null    | ``light``, ``content`` or ``aggressive`` preset.             |
 | ``absolute_urls``       | bool | false   | Converts relative ``href``, ``src``, ``action``, ``poster``  |
 |                         |      |         | and ``srcset`` to absolute URLs using the final URL as base. |
 | ``remove_scripts``      | bool | false   | Removes all ``<script>`` elements.                           |
@@ -774,8 +768,57 @@ Include a ``normalize`` object in any scrape request:
 | ``remove_comments``     | bool | false   | Removes HTML comments (``<!-- ... -->``).                    |
 | ``remove_meta``         | bool | false   | Removes all ``<meta>`` elements.                             |
 | ``remove_noscript``     | bool | false   | Removes all ``<noscript>`` elements.                         |
+| ``remove_data_attrs``   | bool | false   | Removes all ``data-*`` attributes.                           |
+| ``remove_hidden``       | bool | false   | Removes hidden nodes and templates.                          |
+| ``remove_media``        | bool | false   | Removes media/embedded tags such as images, SVGs and iframes.|
 | ``collapse_whitespace`` | bool | false   | Collapses runs of whitespace to single spaces in text.       |
 | ``minify``              | bool | false   | Compacts HTML output without breaking semantics.             |
+
+Presets are additive: explicit ``true`` fields can add work on top of the
+preset, but ``false`` fields do not disable preset features.
+
+| Preset         | Behaviour                                                                 |
+|----------------|---------------------------------------------------------------------------|
+| ``light``      | Removes comments and noscript, collapses whitespace, minifies output.     |
+| ``content``    | ``light`` plus scripts, styles, meta, hidden nodes and ``data-*`` attrs.  |
+| ``aggressive`` | ``content`` plus media/embedded tags.                                     |
+
+For APIs that only need visible page text, use ``/v2/scrape`` and request
+text output:
+
+```json
+{
+  "url": "https://example.com",
+  "normalize": { "preset": "content" },
+  "response_format": "text"
+}
+```
+
+``/v2/scrape`` returns the body in ``content`` instead of ``html``:
+
+```json
+{
+  "url": "https://example.com",
+  "content": "Example Domain\nThis domain is for use in illustrative examples...",
+  "metadata": {
+    "mode": "http",
+    "elapsed_ms": 230,
+    "content_length": 67,
+    "cache_key": "abc123...",
+    "normalized": true,
+    "response_format": "text",
+    "normalization": {
+      "remove_scripts": true,
+      "remove_styles": true
+    }
+  }
+}
+```
+
+The same response format contract is available for async jobs through
+``/v2/jobs``. Create the job with the same body and poll
+``/v2/jobs/{job_id}``; successful v2 job results store ``content`` instead of
+``html``.
 
 ### Response metadata HTML Normalization
 
