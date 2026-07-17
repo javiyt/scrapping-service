@@ -23,7 +23,7 @@ EnvironmentFile=%h/scraper-api/.env
 Exec=python /app/app/run.py
 # Note: deploy.sh patches Environment= values based on config/config.yaml or .env
 # The app/run.py wrapper normalizes LOG_LEVEL and builds the uvicorn command
-HealthCmd=python -c "import urllib.request; import sys; urllib.request.urlopen('http://127.0.0.1:8080/health'); sys.exit(0)"
+HealthCmd=python -c 'import urllib.request; import sys; urllib.request.urlopen("http://127.0.0.1:8080/health"); sys.exit(0)'
 HealthInterval=30s
 HealthTimeout=10s
 HealthRetries=3
