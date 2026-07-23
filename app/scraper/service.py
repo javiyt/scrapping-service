@@ -24,8 +24,8 @@ from app.core.security import (
     validate_url,
 )
 from app.metrics.prometheus import get_metrics
-from app.scraper.browser_pool import BrowserFetcherPool
 from app.scraper.browser_fetcher import BrowserFetcher
+from app.scraper.browser_pool import BrowserFetcherPool
 from app.scraper.domain_policy import DomainRateLimiter
 from app.scraper.http_fetcher import FetchResult, HttpFetcher
 from app.scraper.normalizer import make_cache_key
