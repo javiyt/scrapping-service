@@ -12,6 +12,7 @@ from app.cache.sqlite_cache import SqliteCache
 from app.core.config import Settings
 from app.jobs.service import JobService
 from app.metrics.prometheus import get_metrics
+from app.scraper.browser_pool import BrowserFetcherPool
 from app.scraper.service import ScraperService
 
 logger = logging.getLogger("scraper-api.deps")
@@ -100,6 +101,15 @@ def get_effective_settings(
 # -------------------------------------------------------------- scraper
 
 
+def _get_browser_fetcher_pool(request: Request) -> BrowserFetcherPool:
+    """Return the shared browser fetcher pool stored on app.state."""
+    pool: BrowserFetcherPool | None = getattr(request.app.state, "browser_fetcher_pool", None)
+    if pool is None:
+        pool = BrowserFetcherPool()
+        request.app.state.browser_fetcher_pool = pool
+    return pool
+
+
 def _get_scraper(
     request: Request,
     cache: SqliteCache,
@@ -111,7 +121,11 @@ def _get_scraper(
     mock: ScraperService | None = getattr(request.app.state, "scraper", None)
     if mock is not None:
         return mock
-    return ScraperService(settings=effective_settings, cache=cache)
+    return ScraperService(
+        settings=effective_settings,
+        cache=cache,
+        browser_fetcher_pool=_get_browser_fetcher_pool(request),
+    )
 
 
 async def get_scraper(

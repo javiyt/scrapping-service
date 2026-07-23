@@ -25,6 +25,7 @@ from app.core.security import (
 )
 from app.metrics.prometheus import get_metrics
 from app.scraper.browser_fetcher import BrowserFetcher
+from app.scraper.browser_pool import BrowserFetcherPool
 from app.scraper.domain_policy import DomainRateLimiter
 from app.scraper.http_fetcher import FetchResult, HttpFetcher
 from app.scraper.normalizer import make_cache_key
@@ -52,9 +53,15 @@ class ScraperService:
     6. Return structured response.
     """
 
-    def __init__(self, settings: Settings, cache: SqliteCache) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        cache: SqliteCache,
+        browser_fetcher_pool: BrowserFetcherPool | None = None,
+    ) -> None:
         self.settings = settings
         self.cache = cache
+        self._browser_fetcher_pool = browser_fetcher_pool
 
         # Resolve global proxy URL.
         self._proxy_url: str | None = None
@@ -121,9 +128,17 @@ class ScraperService:
     @property
     def browser_fetcher(self) -> BrowserFetcher:
         """Lazy-init browser fetcher (only created when first needed)."""
+        if self._browser_fetcher_pool is not None:
+            return self._browser_fetcher_pool.get(self._browser_fetcher_args)
         if self._browser_fetcher is None:
             self._browser_fetcher = BrowserFetcher(**self._browser_fetcher_args)
         return self._browser_fetcher
+
+    def close(self) -> None:
+        """Close resources owned by this service instance."""
+        if self._browser_fetcher_pool is None and self._browser_fetcher is not None:
+            self._browser_fetcher.close()
+            self._browser_fetcher = None
 
     # --------------------------------------------------------------- scrape
 

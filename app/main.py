@@ -19,6 +19,7 @@ from app.core.errors import ScraperError
 from app.core.logging import setup_logging
 from app.jobs.service import JobService
 from app.metrics.prometheus import get_metrics
+from app.scraper.browser_pool import BrowserFetcherPool
 
 logger = logging.getLogger("scraper-api")
 
@@ -66,6 +67,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Store on app.state so dependencies can reach it.
     app.state.cache = _cache
     app.state.settings = settings
+    _browser_fetcher_pool = BrowserFetcherPool()
+    app.state.browser_fetcher_pool = _browser_fetcher_pool
 
     metrics = get_metrics()
     metrics.set_up(True)
@@ -94,6 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             settings=settings,
             cache=_cache,
             metrics=metrics,
+            browser_fetcher_pool=_browser_fetcher_pool,
         )
         await _job_service.start()
         app.state.job_service = _job_service
@@ -114,6 +118,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await _job_service.stop()
     if _maintenance is not None:
         await _maintenance.stop()
+    _browser_fetcher_pool.close_all()
     try:
         _cache.close()
     except Exception:
