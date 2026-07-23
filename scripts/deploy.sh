@@ -265,7 +265,8 @@ fi
 if [[ -z "$IMAGE_TAG" ]]; then
     # Local build mode — copy source code and Dockerfile
     echo "▸ Copying source files..."
-    remote_copy_dir "$(dirname "$0")/../app/"     "${REMOTE_DIR}/app/"
+    remote_exec "rm -rf ${REMOTE_DIR}/app"
+    remote_copy_dir "$(dirname "$0")/../app"      "${REMOTE_DIR}/"
     remote_copy "${QUADLET_PATCHED:-$QUADLET_SRC}" "${REMOTE_DIR}/remote/scraper-api.container"
 
     remote_copy "$(dirname "$0")/../requirements.txt"         "${REMOTE_DIR}/requirements.txt"
