@@ -8,6 +8,7 @@ application layer.
 """
 
 import logging
+import threading
 import time
 from typing import Any
 
@@ -54,6 +55,7 @@ class BrowserFetcher:
         self._window_size = window_size
         self._proxy_url = proxy_url
         self._driver: Any = None
+        self._lock = threading.RLock()
         self._botasaurus_available = False
 
         # Probe for botasaurus-driver at init time.
@@ -167,6 +169,26 @@ class BrowserFetcher:
         screenshot_path: str | None,
     ) -> FetchResult:
         """Synchronous browser-fetch (runs in thread-pool)."""
+        with self._lock:
+            return self._sync_fetch_locked(
+                url,
+                timeout,
+                wait_until,
+                wait_selector,
+                scroll_config,
+                screenshot_path,
+            )
+
+    def _sync_fetch_locked(
+        self,
+        url: str,
+        timeout: int,
+        wait_until: str,
+        wait_selector: str | None,
+        scroll_config: dict[str, Any],
+        screenshot_path: str | None,
+    ) -> FetchResult:
+        """Synchronous browser-fetch with exclusive driver access."""
         start = time.monotonic()
         driver = self.driver
 
@@ -251,9 +273,16 @@ class BrowserFetcher:
 
     def close(self) -> None:
         """Release browser resources.  Call on application shutdown."""
-        if self._driver is not None:
+        with self._lock:
+            driver = self._driver
+            self._driver = None
+
+        if driver is not None:
             try:
-                self._driver.close()
+                for method_name in ("close", "quit", "stop"):
+                    method = getattr(driver, method_name, None)
+                    if callable(method):
+                        method()
+                        break
             except Exception:
                 logger.exception("Error while closing browser driver")
-            self._driver = None
