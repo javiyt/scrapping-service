@@ -98,10 +98,10 @@ Never use a combined timeout: `httpx.Timeout(90)` applies the same limit to conn
 ```python
 # ✅ Separate timeouts
 timeout = httpx.Timeout(
-    connect=min(15.0, raw_timeout * 0.2),   # connect: 15s max
-    read=raw_timeout * 0.7,                  # read: bulk of budget
-    write=10.0,                              # write: rarely the bottleneck
-    pool=10.0,                               # pool: quick
+    connect=min(15.0, raw_timeout * 0.2),  # connect: 15s max
+    read=raw_timeout * 0.7,  # read: bulk of budget
+    write=10.0,  # write: rarely the bottleneck
+    pool=10.0,  # pool: quick
 )
 ```
 
