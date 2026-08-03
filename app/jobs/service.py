@@ -245,7 +245,7 @@ class JobService:
             ),
             "security": ("allowed_domains", "block_private_ips", "block_localhost"),
             "debug": ("screenshots", "html_dumps"),
-            "browser": ("arguments",),
+            "browser": ("arguments", "idle_timeout_seconds", "max_uses"),
             "jobs": ("max_concurrency", "max_retained", "result_ttl_seconds"),
         }
 

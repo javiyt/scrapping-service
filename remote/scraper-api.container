@@ -18,6 +18,10 @@ Environment=TIMEOUT_KEEP_ALIVE=30
 Environment=LIMIT_MAX_REQUESTS=5000
 Environment=SCRAPER_CACHE_SQLITE_PATH=/data/scraper-cache.db
 Environment=SCRAPER_DEBUG_DIR=/debug
+Environment=SCRAPER_SCRAPER_MAX_CONCURRENCY=1
+Environment=SCRAPER_BROWSER_IDLE_TIMEOUT_SECONDS=60
+Environment=SCRAPER_BROWSER_MAX_USES=25
+Environment=SCRAPER_BROWSER_MAX_POOL_SIZE=1
 Environment=TZ=Europe/Madrid
 EnvironmentFile=%h/scraper-api/.env
 Exec=python /app/app/run.py

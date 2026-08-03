@@ -278,6 +278,7 @@ async def scrape_url_v2(
 async def scrape_batch(
     request: BatchScrapeRequest,
     scraper: ScraperService = Depends(get_scraper),
+    effective_settings: Settings = Depends(get_effective_settings),
     metrics_collector: MetricsCollector = Depends(get_metrics),
     auth_context: AuthContext | None = Depends(get_auth_context),
     expose_profile: bool = Depends(get_expose_profile),
@@ -285,7 +286,8 @@ async def scrape_batch(
     """Scrape multiple URLs with controlled concurrency."""
     start = time.monotonic()
 
-    semaphore = asyncio.Semaphore(request.max_concurrency)
+    effective_concurrency = min(request.max_concurrency, effective_settings.scraper_max_concurrency)
+    semaphore = asyncio.Semaphore(effective_concurrency)
     succeeded = 0
     failed = 0
     results: list = []

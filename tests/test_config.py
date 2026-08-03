@@ -33,6 +33,12 @@ class TestConfigDefaults:
         s = Settings(api_key="test-key")
         assert s.cache_sqlite_path == "data/scraper-cache.db"
 
+    def test_default_browser_idle_timeout(self):
+        s = Settings(api_key="test-key")
+        assert s.browser_idle_timeout_seconds == 300
+        assert s.browser_max_uses is None
+        assert s.browser_max_pool_size == 1
+
     def test_api_key_cannot_be_default(self):
         with pytest.raises(ValueError, match="must be changed from the default"):
             Settings(api_key="change-me")
@@ -66,6 +72,16 @@ class TestConfigValidation:
         with pytest.raises(ValueError):
             Settings(api_key="test-key", cache_max_html_size_mb=0)
 
+    def test_browser_lifecycle_bounds(self):
+        with pytest.raises(ValueError):
+            Settings(api_key="test-key", browser_idle_timeout_seconds=-1)
+        with pytest.raises(ValueError):
+            Settings(api_key="test-key", browser_max_uses=0)
+        with pytest.raises(ValueError):
+            Settings(api_key="test-key", browser_max_pool_size=0)
+        with pytest.raises(ValueError):
+            Settings(api_key="test-key", scraper_max_concurrency=0)
+
 
 class TestConfigFromYaml:
     """Verify YAML loading works correctly via ``Settings.load()``."""
@@ -75,6 +91,7 @@ class TestConfigFromYaml:
             "server": {"port": 9090, "host": "127.0.0.1"},
             "cache": {"default_ttl_seconds": 3600},
             "scraper": {"default_mode": "http"},
+            "browser": {"idle_timeout_seconds": 60, "max_uses": 50, "max_pool_size": 1},
         }
         tmp = Path(tempfile.mktemp(suffix=".yaml"))
         try:
@@ -89,6 +106,9 @@ class TestConfigFromYaml:
                 assert s.server_host == "127.0.0.1"
                 assert s.cache_default_ttl_seconds == 3600
                 assert s.scraper_default_mode == "http"
+                assert s.browser_idle_timeout_seconds == 60
+                assert s.browser_max_uses == 50
+                assert s.browser_max_pool_size == 1
             finally:
                 if original_key is None:
                     os.environ.pop("SCRAPER_API_KEY", None)

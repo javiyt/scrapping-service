@@ -86,7 +86,7 @@ class Settings(BaseSettings):
     scraper_default_mode: str = "auto"
     scraper_headless: bool = True
     scraper_timeout_seconds: int = 90
-    scraper_max_concurrency: int = 1
+    scraper_max_concurrency: int = Field(default=1, ge=1)
     scraper_user_agent_profile: str = "desktop_es"
 
     # ------------------------------------------------------------- Browser
@@ -97,9 +97,20 @@ class Settings(BaseSettings):
             "--disable-dev-shm-usage",
             "--disable-gpu",
             "--disable-background-networking",
+            "--disable-extensions",
+            "--disable-sync",
+            "--disable-default-apps",
+            "--disable-component-update",
+            "--metrics-recording-only",
+            "--mute-audio",
+            "--no-first-run",
+            "--no-default-browser-check",
             "--window-size=1366,768",
         ]
     )
+    browser_idle_timeout_seconds: int = Field(default=300, ge=0)
+    browser_max_uses: int | None = Field(default=None, ge=1)
+    browser_max_pool_size: int = Field(default=1, ge=1)
 
     # ------------------------------------------------------------- Security
     security_block_private_ips: bool = True

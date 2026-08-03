@@ -319,6 +319,10 @@ environment variable overrides on top.
 | `SCRAPER_SERVER_PORT`               | `8080`                   | HTTP port                                 |
 | `SCRAPER_CACHE_SQLITE_PATH`         | `/data/scraper-cache.db` | Cache database path                       |
 | `SCRAPER_CACHE_DEFAULT_TTL_SECONDS` | `21600`                  | Default cache TTL (6 hours)               |
+| `SCRAPER_SCRAPER_MAX_CONCURRENCY`   | `1`                      | Server-side scrape concurrency cap        |
+| `SCRAPER_BROWSER_IDLE_TIMEOUT_SECONDS` | `300`                 | Seconds before idle Chromium is released  |
+| `SCRAPER_BROWSER_MAX_USES`          | —                        | Optional browser recycle count            |
+| `SCRAPER_BROWSER_MAX_POOL_SIZE`     | `1`                      | Max resident browser configurations       |
 | `LOG_LEVEL`                         | `info`                   | Log level (info, debug, warning, error, critical, trace) — case-insensitive |
 | `TIMEOUT_KEEP_ALIVE`                | `30`                     | Uvicorn keep-alive timeout (seconds)      |
 | `LIMIT_MAX_REQUESTS`                | `5000`                   | Max requests per worker before restart    |
@@ -604,7 +608,7 @@ Profiles may only override these configuration sections:
 - ``security`` — ``allowed_domains``, ``block_private_ips``, ``block_localhost``
 - ``domains`` — per-domain policies (rate limits, TTL, etc.)
 - ``debug`` — ``screenshots``, ``html_dumps``
-- ``browser`` — ``arguments``
+- ``browser`` — ``arguments``, ``idle_timeout_seconds``, ``max_uses``
 - ``jobs`` — ``max_concurrency``, ``max_retained``, ``result_ttl_seconds``
 
 #### Forbidden override sections
@@ -701,6 +705,14 @@ Full browser rendering via Botasaurus (Chromium). Supports:
 - CSS selector wait (`wait_selector`)
 - Page scrolling to trigger lazy-loaded content
 - Global proxy support (see **Proxy** below)
+
+Chromium is reused while browser-mode traffic is active, then released after
+``browser.idle_timeout_seconds`` seconds of inactivity.  Set it to ``0`` to
+keep Chromium alive until service shutdown, or lower it on memory-constrained
+hosts such as Raspberry Pi devices.  ``browser.max_uses`` can also be set to a
+positive number to force periodic browser recycling.  ``browser.max_pool_size``
+limits how many distinct browser configurations are kept resident by the
+process; keep it at ``1`` on Raspberry Pi deployments.
 
 **Browser proxy limitation**: proxy configuration for the browser fetcher is
 only supported at **construction time** — the global ``proxy.url`` is used when
@@ -1125,7 +1137,9 @@ Or set environment variables with the ``SCRAPER_JOBS_`` prefix:
   After that they become eligible for eviction by the retention policy.
 * **Retention cap.** Once the total exceeds ``max_retained``, the oldest
   finished jobs are automatically removed to stay under the limit.
-* **Raspberry Pi.** Keep ``jobs.max_concurrency`` low (1–2) on resourceconstrained devices.  Each worker shares the Redis-free scraper pool.
+* **Raspberry Pi.** Keep ``jobs.max_concurrency`` low (1–2) on resource-constrained devices.  Each worker shares the Redis-free scraper pool.
+  Set ``browser.idle_timeout_seconds`` to a low value such as ``60`` if you want
+  Chromium processes to disappear quickly after browser-mode scrapes finish.
 
 ### Metrics
 
@@ -1186,6 +1200,10 @@ The Quadlet file uses environment variables that can be overridden via `.env`:
 ```bash
 # In ~/.scraper-api/.env on the Pi:
 SCRAPER_SERVER_PORT=9090
+SCRAPER_SCRAPER_MAX_CONCURRENCY=1
+SCRAPER_BROWSER_IDLE_TIMEOUT_SECONDS=60
+SCRAPER_BROWSER_MAX_USES=25
+SCRAPER_BROWSER_MAX_POOL_SIZE=1
 LOG_LEVEL=debug
 TIMEOUT_KEEP_ALIVE=30
 LIMIT_MAX_REQUESTS=5000
