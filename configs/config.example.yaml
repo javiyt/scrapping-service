@@ -104,12 +104,28 @@ scraper:
 
 # ---------------------------------------------------------------- Browser
 browser:
+  # Release Chromium after this many idle seconds. Set 0 to keep it alive
+  # until shutdown. Lower values reduce Raspberry Pi memory/CPU residency.
+  idle_timeout_seconds: 300
+  # Optional hard recycle after N browser fetches. Leave null to disable.
+  max_uses: null
+  # Maximum number of distinct browser configurations kept resident.
+  # Keep this at 1 on Raspberry Pi deployments.
+  max_pool_size: 1
   arguments:
     - "--headless=new"
     - "--no-sandbox"
     - "--disable-dev-shm-usage"
     - "--disable-gpu"
     - "--disable-background-networking"
+    - "--disable-extensions"
+    - "--disable-sync"
+    - "--disable-default-apps"
+    - "--disable-component-update"
+    - "--metrics-recording-only"
+    - "--mute-audio"
+    - "--no-first-run"
+    - "--no-default-browser-check"
     - "--window-size=1366,768"
 
 # ------------------------------------------------------------------ Proxy

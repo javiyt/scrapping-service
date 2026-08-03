@@ -47,6 +47,8 @@ class BrowserFetcher:
         ),
         window_size: tuple[int, int] = (1366, 768),
         proxy_url: str | None = None,
+        idle_timeout_seconds: int = 300,
+        max_uses: int | None = None,
     ) -> None:
         self._headless = headless
         self._arguments = arguments or []
@@ -54,7 +56,11 @@ class BrowserFetcher:
         self._user_agent = user_agent
         self._window_size = window_size
         self._proxy_url = proxy_url
+        self._idle_timeout_seconds = idle_timeout_seconds
+        self._max_uses = max_uses
+        self._use_count = 0
         self._driver: Any = None
+        self._idle_timer: threading.Timer | None = None
         self._lock = threading.RLock()
         self._botasaurus_available = False
 
@@ -77,6 +83,7 @@ class BrowserFetcher:
         if self._driver is None:
             from botasaurus_driver import Driver
 
+            self._cancel_idle_timer_locked()
             kwargs: dict = {
                 "headless": self._headless,
                 "arguments": self._arguments,
@@ -92,6 +99,7 @@ class BrowserFetcher:
                 kwargs["proxy"] = self._proxy_url
 
             self._driver = Driver(**kwargs)
+            self._use_count = 0
         return self._driver
 
     # ------------------------------------------------------------------ fetch
@@ -170,14 +178,23 @@ class BrowserFetcher:
     ) -> FetchResult:
         """Synchronous browser-fetch (runs in thread-pool)."""
         with self._lock:
-            return self._sync_fetch_locked(
-                url,
-                timeout,
-                wait_until,
-                wait_selector,
-                scroll_config,
-                screenshot_path,
-            )
+            self._cancel_idle_timer_locked()
+            try:
+                return self._sync_fetch_locked(
+                    url,
+                    timeout,
+                    wait_until,
+                    wait_selector,
+                    scroll_config,
+                    screenshot_path,
+                )
+            finally:
+                if self._driver is not None:
+                    self._use_count += 1
+                    if self._max_uses is not None and self._use_count >= self._max_uses:
+                        self._close_driver_locked("max browser uses reached")
+                    else:
+                        self._schedule_idle_close_locked()
 
     def _sync_fetch_locked(
         self,
@@ -274,15 +291,50 @@ class BrowserFetcher:
     def close(self) -> None:
         """Release browser resources.  Call on application shutdown."""
         with self._lock:
-            driver = self._driver
-            self._driver = None
+            self._close_driver_locked("explicit close")
+
+    def _cancel_idle_timer_locked(self) -> None:
+        """Cancel any pending idle browser shutdown."""
+        if self._idle_timer is not None:
+            self._idle_timer.cancel()
+            self._idle_timer = None
+
+    def _schedule_idle_close_locked(self) -> None:
+        """Close the driver later if it remains unused."""
+        if self._idle_timeout_seconds <= 0:
+            return
+        self._cancel_idle_timer_locked()
+        timer = threading.Timer(
+            self._idle_timeout_seconds,
+            lambda: self._close_if_idle(timer),
+        )
+        timer.daemon = True
+        self._idle_timer = timer
+        timer.start()
+
+    def _close_if_idle(self, timer: threading.Timer) -> None:
+        """Timer callback used to release an idle browser process."""
+        with self._lock:
+            if self._idle_timer is not timer:
+                return
+            self._close_driver_locked("browser idle timeout reached")
+
+    def _close_driver_locked(self, reason: str) -> None:
+        """Release browser resources while ``self._lock`` is held."""
+        self._cancel_idle_timer_locked()
+        driver = self._driver
+        self._driver = None
+        self._use_count = 0
 
         if driver is not None:
-            try:
-                for method_name in ("close", "quit", "stop"):
-                    method = getattr(driver, method_name, None)
-                    if callable(method):
+            for method_name in ("quit", "stop", "close"):
+                method = getattr(driver, method_name, None)
+                if callable(method):
+                    try:
                         method()
-                        break
-            except Exception:
-                logger.exception("Error while closing browser driver")
+                        logger.info("Closed browser driver: %s", reason)
+                        return
+                    except Exception:
+                        logger.warning(
+                            "Browser driver %s() failed while closing", method_name, exc_info=True
+                        )

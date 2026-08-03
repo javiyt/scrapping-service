@@ -67,7 +67,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Store on app.state so dependencies can reach it.
     app.state.cache = _cache
     app.state.settings = settings
-    _browser_fetcher_pool = BrowserFetcherPool()
+    _browser_fetcher_pool = BrowserFetcherPool(max_size=settings.browser_max_pool_size)
     app.state.browser_fetcher_pool = _browser_fetcher_pool
 
     metrics = get_metrics()

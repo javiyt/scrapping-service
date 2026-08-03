@@ -7,11 +7,14 @@ We set mocks on ``app.state`` before creating the TestClient, which the
 real dependency-injection functions already check for first.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth.resolver import init_profile_resolver
+from app.core.config import Settings
 from app.core.errors import SecurityError
 from app.main import app
 
@@ -263,6 +266,40 @@ class TestBatchEndpoint:
         assert data["total"] == 2
         assert data["succeeded"] == 2
         assert data["failed"] == 0
+
+    def test_batch_concurrency_is_capped_by_server_settings(self):
+        settings = Settings(api_key=VALID_API_KEY, scraper_max_concurrency=1)
+        init_profile_resolver(settings)
+
+        counters = {"running": 0, "max_seen": 0}
+
+        async def scrape_side_effect(**kwargs):
+            counters["running"] += 1
+            counters["max_seen"] = max(counters["max_seen"], counters["running"])
+            await asyncio.sleep(0.01)
+            counters["running"] -= 1
+            return SAMPLE_RESULT
+
+        mock = AsyncMock()
+        mock.scrape.side_effect = scrape_side_effect
+        app.state.scraper = mock
+        app.state.cache = MagicMock()
+        client = TestClient(app)
+
+        response = client.post(
+            "/v1/scrape/batch",
+            json={
+                "items": [
+                    {"url": "https://example.com/1"},
+                    {"url": "https://example.com/2"},
+                ],
+                "max_concurrency": 2,
+            },
+            headers=AUTH_HEADER,
+        )
+
+        assert response.status_code == 200, response.text
+        assert counters["max_seen"] == 1
 
 
 # ============================================================= Cache endpoints

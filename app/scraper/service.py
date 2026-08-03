@@ -106,6 +106,8 @@ class ScraperService:
             "user_agent": user_agent,
             "window_size": window_size,
             "proxy_url": self._proxy_url,
+            "idle_timeout_seconds": settings.browser_idle_timeout_seconds,
+            "max_uses": settings.browser_max_uses,
         }
 
         # Domain rate limiter

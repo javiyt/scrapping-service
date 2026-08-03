@@ -105,7 +105,7 @@ def _get_browser_fetcher_pool(request: Request) -> BrowserFetcherPool:
     """Return the shared browser fetcher pool stored on app.state."""
     pool: BrowserFetcherPool | None = getattr(request.app.state, "browser_fetcher_pool", None)
     if pool is None:
-        pool = BrowserFetcherPool()
+        pool = BrowserFetcherPool(max_size=get_settings().browser_max_pool_size)
         request.app.state.browser_fetcher_pool = pool
     return pool
 
