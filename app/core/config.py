@@ -10,11 +10,11 @@ Priority (highest to lowest):
 import os
 import re
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import yaml
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 ENV_VAR_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
@@ -66,6 +66,7 @@ class Settings(BaseSettings):
 
     # ------------------------------------------------------------- Auth / Keys
     api_key: str = "change-me"
+    api_keys: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     # ---------------------------------------------------------------- Cache DB
     cache_backend: str = "sqlite"
@@ -170,15 +171,33 @@ class Settings(BaseSettings):
             raise ValueError(f"Invalid scraper mode '{v}'; must be one of: http, browser, auto")
         return v
 
-    @field_validator("api_key")
+    @field_validator("api_keys", mode="before")
     @classmethod
-    def _validate_api_key(cls, v: str) -> str:
-        if v == "change-me":
+    def _parse_api_keys(cls, v: Any) -> list[str]:
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            return [item.strip() for item in v.split(",") if item.strip()]
+        if isinstance(v, list):
+            return [str(item).strip() for item in v if str(item).strip()]
+        return v
+
+    @model_validator(mode="after")
+    def _validate_api_key_config(self) -> "Settings":
+        has_legacy_key = self.api_key != "change-me"
+        has_shared_keys = bool(self.api_keys)
+        has_auth_block = bool(self.raw_yaml_auth)
+        if (
+            self.server_api_key_required
+            and not has_legacy_key
+            and not has_shared_keys
+            and not has_auth_block
+        ):
             raise ValueError(
                 "API key must be changed from the default 'change-me'. "
-                "Set SCRAPER_API_KEY environment variable or update .env file."
+                "Set SCRAPER_API_KEY, SCRAPER_API_KEYS, or configure auth.api_keys."
             )
-        return v
+        return self
 
     @field_validator("log_level")
     @classmethod

@@ -313,6 +313,7 @@ environment variable overrides on top.
 | Variable                            | Default                  | Description                               |
 |-------------------------------------|--------------------------|-------------------------------------------|
 | `SCRAPER_API_KEY`                   | `change-me`              | API key for auth (legacy single-key mode) |
+| `SCRAPER_API_KEYS`                  | —                        | Comma-separated API keys sharing the global config |
 | `SCRAPER_API_KEY_EXAMPLEPROFILE`    | —                        | API key for the ``exampleprofile`` profile |
 | `SCRAPER_API_KEY_DEBUG`             | —                        | API key for the ``debug`` profile         |
 | `SCRAPER_SERVER_HOST`               | `0.0.0.0`                | Bind address                              |
@@ -359,8 +360,8 @@ proxy:
 
 1. **Request explicit fields** (highest priority) — e.g. ``mode``, ``cache_ttl_seconds``,
    ``timeout_seconds`` explicitly sent in the scrape request body.
-2. **Profile overrides** — per-client overrides from the authenticated profile's
-   ``overrides`` section.
+2. **Profile overrides** — optional per-client overrides from the authenticated
+   profile's ``overrides`` section.
 3. **Environment variables** — ``SCRAPER_*`` vars that override the YAML config.
 4. **YAML config file** — ``configs/config.yaml`` (or path from ``CONFIG_PATH``).
 5. **Hard-coded defaults** (lowest priority).
@@ -552,10 +553,33 @@ in the YAML config, the service behaves exactly as before:
 - All endpoints except `/health` require `Authorization: Bearer <SCRAPER_API_KEY>`.
 - Authentication can be disabled by setting `server.api_key_required: false`.
 
+#### Multi-key shared-config mode
+
+Set ``SCRAPER_API_KEYS`` to a comma-separated list when several clients should
+use the same global configuration:
+
+```env
+SCRAPER_API_KEYS=key-for-client-a,key-for-client-b,key-for-batch-jobs
+```
+
+Or define the shared keys in ``config.yaml``:
+
+```yaml
+auth:
+  api_keys:
+    - ${SCRAPER_API_KEY_CLIENT_A}
+    - ${SCRAPER_API_KEY_CLIENT_B}
+    - ${SCRAPER_API_KEY_BATCH}
+```
+
+All keys authenticate successfully and resolve to the same default profile, so
+cache, scraper, security, proxy, browser and job settings are shared.
+
 #### Multi-key profile mode
 
 Add an ``auth`` block to ``config.yaml`` to define named profiles, each with its
-own API key and optional configuration overrides:
+own API key and optional configuration overrides. This is intended for the later
+stage where each API key may need its own configuration:
 
 ```yaml
 auth:
@@ -582,7 +606,8 @@ auth:
 ```
 
 Each client authenticates with their own API key and receives the profile's
-overrides applied transparently.
+overrides applied transparently. Entries without ``overrides`` still use the
+shared global configuration.
 
 #### Environment variable expansion
 

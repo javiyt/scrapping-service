@@ -65,22 +65,24 @@ class ProfileResolver:
         settings' ``_raw_yaml_auth`` attribute (if present)."""
         raw_auth: dict[str, Any] | None = getattr(settings, "raw_yaml_auth", None)
         if not raw_auth:
-            # No auth block — single-key fallback.
-            self._setup_single_key_fallback(settings)
+            # No auth block — shared-key fallback.
+            self._setup_shared_key_fallback(settings)
             return
 
         self._default_profile = raw_auth.get("default_profile", "default")
         self._expose_profile = raw_auth.get("expose_profile_in_response", False)
 
-        raw_keys: list[dict[str, Any]] = raw_auth.get("api_keys", [])
+        raw_keys: list[dict[str, Any] | str] = raw_auth.get("api_keys", [])
         if not raw_keys:
-            self._setup_single_key_fallback(settings)
+            self._setup_shared_key_fallback(settings)
             return
 
         profiles: list[AuthProfile] = []
+        shared_keys: list[str] = []
         warning_shown = False
         for entry in raw_keys:
-            raw_key_value: str = entry.get("key", "")
+            is_shared_key = isinstance(entry, str)
+            raw_key_value: str = entry if is_shared_key else entry.get("key", "")
             # Resolve environment variable references in the key value.
             resolved = _resolve_env_var(raw_key_value)
             if resolved is None:
@@ -88,10 +90,14 @@ class ProfileResolver:
                     logger.warning(
                         "Environment variable referenced in auth.api_keys "
                         "is not set — disabling profile %r",
-                        entry.get("name", "<unnamed>"),
+                        "<shared>" if is_shared_key else entry.get("name", "<unnamed>"),
                     )
                     warning_shown = True
                 # Skip profiles whose env var is missing.
+                continue
+
+            if is_shared_key:
+                shared_keys.append(resolved)
                 continue
 
             profile = AuthProfile(
@@ -116,8 +122,22 @@ class ProfileResolver:
         # Build lookup maps from validated profiles — use constant-time entries.
         for p in self._auth_settings.api_keys:
             if p.enabled:
-                self._key_entries.append((p.key, p))
+                self._add_key_entry(p.key, p)
                 self._profiles[p.name] = p
+
+        if shared_keys:
+            shared_profile = self._profiles.get(self._default_profile)
+            if shared_profile is None:
+                shared_profile = AuthProfile(
+                    name=self._default_profile,
+                    key=shared_keys[0],
+                    description="Shared configuration API key",
+                    enabled=True,
+                    overrides={},
+                )
+                self._profiles[shared_profile.name] = shared_profile
+            for key in shared_keys:
+                self._add_key_entry(key, shared_profile)
 
         if not self._key_entries and settings.server_api_key_required:
             logger.error(
@@ -125,17 +145,16 @@ class ProfileResolver:
                 "the service will reject all requests"
             )
 
-    def _setup_single_key_fallback(self, settings: Settings) -> None:
-        """Set up a single 'default' profile from the legacy
-        ``api_key`` setting."""
-        key = settings.api_key
-        if not key:
+    def _setup_shared_key_fallback(self, settings: Settings) -> None:
+        """Set up a shared 'default' profile from legacy and shared keys."""
+        keys = [key for key in [settings.api_key, *settings.api_keys] if key and key != "change-me"]
+        if not keys:
             logger.warning("No API key configured — auth is effectively disabled")
             return
         profile = AuthProfile(
             name="default",
-            key=key,
-            description="Default internal client (legacy single-key mode)",
+            key=keys[0],
+            description="Default internal client (shared-key mode)",
             enabled=True,
             overrides={},
         )
@@ -144,8 +163,15 @@ class ProfileResolver:
             expose_profile_in_response=False,
             api_keys=[profile],
         )
-        self._key_entries.append((profile.key, profile))
+        for key in keys:
+            self._add_key_entry(key, profile)
         self._profiles[profile.name] = profile
+
+    def _add_key_entry(self, key: str, profile: AuthProfile) -> None:
+        """Register one API key for a profile, ignoring exact duplicates."""
+        if any(existing_key == key for existing_key, _ in self._key_entries):
+            return
+        self._key_entries.append((key, profile))
 
     # ------------------------------------------------------------------
     # Public API

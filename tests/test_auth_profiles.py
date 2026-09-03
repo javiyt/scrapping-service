@@ -223,6 +223,31 @@ class TestProfileResolverSingleKey:
         resolver = ProfileResolver(settings)
         assert resolver.expose_profile_in_response is False
 
+    def test_shared_key_fallback_authenticates_all_keys(self):
+        settings = Settings(
+            api_key="legacy-key",
+            api_keys=["shared-key-1", "shared-key-2"],
+            server_api_key_required=True,
+        )
+        resolver = ProfileResolver(settings)
+
+        for key in ("legacy-key", "shared-key-1", "shared-key-2"):
+            ctx = resolver.authenticate(key)
+            assert ctx is not None
+            assert ctx.profile_name == "default"
+
+    def test_shared_key_fallback_uses_global_settings(self):
+        settings = Settings(
+            api_key="change-me",
+            api_keys=["shared-key-1", "shared-key-2"],
+            server_api_key_required=True,
+            scraper_default_mode="http",
+        )
+        resolver = ProfileResolver(settings)
+
+        effective = resolver.effective_settings_for("default")
+        assert effective.scraper_default_mode == "http"
+
 
 # ======================================================= ProfileResolver — multi-key
 
@@ -338,6 +363,22 @@ class TestProfileResolverMultiKey:
 
     def test_no_expose_by_default(self, resolver):
         assert resolver.expose_profile_in_response is False
+
+    def test_auth_block_shared_key_entries_use_default_profile(self):
+        settings = _make_settings_with_auth(
+            {
+                "api_keys": [
+                    "shared-key-1",
+                    "shared-key-2",
+                ],
+            }
+        )
+        resolver = ProfileResolver(settings)
+
+        for key in ("shared-key-1", "shared-key-2"):
+            ctx = resolver.authenticate(key)
+            assert ctx is not None
+            assert ctx.profile_name == "default"
 
 
 # ======================================================= ProfileResolver — expose
