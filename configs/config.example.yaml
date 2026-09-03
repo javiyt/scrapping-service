@@ -16,16 +16,19 @@ server:
     - "*"
 
 # --------------------------------------------------------------------- Auth
-# Multi-key profile authentication.
+# Multi-key authentication.
 #
-# Each entry in ``api_keys`` maps an API key to a named profile that can
-# override safe parts of the global configuration.
+# In the initial shared-config mode, each item in ``api_keys`` is an API key
+# and all keys use the same global configuration.
 #
-# Environment variable expansion is supported for the ``key`` field:
-#   key: ${SCRAPER_API_KEY_FANATICS}
+# Environment variable expansion is supported:
+#   - ${SCRAPER_API_KEY_PARTNER}
 #
 # If the referenced env var is not set, the profile is silently disabled
 # (a warning is logged — the secret placeholder is never exposed).
+#
+# Future profile mode is also supported by using objects with ``name``, ``key``,
+# ``enabled`` and optional ``overrides``.
 #
 # Profiles can only override these sections:
 #   cache, scraper, security, domains, debug, browser, jobs
@@ -36,10 +39,11 @@ auth:
   default_profile: default
   expose_profile_in_response: false
   api_keys:
-    - name: default
-      key: ${SCRAPER_API_KEY}
-      description: Default internal client
-      enabled: true
+    - ${SCRAPER_API_KEY}
+    # - ${SCRAPER_API_KEY_PARTNER}
+    # - ${SCRAPER_API_KEY_BATCH}
+    #
+    # Future per-key profile configuration:
     # - name: exampleprofile
     #   key: ${SCRAPER_API_KEY_EXAMPLEPROFILE}
     #   description: Example profile

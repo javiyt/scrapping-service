@@ -43,6 +43,10 @@ class TestConfigDefaults:
         with pytest.raises(ValueError, match="must be changed from the default"):
             Settings(api_key="change-me")
 
+    def test_shared_api_keys_allow_default_legacy_key(self):
+        s = Settings(api_key="change-me", api_keys=["key-one", "key-two"])
+        assert s.api_keys == ["key-one", "key-two"]
+
 
 class TestConfigValidation:
     """Verify Pydantic validation works."""
@@ -172,6 +176,36 @@ class TestConfigFromYaml:
                     os.environ["SCRAPER_API_KEY"] = original_key
         finally:
             tmp.unlink(missing_ok=True)
+
+    def test_yaml_auth_block_allows_default_legacy_key(self, monkeypatch):
+        """auth.api_keys can be the only API key source."""
+        monkeypatch.setenv("SCRAPER_API_KEY", "change-me")
+        yaml_content = {
+            "auth": {
+                "api_keys": [
+                    "${SCRAPER_SHARED_KEY_ONE}",
+                    "${SCRAPER_SHARED_KEY_TWO}",
+                ]
+            }
+        }
+        monkeypatch.setenv("SCRAPER_SHARED_KEY_ONE", "shared-one")
+        monkeypatch.setenv("SCRAPER_SHARED_KEY_TWO", "shared-two")
+        tmp = Path(tempfile.mktemp(suffix=".yaml"))
+        try:
+            with open(tmp, "w") as f:
+                yaml.dump(yaml_content, f)
+
+            s = Settings.load(config_path=str(tmp))
+            assert s.api_key == "change-me"
+            assert s.raw_yaml_auth == {"api_keys": ["shared-one", "shared-two"]}
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def test_env_shared_api_keys_csv(self, monkeypatch):
+        monkeypatch.delenv("SCRAPER_API_KEY", raising=False)
+        monkeypatch.setenv("SCRAPER_API_KEYS", "key-one, key-two,,")
+        s = Settings.load()
+        assert s.api_keys == ["key-one", "key-two"]
 
     def test_domain_ttl(self):
         s = Settings(
