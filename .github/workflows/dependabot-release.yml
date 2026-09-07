@@ -1,0 +1,75 @@
+name: Dependabot Release
+
+on:
+  pull_request_target:
+    types:
+      - closed
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: dependabot-release-patch
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create patch release after Dependabot merge
+    runs-on: ubuntu-latest
+
+    if: >
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.repository == 'javiyt/scrapping-service' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main'
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Compute next patch tag
+        id: version
+        run: |
+          latest_tag="$(
+            git tag -l 'v[0-9]*.[0-9]*.[0-9]*' |
+              grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' |
+              sort -V |
+              tail -n 1
+          )"
+          if [ -z "$latest_tag" ]; then
+            latest_tag="v0.0.0"
+          fi
+
+          version="${latest_tag#v}"
+          IFS=. read -r major minor patch <<< "$version"
+          next_tag="v${major}.${minor}.$((patch + 1))"
+
+          echo "latest_tag=$latest_tag" >> "$GITHUB_OUTPUT"
+          echo "next_tag=$next_tag" >> "$GITHUB_OUTPUT"
+          echo "Next patch release: $next_tag"
+
+      - name: Create tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.next_tag }}" \
+            -m "Release ${{ steps.version.outputs.next_tag }}"
+          git push origin "${{ steps.version.outputs.next_tag }}"
+
+      - name: Create GitHub release
+        run: |
+          gh release create "${{ steps.version.outputs.next_tag }}" \
+            --title "${{ steps.version.outputs.next_tag }}" \
+            --notes "Automated patch release after merging Dependabot PR #${{ github.event.pull_request.number }}."
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Docker image for release tag
+        run: gh workflow run docker.yml --ref "${{ steps.version.outputs.next_tag }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

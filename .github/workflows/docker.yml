@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  workflow_dispatch:
 
 # cancel-in-progress is safe here: if two pushes race, only the latest image matters.
 # On tag pushes this rarely triggers since tags are unique.
