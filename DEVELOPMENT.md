@@ -118,7 +118,7 @@ The `--push` flag builds for both platforms and pushes the multi-arch manifest.
 
 ### CI-automated push (recommended)
 
-Every push to `main` or a tag matching `v*` triggers the
+Every push to `main`, manual dispatch, or tag matching `v*` triggers the
 [.github/workflows/docker.yml](.github/workflows/docker.yml) workflow, which:
 
 1. Builds for `linux/amd64` and `linux/arm64` simultaneously
@@ -162,6 +162,14 @@ then pull that exact version:
 ```bash
 ./scripts/deploy.sh javiyt@raspberry5 --tag v1.1.0 --with-env
 ```
+
+### Dependabot releases
+
+Dependabot version and security updates are grouped by ecosystem in
+[.github/dependabot.yml](.github/dependabot.yml). When a Dependabot PR targeting
+`main` is merged, [.github/workflows/dependabot-release.yml](.github/workflows/dependabot-release.yml)
+creates the next patch tag from the latest stable `vX.Y.Z` tag, creates a
+GitHub release, and dispatches the Docker workflow for that tag.
 
 ### Tag naming convention
 

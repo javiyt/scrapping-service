@@ -16,6 +16,24 @@ updates:
   - javiyt
   reviewers:
   - javiyt
+  groups:
+    python-minor-patch-updates:
+      applies-to: version-updates
+      patterns:
+      - "*"
+      update-types:
+      - minor
+      - patch
+    python-major-updates:
+      applies-to: version-updates
+      patterns:
+      - "*"
+      update-types:
+      - major
+    python-security-updates:
+      applies-to: security-updates
+      patterns:
+      - "*"
 - package-ecosystem: github-actions
   directory: "/"
   schedule:
@@ -31,6 +49,24 @@ updates:
   - javiyt
   reviewers:
   - javiyt
+  groups:
+    github-actions-minor-patch-updates:
+      applies-to: version-updates
+      patterns:
+      - "*"
+      update-types:
+      - minor
+      - patch
+    github-actions-major-updates:
+      applies-to: version-updates
+      patterns:
+      - "*"
+      update-types:
+      - major
+    github-actions-security-updates:
+      applies-to: security-updates
+      patterns:
+      - "*"
 - package-ecosystem: docker
   directory: "/"
   schedule:
@@ -46,3 +82,21 @@ updates:
   - javiyt
   reviewers:
   - javiyt
+  groups:
+    docker-minor-patch-updates:
+      applies-to: version-updates
+      patterns:
+      - "*"
+      update-types:
+      - minor
+      - patch
+    docker-major-updates:
+      applies-to: version-updates
+      patterns:
+      - "*"
+      update-types:
+      - major
+    docker-security-updates:
+      applies-to: security-updates
+      patterns:
+      - "*"
