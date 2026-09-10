@@ -99,12 +99,8 @@ class TestMakeCacheKey:
         assert base != with_cookie
 
     def test_different_cookie_values_different_keys(self):
-        key1 = make_cache_key(
-            "https://example.com", cookies=[{"name": "session", "value": "abc"}]
-        )
-        key2 = make_cache_key(
-            "https://example.com", cookies=[{"name": "session", "value": "xyz"}]
-        )
+        key1 = make_cache_key("https://example.com", cookies=[{"name": "session", "value": "abc"}])
+        key2 = make_cache_key("https://example.com", cookies=[{"name": "session", "value": "xyz"}])
         assert key1 != key2
 
     def test_cookie_key_order_independent(self):
@@ -126,21 +122,13 @@ class TestMakeCacheKey:
         assert base != with_header
 
     def test_different_header_values_different_keys(self):
-        key1 = make_cache_key(
-            "https://example.com", extra_headers={"Authorization": "Bearer abc"}
-        )
-        key2 = make_cache_key(
-            "https://example.com", extra_headers={"Authorization": "Bearer xyz"}
-        )
+        key1 = make_cache_key("https://example.com", extra_headers={"Authorization": "Bearer abc"})
+        key2 = make_cache_key("https://example.com", extra_headers={"Authorization": "Bearer xyz"})
         assert key1 != key2
 
     def test_cookies_and_headers_independently_change_key(self):
-        cookies_only = make_cache_key(
-            "https://example.com", cookies=[{"name": "s", "value": "1"}]
-        )
-        headers_only = make_cache_key(
-            "https://example.com", extra_headers={"X-Trace-Id": "1"}
-        )
+        cookies_only = make_cache_key("https://example.com", cookies=[{"name": "s", "value": "1"}])
+        headers_only = make_cache_key("https://example.com", extra_headers={"X-Trace-Id": "1"})
         both = make_cache_key(
             "https://example.com",
             cookies=[{"name": "s", "value": "1"}],

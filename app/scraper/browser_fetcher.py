@@ -239,9 +239,7 @@ class BrowserFetcher:
                     cdp.network.set_extra_http_headers(cdp.network.Headers(extra_headers))
                 )
             else:
-                driver.run_cdp_command(
-                    cdp.network.set_extra_http_headers(cdp.network.Headers({}))
-                )
+                driver.run_cdp_command(cdp.network.set_extra_http_headers(cdp.network.Headers({})))
         except Exception:
             logger.warning(
                 "Failed to reset/apply custom headers before browser fetch", exc_info=True
