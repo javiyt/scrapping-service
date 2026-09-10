@@ -173,11 +173,14 @@ Full API documentation is available at OpenAPI/Swagger format:
 
 The service provides interactive API documentation via FastAPI's built-in OpenAPI support. These endpoints consume the custom `openapi.yaml` definition:
 
-- **Swagger UI**: `http://localhost:8080/docs` — Interactive browser-based API explorer
-- **ReDoc**: `http://localhost:8080/redoc` — Clean, human-readable API documentation
-- **JSON schema**: `http://localhost:8080/openapi.json` — Machine-readable OpenAPI specification
+- **Swagger UI**: `GET /docs` — Interactive browser-based API explorer for checking parameters, request bodies, responses, and trying calls from the browser.
+- **ReDoc**: `GET /redoc` — Clean, human-readable API documentation.
+- **JSON schema**: `GET /openapi.json` — Machine-readable OpenAPI specification generated from the project `openapi.yaml`.
+- **YAML schema**: `GET /openapi.yaml` — Raw OpenAPI YAML specification served by the API.
 
 These endpoints use the custom `openapi.yaml` file from the project root, which defines all available endpoints with their request/response schemas, security requirements (Bearer authentication), and tags.
+
+When running locally, open <http://localhost:8080/docs> to browse the Swagger UI.
 
 ### `GET /health`
 

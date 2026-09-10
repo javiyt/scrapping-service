@@ -76,6 +76,35 @@ class TestHealthEndpoint:
         assert response.status_code == 200
 
 
+# =============================================================== API docs
+
+
+class TestDocumentationEndpoints:
+    def test_swagger_ui_is_available(self):
+        response = TestClient(app).get("/docs")
+
+        assert response.status_code == 200
+        assert "Swagger UI" in response.text
+        assert "/openapi.json" in response.text
+
+    def test_openapi_json_uses_project_spec(self):
+        response = TestClient(app).get("/openapi.json")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["openapi"] == "3.0.3"
+        assert data["info"]["title"] == "Scraper API"
+        assert "/v1/scrape" in data["paths"]
+
+    def test_openapi_yaml_is_available(self):
+        response = TestClient(app).get("/openapi.yaml")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/yaml")
+        assert "openapi: 3.0.3" in response.text
+        assert "/v1/scrape:" in response.text
+
+
 # =============================================================== Auth
 
 

@@ -3,12 +3,14 @@
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
 
 import yaml as pyyaml
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.api.dependencies import get_settings
 from app.api.routes import health_router, router
@@ -22,27 +24,23 @@ from app.metrics.prometheus import get_metrics
 from app.scraper.browser_pool import BrowserFetcherPool
 
 logger = logging.getLogger("scraper-api")
+OPENAPI_YAML_PATH = Path(__file__).resolve().parents[1] / "openapi.yaml"
 
 
-def custom_openapi_schema(app: FastAPI) -> dict[str, any]:
+def custom_openapi_schema(app: FastAPI) -> dict[str, Any]:
     """Load and return OpenAPI schema from openapi.yaml file."""
+    if app.openapi_schema:
+        return app.openapi_schema
+
     try:
-        with open("openapi.yaml", encoding="utf-8") as f:
+        with OPENAPI_YAML_PATH.open(encoding="utf-8") as f:
             schema = pyyaml.safe_load(f)
-        return dict(schema)
+        app.openapi_schema = dict(schema)
     except FileNotFoundError:
         # Fall back to FastAPI's default schema if openapi.yaml doesn't exist
-        return get_openapi(title=app.title, version=app.version, routes=app.routes)
+        app.openapi_schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
 
-
-def app_openapi_schema(app: FastAPI) -> any:
-    """Override OpenAPI schema with custom file-based schema."""
-    try:
-        with open("openapi.yaml", encoding="utf-8") as f:
-            return pyyaml.safe_load(f)
-    except FileNotFoundError:
-        # Fall back to FastAPI's default schema if openapi.yaml doesn't exist
-        return get_openapi(title=app.title, version=app.version, routes=app.routes)
+    return app.openapi_schema
 
 
 @asynccontextmanager
@@ -149,7 +147,13 @@ app.include_router(health_router, tags=["Health"])
 app.include_router(router)
 
 # Register custom OpenAPI schema for /docs and /redoc
-app.openapi_schema = custom_openapi_schema(app)
+app.openapi = lambda: custom_openapi_schema(app)  # type: ignore[method-assign]
+
+
+@app.get("/openapi.yaml", include_in_schema=False)
+async def openapi_yaml() -> FileResponse:
+    """Return the source OpenAPI YAML specification."""
+    return FileResponse(OPENAPI_YAML_PATH, media_type="application/yaml")
 
 
 # ------------------------------------------------------- global exception handler
