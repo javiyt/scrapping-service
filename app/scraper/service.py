@@ -26,7 +26,9 @@ from app.core.security import (
 from app.metrics.prometheus import get_metrics
 from app.scraper.browser_fetcher import BrowserFetcher
 from app.scraper.browser_pool import BrowserFetcherPool
+from app.scraper.cookies import cookies_for_url, parse_cookie_config
 from app.scraper.domain_policy import DomainRateLimiter
+from app.scraper.headers import parse_header_config
 from app.scraper.http_fetcher import FetchResult, HttpFetcher
 from app.scraper.normalizer import make_cache_key
 
@@ -190,6 +192,8 @@ class ScraperService:
         scroll_config: dict[str, Any] | None = None,
         debug_config: dict[str, Any] | None = None,
         proxy_config: dict[str, Any] | None = None,
+        cookie_config: dict[str, Any] | None = None,
+        header_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Scrape a single URL and return the result dictionary.
 
@@ -204,12 +208,21 @@ class ScraperService:
             scroll_config: Scrolling configuration.
             debug_config: Debug output controls (``screenshot``, ``html_dump``).
             proxy_config: Per-request proxy configuration.
+            cookie_config: Per-request cookies in Cookie-header or Netscape format.
+                Folded into the cache key so different cookies never share
+                a cached response.
+            header_config: Per-request custom headers (allowlisted names only).
+                Folded into the cache key so different headers never share
+                a cached response.
 
         Returns:
             Dict ready for JSON serialisation.
         """
         # ---- 0. Resolve proxy
         effective_proxy = self._resolve_proxy(proxy_config)
+        parsed_cookies = parse_cookie_config(cookie_config)
+        request_cookies = cookies_for_url(parsed_cookies, url)
+        extra_headers = parse_header_config(header_config)
         metrics = get_metrics()
 
         # ---- 1. Validate URL
@@ -226,7 +239,10 @@ class ScraperService:
         domain_ttl = self.settings.get_domain_ttl(domain)
 
         # ---- 3. Cache check
-        cache_key = make_cache_key(url)
+        # The cache key folds in cookies/custom headers so that requests with
+        # different (or no) credentials never share a cache entry, while
+        # identical requests can still hit the cache instead of re-fetching.
+        cache_key = make_cache_key(url, request_cookies, extra_headers)
         cached: Any = None
 
         if not force_refresh:
@@ -257,6 +273,8 @@ class ScraperService:
                     timeout_seconds,
                     domain,
                     proxy_url=effective_proxy,
+                    cookies=request_cookies,
+                    extra_headers=extra_headers,
                 )
             elif mode == "browser":
                 result = await self._fetch_browser(
@@ -267,12 +285,19 @@ class ScraperService:
                     scroll_config or {},
                     debug_config or {},
                     proxy_url=effective_proxy,
+                    cookies=request_cookies,
+                    extra_headers=extra_headers,
                 )
             else:  # auto
                 # Try HTTP first.
                 try:
                     result = await self._fetch_http(
-                        url, timeout_seconds, domain, proxy_url=effective_proxy
+                        url,
+                        timeout_seconds,
+                        domain,
+                        proxy_url=effective_proxy,
+                        cookies=request_cookies,
+                        extra_headers=extra_headers,
                     )
                     if self._looks_blocked(result):
                         logger.info(
@@ -286,6 +311,8 @@ class ScraperService:
                             scroll_config or {},
                             debug_config or {},
                             proxy_url=effective_proxy,
+                            cookies=request_cookies,
+                            extra_headers=extra_headers,
                         )
                         used_mode = "browser"
                     else:
@@ -301,6 +328,8 @@ class ScraperService:
                             scroll_config or {},
                             debug_config or {},
                             proxy_url=effective_proxy,
+                            cookies=request_cookies,
+                            extra_headers=extra_headers,
                         )
                         used_mode = "browser"
                     except (BrowserError, ImportError) as browser_exc:
@@ -344,7 +373,9 @@ class ScraperService:
             logger.warning("Truncating HTML for %s (%d bytes > %d limit)", url, len(html), max_size)
             html = html[:max_size]
 
-        expires_at = datetime.now(UTC) + timedelta(seconds=ttl) if ttl > 0 else None
+        expires_at = None
+        if ttl > 0:
+            expires_at = datetime.now(UTC) + timedelta(seconds=ttl)
         entry = CacheEntry(
             cache_key=cache_key,
             url=url,
@@ -376,6 +407,8 @@ class ScraperService:
         timeout: int | None,
         domain: str,
         proxy_url: str | None = None,
+        cookies: list[dict] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> FetchResult:
         return await self.http_fetcher.fetch(
             url=url,
@@ -383,6 +416,8 @@ class ScraperService:
             domain_limiter=self.rate_limiter,
             domain=domain or None,
             proxy_url=proxy_url,
+            cookies=cookies,
+            extra_headers=extra_headers,
         )
 
     async def _fetch_browser(
@@ -394,6 +429,8 @@ class ScraperService:
         scroll_config: dict[str, Any],
         debug_config: dict[str, Any],
         proxy_url: str | None = None,
+        cookies: list[dict] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> FetchResult:
         screenshot_path: str | None = None
         if debug_config.get("screenshot", False):
@@ -409,6 +446,8 @@ class ScraperService:
             scroll_config=scroll_config,
             screenshot_path=screenshot_path,
             proxy_url=proxy_url,
+            cookies=cookies,
+            extra_headers=extra_headers,
         )
 
     def _looks_blocked(self, result: FetchResult) -> bool:

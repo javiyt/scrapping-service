@@ -150,6 +150,8 @@ async def scrape_url(
             scroll_config=request.scroll.model_dump(),
             debug_config=request.debug.model_dump(),
             proxy_config=request.proxy.model_dump(),
+            cookie_config=request.cookies.model_dump(),
+            header_config=request.headers.model_dump(),
         )
 
         elapsed = int((time.monotonic() - start) * 1000)
@@ -225,6 +227,8 @@ async def scrape_url_v2(
             scroll_config=request.scroll.model_dump(),
             debug_config=request.debug.model_dump(),
             proxy_config=request.proxy.model_dump(),
+            cookie_config=request.cookies.model_dump(),
+            header_config=request.headers.model_dump(),
         )
 
         elapsed = int((time.monotonic() - start) * 1000)
@@ -307,6 +311,8 @@ async def scrape_batch(
                     scroll_config=item.scroll.model_dump(),
                     debug_config=item.debug.model_dump(),
                     proxy_config=item.proxy.model_dump(),
+                    cookie_config=item.cookies.model_dump(),
+                    header_config=item.headers.model_dump(),
                 )
                 if item.extract.enabled and item.extract.fields:
                     metrics_collector.inc("extraction_requests_total")
@@ -562,6 +568,8 @@ async def create_job(
         "scroll_config": request.scroll.model_dump(),
         "debug_config": request.debug.model_dump(),
         "proxy_config": request.proxy.model_dump(),
+        "cookie_config": request.cookies.model_dump(),
+        "header_config": request.headers.model_dump(),
     }
 
     job = await jobs.create_job(
@@ -607,6 +615,8 @@ async def create_job_v2(
         "scroll_config": request.scroll.model_dump(),
         "debug_config": request.debug.model_dump(),
         "proxy_config": request.proxy.model_dump(),
+        "cookie_config": request.cookies.model_dump(),
+        "header_config": request.headers.model_dump(),
     }
 
     job = await jobs.create_job(

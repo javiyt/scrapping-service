@@ -39,6 +39,11 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
 - **Full API** — scrape, batch scrape, cache management, health checks.
 - **Optional proxy support** — global or per-request proxy (HTTP, HTTPS, SOCKS5)
   with credential redaction, private-host blocking, and override controls.
+- **Per-request cookies** — send a standard Cookie header or full Netscape
+  `cookies.txt` content for authenticated scraping without caching the result.
+- **Per-request custom headers** — send an allowlisted set of headers
+  (`Authorization`, `Referer`, `Accept-Language`, `Origin`, or any `X-`
+  prefixed header) without caching the result.
 
 ---
 
@@ -120,7 +125,7 @@ python app/run.py --port 9090  # Runs on 9090, not 8080
 
 **Available CLI options:**
 
-```
+```text
 --port PORT                    Port to listen on (default: 8080)
 --log-level LEVEL              Log level (accepts any case: info, INFO, Debug, etc.)
 --timeout-keep-alive SECONDS   Keep-alive timeout (default: 30)
@@ -162,7 +167,7 @@ docker run -d \
 Full API documentation is available at OpenAPI/Swagger format:
 
 - [`openapi.yaml`](openapi.yaml) — Full OpenAPI 3.x specification (JSON/YAML format)
-- Swagger UI: http://localhost:8080/docs (when running locally)
+- Swagger UI: <http://localhost:8080/docs> (when running locally)
 
 ## Documentation endpoints
 
@@ -245,6 +250,11 @@ Per-request proxy example (requires ``proxy.allow_request_override: true``):
     "enabled": true,
     "url": "http://user:pass@residential-proxy.example:8080",
     "country": "ES"
+  },
+  "cookies": {
+    "enabled": false,
+    "header": null,
+    "netscape": null
   }
 }
 ```
@@ -271,6 +281,66 @@ Response:
   }
 }
 ```
+
+Per-request cookies can be sent either as a raw Cookie header:
+
+```json
+{
+  "url": "https://x.com/some/page",
+  "mode": "http",
+  "cookies": {
+    "enabled": true,
+    "header": "auth_token=abc; ct0=def"
+  }
+}
+```
+
+Or as the full contents of a Netscape `cookies.txt` export:
+
+```json
+{
+  "url": "https://x.com/some/page",
+  "mode": "browser",
+  "cookies": {
+    "enabled": true,
+    "netscape": "# Netscape HTTP Cookie File\n.x.com\tTRUE\t/\tTRUE\t1820581233\tauth_token\tabc\n.x.com\tTRUE\t/\tTRUE\t1823259634\tct0\tdef"
+  }
+}
+```
+
+When cookies are provided, the service filters them to the requested domain
+and includes a hash of the resulting cookies in the cache key. This means the
+same URL scraped with different cookies (or no cookies) never shares a cached
+response, while repeated requests with the *same* cookies still benefit from
+caching instead of re-fetching every time.
+
+Per-request custom headers can be sent through the `headers` field. Only an
+allowlisted set of standard headers plus any `X-`-prefixed custom header is
+accepted — this prevents the service from being used to forge or smuggle
+headers (`Host`, `Content-Length`, `Cookie`, `Connection`, etc.) against the
+target site. Header values may not contain control characters (`\r`, `\n`,
+`\0`), and requests are limited to 20 headers of up to 4000 characters each.
+
+```json
+{
+  "url": "https://api.example.com/data",
+  "mode": "http",
+  "headers": {
+    "enabled": true,
+    "values": {
+      "Authorization": "Bearer <token>",
+      "X-Requested-With": "XMLHttpRequest"
+    }
+  }
+}
+```
+
+Allowed standard header names: `authorization`, `referer`, `accept-language`,
+`origin` (case-insensitive), plus any header name starting with `X-`. Any
+other header name is rejected with a `422` response. As with cookies, a hash
+of the custom headers is folded into the cache key, so requests with
+different headers get separate cache entries instead of colliding or
+bypassing the cache.
 
 ### `POST /v1/scrape/batch`
 
@@ -310,24 +380,24 @@ environment variable overrides on top.
 
 ### Environment variables
 
-| Variable                            | Default                  | Description                               |
-|-------------------------------------|--------------------------|-------------------------------------------|
-| `SCRAPER_API_KEY`                   | `change-me`              | API key for auth (legacy single-key mode) |
-| `SCRAPER_API_KEYS`                  | —                        | Comma-separated API keys sharing the global config |
-| `SCRAPER_API_KEY_EXAMPLEPROFILE`    | —                        | API key for the ``exampleprofile`` profile |
-| `SCRAPER_API_KEY_DEBUG`             | —                        | API key for the ``debug`` profile         |
-| `SCRAPER_SERVER_HOST`               | `0.0.0.0`                | Bind address                              |
-| `SCRAPER_SERVER_PORT`               | `8080`                   | HTTP port                                 |
-| `SCRAPER_CACHE_SQLITE_PATH`         | `/data/scraper-cache.db` | Cache database path                       |
-| `SCRAPER_CACHE_DEFAULT_TTL_SECONDS` | `21600`                  | Default cache TTL (6 hours)               |
-| `SCRAPER_SCRAPER_MAX_CONCURRENCY`   | `1`                      | Server-side scrape concurrency cap        |
-| `SCRAPER_BROWSER_IDLE_TIMEOUT_SECONDS` | `300`                 | Seconds before idle Chromium is released  |
-| `SCRAPER_BROWSER_MAX_USES`          | —                        | Optional browser recycle count            |
-| `SCRAPER_BROWSER_MAX_POOL_SIZE`     | `1`                      | Max resident browser configurations       |
-| `LOG_LEVEL`                         | `info`                   | Log level (info, debug, warning, error, critical, trace) — case-insensitive |
-| `TIMEOUT_KEEP_ALIVE`                | `30`                     | Uvicorn keep-alive timeout (seconds)      |
-| `LIMIT_MAX_REQUESTS`                | `5000`                   | Max requests per worker before restart    |
-| `CONFIG_PATH`                       | —                        | Path to YAML config file                  |
+| Variable                               | Default                  | Description                                                                 |
+|----------------------------------------|--------------------------|-----------------------------------------------------------------------------|
+| `SCRAPER_API_KEY`                      | `change-me`              | API key for auth (legacy single-key mode)                                   |
+| `SCRAPER_API_KEYS`                     | —                        | Comma-separated API keys sharing the global config                          |
+| `SCRAPER_API_KEY_EXAMPLEPROFILE`       | —                        | API key for the ``exampleprofile`` profile                                  |
+| `SCRAPER_API_KEY_DEBUG`                | —                        | API key for the ``debug`` profile                                           |
+| `SCRAPER_SERVER_HOST`                  | `0.0.0.0`                | Bind address                                                                |
+| `SCRAPER_SERVER_PORT`                  | `8080`                   | HTTP port                                                                   |
+| `SCRAPER_CACHE_SQLITE_PATH`            | `/data/scraper-cache.db` | Cache database path                                                         |
+| `SCRAPER_CACHE_DEFAULT_TTL_SECONDS`    | `21600`                  | Default cache TTL (6 hours)                                                 |
+| `SCRAPER_SCRAPER_MAX_CONCURRENCY`      | `1`                      | Server-side scrape concurrency cap                                          |
+| `SCRAPER_BROWSER_IDLE_TIMEOUT_SECONDS` | `300`                    | Seconds before idle Chromium is released                                    |
+| `SCRAPER_BROWSER_MAX_USES`             | —                        | Optional browser recycle count                                              |
+| `SCRAPER_BROWSER_MAX_POOL_SIZE`        | `1`                      | Max resident browser configurations                                         |
+| `LOG_LEVEL`                            | `info`                   | Log level (info, debug, warning, error, critical, trace) — case-insensitive |
+| `TIMEOUT_KEEP_ALIVE`                   | `30`                     | Uvicorn keep-alive timeout (seconds)                                        |
+| `LIMIT_MAX_REQUESTS`                   | `5000`                   | Max requests per worker before restart                                      |
+| `CONFIG_PATH`                          | —                        | Path to YAML config file                                                    |
 
 ### YAML config
 
@@ -1116,7 +1186,7 @@ Possible ``status`` values:
 | ``queued``    | Waiting for a worker to pick it up      |
 | ``running``   | Being processed by a worker             |
 | ``succeeded`` | Completed successfully — ``result`` set |
-| ``failed``   | An error occurred — ``error`` set       |
+| ``failed``    | An error occurred — ``error`` set       |
 | ``cancelled`` | Cancelled before processing started     |
 
 ### Cancelling a job
@@ -1133,7 +1203,7 @@ POST /v1/jobs/job_abc123.../cancel
 }
 ```
 
-### Configuration
+### Jobs Configuration
 
 Add a ``jobs`` section to ``config.yaml``:
 
@@ -1147,22 +1217,22 @@ jobs:
 
 Or set environment variables with the ``SCRAPER_JOBS_`` prefix:
 
-| Variable                          | Default  | Description                         |
-|-----------------------------------|----------|-------------------------------------|
-| ``SCRAPER_JOBS_ENABLED``          | ``true``  | Master switch for the job service   |
-| ``SCRAPER_JOBS_MAX_RETAINED``     | ``500``   | Maximum jobs held in memory         |
-| ``SCRAPER_JOBS_MAX_CONCURRENCY``  | ``2``     | Worker pool size                    |
-| ``SCRAPER_JOBS_RESULT_TTL_SECONDS`` | ``86400`` | Result retention window (24 hours)  |
+| Variable                            | Default   | Description                        |
+|-------------------------------------|-----------|------------------------------------|
+| ``SCRAPER_JOBS_ENABLED``            | ``true``  | Master switch for the job service  |
+| ``SCRAPER_JOBS_MAX_RETAINED``       | ``500``   | Maximum jobs held in memory        |
+| ``SCRAPER_JOBS_MAX_CONCURRENCY``    | ``2``     | Worker pool size                   |
+| ``SCRAPER_JOBS_RESULT_TTL_SECONDS`` | ``86400`` | Result retention window (24 hours) |
 
 ### Limitations
 
-* **In-memory only.** Jobs are **not durable** across service restarts.
+- **In-memory only.** Jobs are **not durable** across service restarts.
   All queued, running, and completed jobs are lost when the service stops.
-* **Result TTL.** Completed jobs are kept for ``result_ttl_seconds``.
+- **Result TTL.** Completed jobs are kept for ``result_ttl_seconds``.
   After that they become eligible for eviction by the retention policy.
-* **Retention cap.** Once the total exceeds ``max_retained``, the oldest
+- **Retention cap.** Once the total exceeds ``max_retained``, the oldest
   finished jobs are automatically removed to stay under the limit.
-* **Raspberry Pi.** Keep ``jobs.max_concurrency`` low (1–2) on resource-constrained devices.  Each worker shares the Redis-free scraper pool.
+- **Raspberry Pi.** Keep ``jobs.max_concurrency`` low (1–2) on resource-constrained devices.  Each worker shares the Redis-free scraper pool.
   Set ``browser.idle_timeout_seconds`` to a low value such as ``60`` if you want
   Chromium processes to disappear quickly after browser-mode scrapes finish.
 
@@ -1284,35 +1354,35 @@ Error types:
 
 ---
 
-## Metrics
+## Metrics endpoint
 
 The `/metrics` endpoint exposes simple counters in Prometheus text format:
 
-| Metric                   | Type    | Description                 |
-|--------------------------|---------|-----------------------------|
-| `scraper_up`             | gauge   | 1 = service up, 0 = down    |
-| `scrape_requests_total`  | counter | All scrape requests         |
-| `scrape_success_total`   | counter | Successful scrapes          |
-| `scrape_error_total`     | counter | Failed scrapes              |
-| `extraction_requests_total` | counter | Extraction requests      |
-| `extraction_success_total`  | counter | Successful extractions   |
-| `extraction_error_total`    | counter | Failed extractions       |
-| `jobs_created_total`    | counter | Async jobs created            |
-| `jobs_running`          | gauge   | Currently running jobs        |
-| `jobs_succeeded_total`  | counter | Successful jobs               |
-| `jobs_failed_total`     | counter | Failed jobs                   |
-| `jobs_cancelled_total`  | counter | Cancelled jobs                |
-| `jobs_queue_size`       | gauge   | Jobs waiting in the queue     |
-| `extraction_success_total`  | counter | Successful extractions      |
-| `extraction_error_total`    | counter | Failed extractions          |
-| `cache_hits_total`       | counter | Cache hits                  |
-| `cache_misses_total`     | counter | Cache misses                |
-| `cache_stale_hits_total` | counter | Stale cache served on error |
-| `scrape_duration_ms_sum` | counter | Total scrape duration (ms)  |
-| `auth_requests_total`    | counter | Total authenticated requests    |
-| `auth_failures_total`    | counter | Total authentication failures   |
-| `proxy_requests_total`   | counter | Requests routed through a proxy |
-| `proxy_errors_total`     | counter | Proxy-related errors            |
+| Metric                      | Type    | Description                     |
+|-----------------------------|---------|---------------------------------|
+| `scraper_up`                | gauge   | 1 = service up, 0 = down        |
+| `scrape_requests_total`     | counter | All scrape requests             |
+| `scrape_success_total`      | counter | Successful scrapes              |
+| `scrape_error_total`        | counter | Failed scrapes                  |
+| `extraction_requests_total` | counter | Extraction requests             |
+| `extraction_success_total`  | counter | Successful extractions          |
+| `extraction_error_total`    | counter | Failed extractions              |
+| `jobs_created_total`        | counter | Async jobs created              |
+| `jobs_running`              | gauge   | Currently running jobs          |
+| `jobs_succeeded_total`      | counter | Successful jobs                 |
+| `jobs_failed_total`         | counter | Failed jobs                     |
+| `jobs_cancelled_total`      | counter | Cancelled jobs                  |
+| `jobs_queue_size`           | gauge   | Jobs waiting in the queue       |
+| `extraction_success_total`  | counter | Successful extractions          |
+| `extraction_error_total`    | counter | Failed extractions              |
+| `cache_hits_total`          | counter | Cache hits                      |
+| `cache_misses_total`        | counter | Cache misses                    |
+| `cache_stale_hits_total`    | counter | Stale cache served on error     |
+| `scrape_duration_ms_sum`    | counter | Total scrape duration (ms)      |
+| `auth_requests_total`       | counter | Total authenticated requests    |
+| `auth_failures_total`       | counter | Total authentication failures   |
+| `proxy_requests_total`      | counter | Requests routed through a proxy |
+| `proxy_errors_total`        | counter | Proxy-related errors            |
 
 ---
 

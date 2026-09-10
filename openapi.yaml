@@ -187,6 +187,41 @@ components:
           type: string
           description: Country hint for proxy provider
 
+    CookieConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+          description: Master toggle for per-request cookies
+        header:
+          type: string
+          maxLength: 20000
+          nullable: true
+          description: Raw Cookie header value, e.g. session=abc; theme=dark
+        netscape:
+          type: string
+          maxLength: 200000
+          nullable: true
+          description: Full Netscape cookies.txt content
+
+    HeaderConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+          description: Master toggle for per-request custom headers
+        values:
+          type: object
+          additionalProperties:
+            type: string
+          description: >-
+            Header name/value pairs. Allowed names: authorization, referer,
+            accept-language, origin, or any name prefixed with 'X-'. Values
+            may not contain control characters (CR/LF/NUL) and are limited
+            to 4000 characters; at most 20 headers are allowed.
+
     ScrollConfig:
       type: object
       properties:
@@ -257,6 +292,10 @@ components:
           description: Maximum time to wait for page load
         proxy:
           $ref: '#/components/schemas/ProxyConfig'
+        cookies:
+          $ref: '#/components/schemas/CookieConfig'
+        headers:
+          $ref: '#/components/schemas/HeaderConfig'
         scroll:
           $ref: '#/components/schemas/ScrollConfig'
         debug:
@@ -406,6 +445,10 @@ components:
           default: 45
         proxy:
           $ref: '#/components/schemas/ProxyConfig'
+        cookies:
+          $ref: '#/components/schemas/CookieConfig'
+        headers:
+          $ref: '#/components/schemas/HeaderConfig'
         scroll:
           $ref: '#/components/schemas/ScrollConfig'
         debug:
