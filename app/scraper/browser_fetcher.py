@@ -258,7 +258,7 @@ class BrowserFetcher:
 
         # Wait for a specific CSS selector if provided.
         if wait_selector:
-            driver.wait_for_element(wait_selector, timeout=timeout)
+            driver.wait_for_element(wait_selector, wait=timeout)
 
         # ---- Wait for JavaScript challenges to resolve
         # Some CDNs / WAFs (Akamai, Cloudflare, etc.) serve a challenge page
