@@ -166,6 +166,7 @@ docker run -d \
 
 Full API documentation is available at OpenAPI/Swagger format:
 
+- Documentation site: <https://javi.yt/scrapping-service/>
 - [`openapi.yaml`](openapi.yaml) — Full OpenAPI 3.x specification (JSON/YAML format)
 - Swagger UI: <http://localhost:8080/docs> (when running locally)
 
