@@ -30,6 +30,19 @@ python app/run.py --port 9090 --log-level debug
 python app/run.py --reload  # Enable auto-reload on file changes
 ```
 
+### Documentation site
+
+The static documentation site is built with MkDocs and deployed to GitHub Pages.
+
+```bash
+pip install -r requirements-docs.txt
+make docs-serve
+```
+
+`make docs-serve` copies the root `openapi.yaml` into `docs/openapi.yaml` before
+starting MkDocs so the API reference page renders the same specification used by
+the service.
+
 ### Configuration: CLI arguments, environment variables, or defaults
 
 The `app/run.py` wrapper supports multiple configuration methods (CLI args take priority):
