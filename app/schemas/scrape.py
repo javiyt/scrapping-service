@@ -5,6 +5,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.scraper.headers import (
+    MAX_HEADERS,
+    validate_header_name,
+    validate_header_value,
+)
+
 
 # ========================================================= ExtractField
 class ExtractField(BaseModel):
@@ -181,6 +187,75 @@ class ProxyConfig(BaseModel):
     )
 
 
+# ================================================================== Cookies
+class CookieConfig(BaseModel):
+    """Optional cookies to send only for the current scrape request.
+
+    ``header`` accepts a standard Cookie header value such as ``a=1; b=2``.
+    ``netscape`` accepts the full contents of a Netscape ``cookies.txt`` file.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Master toggle for this cookie configuration.",
+    )
+    header: str | None = Field(
+        default=None,
+        max_length=20000,
+        description="Raw Cookie header value, e.g. ``session=abc; theme=dark``.",
+    )
+    netscape: str | None = Field(
+        default=None,
+        max_length=200000,
+        description="Full Netscape cookies.txt content.",
+    )
+
+    @model_validator(mode="after")
+    def _check_cookie_source(self) -> "CookieConfig":
+        if not self.enabled:
+            return self
+        if bool(self.header) == bool(self.netscape):
+            raise ValueError("Enable cookies with exactly one of: header or netscape")
+        return self
+
+
+# ================================================================== Headers
+class HeaderConfig(BaseModel):
+    """Optional custom HTTP headers sent only for the current scrape request.
+
+    Only an allowlisted set of standard headers plus any ``X-``-prefixed
+    custom header may be set — this prevents the service from being used to
+    smuggle or forge headers (``Host``, ``Content-Length``, ``Cookie``, etc.)
+    against the target site.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Master toggle for this header configuration.",
+    )
+    values: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Header name/value pairs. Allowed names: authorization, referer, "
+            "accept-language, origin, or any name prefixed with 'X-'."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _check_headers(self) -> "HeaderConfig":
+        if not self.enabled:
+            return self
+        if not self.values:
+            raise ValueError("Enable headers with at least one entry in 'values'")
+        if len(self.values) > MAX_HEADERS:
+            raise ValueError(f"At most {MAX_HEADERS} custom headers are allowed")
+        for name, value in self.values.items():
+            error = validate_header_name(name) or validate_header_value(name, value)
+            if error:
+                raise ValueError(error)
+        return self
+
+
 # =================================================================== Scroll
 class ScrollConfig(BaseModel):
     """Scrolling behaviour for JavaScript-rendered pages."""
@@ -247,6 +322,24 @@ class ScrapeRequest(BaseModel):
         description="Optional proxy configuration for this request.",
     )
 
+    cookies: CookieConfig = Field(
+        default_factory=CookieConfig,
+        description=(
+            "Optional cookies sent only for this request. The cache key is scoped to the "
+            "cookies used, so different credentials never share a cached response."
+        ),
+    )
+
+    headers: HeaderConfig = Field(
+        default_factory=HeaderConfig,
+        description=(
+            "Optional custom headers sent only for this request. Allowlisted names only "
+            "(authorization, referer, accept-language, origin, or any X- prefixed header). "
+            "The cache key is scoped to the headers used, so different credentials never "
+            "share a cached response."
+        ),
+    )
+
     scroll: ScrollConfig = Field(default_factory=ScrollConfig)
 
     debug: DebugConfig = Field(default_factory=DebugConfig)
@@ -285,6 +378,8 @@ class BatchItem(BaseModel):
     wait_selector: str | None = Field(default=None, max_length=500)
     timeout_seconds: int = Field(default=90, ge=5, le=180)
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
+    cookies: CookieConfig = Field(default_factory=CookieConfig)
+    headers: HeaderConfig = Field(default_factory=HeaderConfig)
     scroll: ScrollConfig = Field(default_factory=ScrollConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)
     normalize: NormalizeConfig = Field(default_factory=NormalizeConfig)

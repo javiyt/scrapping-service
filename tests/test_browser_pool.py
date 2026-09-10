@@ -151,6 +151,7 @@ def test_browser_fetcher_max_uses_recycles_driver_after_fetch():
             None,
             {},
             None,
+            [],
         )
 
     assert returned is result

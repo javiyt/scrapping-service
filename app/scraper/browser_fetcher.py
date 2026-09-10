@@ -12,6 +12,7 @@ import threading
 import time
 from typing import Any
 
+from app.scraper.cookies import browser_cookie_dicts
 from app.scraper.http_fetcher import FetchResult
 
 logger = logging.getLogger("scraper-api.fetcher.browser")
@@ -113,6 +114,8 @@ class BrowserFetcher:
         scroll_config: dict[str, Any] | None = None,
         screenshot_path: str | None = None,
         proxy_url: str | None = None,
+        cookies: list[dict] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> FetchResult:
         """Fetch a URL with browser rendering.
 
@@ -126,6 +129,9 @@ class BrowserFetcher:
             proxy_url: Proxy URL override.  Only supported when set at
                 construction time — per-request proxy overrides are **not**
                 supported for the browser fetcher and will be silently ignored.
+            cookies: Optional browser cookie dictionaries for this request.
+            extra_headers: Allowlisted custom headers applied via CDP for
+                this request only.
 
         Returns:
             A :class:`FetchResult` with the full rendered HTML.
@@ -162,6 +168,8 @@ class BrowserFetcher:
             wait_selector,
             scroll_config or {},
             screenshot_path,
+            cookies or [],
+            extra_headers or {},
         )
         return result
 
@@ -175,6 +183,8 @@ class BrowserFetcher:
         wait_selector: str | None,
         scroll_config: dict[str, Any],
         screenshot_path: str | None,
+        cookies: list[dict],
+        extra_headers: dict[str, str] | None = None,
     ) -> FetchResult:
         """Synchronous browser-fetch (runs in thread-pool)."""
         with self._lock:
@@ -187,6 +197,8 @@ class BrowserFetcher:
                     wait_selector,
                     scroll_config,
                     screenshot_path,
+                    cookies,
+                    extra_headers,
                 )
             finally:
                 if self._driver is not None:
@@ -204,10 +216,34 @@ class BrowserFetcher:
         wait_selector: str | None,
         scroll_config: dict[str, Any],
         screenshot_path: str | None,
+        cookies: list[dict],
+        extra_headers: dict[str, str] | None = None,
     ) -> FetchResult:
         """Synchronous browser-fetch with exclusive driver access."""
         start = time.monotonic()
         driver = self.driver
+
+        try:
+            driver.delete_cookies()
+            if cookies:
+                driver.add_cookies(browser_cookie_dicts(cookies))
+        except Exception:
+            logger.warning("Failed to reset/apply cookies before browser fetch", exc_info=True)
+
+        try:
+            from botasaurus_driver import cdp
+
+            if extra_headers:
+                driver.run_cdp_command(cdp.network.enable())
+                driver.run_cdp_command(
+                    cdp.network.set_extra_http_headers(cdp.network.Headers(extra_headers))
+                )
+            else:
+                driver.run_cdp_command(cdp.network.set_extra_http_headers(cdp.network.Headers({})))
+        except Exception:
+            logger.warning(
+                "Failed to reset/apply custom headers before browser fetch", exc_info=True
+            )
 
         # Navigate to the URL.
         driver.get(url)

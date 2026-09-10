@@ -11,6 +11,7 @@ import time
 import httpx
 
 from app.core.errors import HttpError, TimeoutError
+from app.scraper.cookies import cookie_header_dict
 from app.scraper.domain_policy import DomainRateLimiter
 
 logger = logging.getLogger("scraper-api.fetcher.http")
@@ -74,6 +75,8 @@ class HttpFetcher:
         domain_limiter: DomainRateLimiter | None = None,
         domain: str | None = None,
         proxy_url: str | None = None,
+        cookies: list[dict] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> FetchResult:
         """Perform an HTTP GET and return the response content.
 
@@ -82,6 +85,8 @@ class HttpFetcher:
             timeout_seconds: Override the default timeout.
             domain_limiter: Optional rate limiter to check before sending.
             domain: Domain for rate-limiting purposes.
+            extra_headers: Allowlisted custom headers to merge on top of the
+                default headers (may override e.g. ``Accept-Language``).
 
         Raises:
             TimeoutError: Request exceeded the timeout.
@@ -93,7 +98,13 @@ class HttpFetcher:
 
         try:
             async with self._semaphore:
-                return await self._do_fetch(url, timeout_seconds, proxy_url or self._proxy_url)
+                return await self._do_fetch(
+                    url,
+                    timeout_seconds,
+                    proxy_url or self._proxy_url,
+                    cookies=cookies,
+                    extra_headers=extra_headers,
+                )
         finally:
             if domain_limiter and domain:
                 domain_limiter.release(domain)
@@ -103,6 +114,8 @@ class HttpFetcher:
         url: str,
         timeout_seconds: int | None = None,
         proxy_url: str | None = None,
+        cookies: list[dict] | None = None,
+        extra_headers: dict[str, str] | None = None,
     ) -> FetchResult:
         raw_timeout = timeout_seconds or self._timeout
         headers = {
@@ -110,6 +123,8 @@ class HttpFetcher:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
+        if extra_headers:
+            headers.update(extra_headers)
 
         # Use separate timeouts so a slow page download doesn't eat into
         # the connect or pool budget.
@@ -138,7 +153,11 @@ class HttpFetcher:
 
         try:
             async with httpx.AsyncClient(**client_kwargs) as client:
-                response = await client.get(url, headers=headers)
+                response = await client.get(
+                    url,
+                    headers=headers,
+                    cookies=cookie_header_dict(cookies) if cookies else None,
+                )
         except _HTTPX_TIMEOUT_EXCEPTIONS as exc:
             elapsed = int((time.monotonic() - start) * 1000)
             proxy_info = " via proxy" if proxy_url else ""
