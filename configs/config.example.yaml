@@ -164,5 +164,12 @@ debug:
   html_dumps: false
   dir: debug
 
+# ------------------------------------------------------------------- Health
+health:
+  # /health/deep returns 503 after this many scrape failures in a row.
+  # The Quadlet healthcheck uses that endpoint, so hitting this threshold
+  # restarts the container through HealthOnFailure=kill + Restart=always.
+  max_consecutive_scrape_errors: 5
+
 # ---------------------------------------------------------------- Logging
 log_level: INFO

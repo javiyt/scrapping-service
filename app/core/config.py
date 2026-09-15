@@ -139,6 +139,9 @@ class Settings(BaseSettings):
     jobs_max_concurrency: int = 2
     jobs_result_ttl_seconds: int = 86400  # 24 hours
 
+    # ------------------------------------------------------------- Health
+    health_max_consecutive_scrape_errors: int = Field(default=5, ge=1)
+
     # ------------------------------------------------------------- Runtime
     config_path: str = Field(default="", alias="CONFIG_PATH")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
@@ -269,6 +272,7 @@ class Settings(BaseSettings):
             "security": "security",
             "debug": "debug",
             "jobs": "jobs",
+            "health": "health",
         }
         result: dict[str, Any] = {}
 

@@ -170,6 +170,10 @@ async def scraper_error_handler(request: Request, exc: ScraperError) -> JSONResp
 @app.exception_handler(Exception)
 async def general_error_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled exception: %s", exc)
+    if request.url.path.startswith(("/v1/scrape", "/v2/scrape")):
+        metrics = get_metrics()
+        metrics.inc("scrape_error_total")
+        metrics.mark_scrape_error()
     return JSONResponse(
         status_code=500,
         content={
