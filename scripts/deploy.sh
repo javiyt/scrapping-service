@@ -173,6 +173,38 @@ remote_copy_dir() {
     $scp_cmd "$src" "${REMOTE_USER}@${REMOTE_HOST}:${dst}"
 }
 
+remote_exec_retry_podman_lock() {
+    local cmd="$1"
+    local attempts="${2:-5}"
+    local delay="${3:-8}"
+    local output=""
+    local status=0
+
+    for ((attempt = 1; attempt <= attempts; attempt++)); do
+        if output=$(remote_exec "$cmd" 2>&1); then
+            [[ -n "$output" ]] && printf '%s\n' "$output"
+            return 0
+        else
+            status=$?
+        fi
+
+        [[ -n "$output" ]] && printf '%s\n' "$output" >&2
+
+        if ! grep -qi 'database is locked' <<< "$output"; then
+            return "$status"
+        fi
+
+        if ((attempt == attempts)); then
+            echo "✗ Podman database stayed locked after ${attempts} attempts." >&2
+            return "$status"
+        fi
+
+        echo "⚠ Podman database is locked; retrying in ${delay}s (${attempt}/${attempts})..." >&2
+        sleep "$delay"
+        delay=$((delay * 2))
+    done
+}
+
 preserve_remote_diagnostics() {
     [[ "$PRESERVE_DIAGNOSTICS" != "true" ]] && return 0
 
@@ -339,10 +371,10 @@ fi
 # ------------------------------------------------------------- build / pull image
 if [[ -n "$IMAGE_TAG" ]]; then
     echo "▸ Pulling pre-built image ${IMAGE_REF}..."
-    remote_exec "podman pull ${IMAGE_REF}"
+    remote_exec_retry_podman_lock "podman pull ${IMAGE_REF}"
 elif [[ "$PULL_ONLY" == "true" ]]; then
     echo "▸ Pulling base image (no build)..."
-    remote_exec "cd ${REMOTE_DIR} && podman pull python:3.12-slim-bookworm"
+    remote_exec_retry_podman_lock "cd ${REMOTE_DIR} && podman pull python:3.12-slim-bookworm"
 else
     echo "▸ Building container image (this may take a while on a Pi)..."
     remote_exec "cd ${REMOTE_DIR} && podman build -t localhost/scraper-api:latest -f Dockerfile ."
