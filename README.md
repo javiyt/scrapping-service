@@ -191,6 +191,11 @@ Liveness probe — always returns `200` when the service is running.
 { "status": "ok", "version": "1.0.0", "service": "scraper-api" }
 ```
 
+### `GET /health/deep`
+
+Container health probe — verifies cache access and recent scrape error patterns.
+Returns `503` after too many consecutive scrape failures.
+
 ### `GET /ready`
 
 Readiness probe — verifies config, cache, and internal state.

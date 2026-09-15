@@ -36,6 +36,7 @@ NO_HEALTHCHECK=false
 SHOW_HELP=false
 IMAGE_TAG=""
 IMAGE_REGISTRY="ghcr.io/javiyt/scrapping-service"
+PRESERVE_DIAGNOSTICS=true
 
 # ---------------------------------------------------------- read server port
 # Reads the server port from (in priority order):
@@ -141,7 +142,7 @@ if [[ "$APP_PORT" != "8080" ]] || [[ "$LOG_LEVEL" != "info" ]] || [[ "$TIMEOUT_K
         -e "s/^Environment=LOG_LEVEL=info$/Environment=LOG_LEVEL=${LOG_LEVEL}/" \
         -e "s/^Environment=TIMEOUT_KEEP_ALIVE=30$/Environment=TIMEOUT_KEEP_ALIVE=${TIMEOUT_KEEP_ALIVE}/" \
         -e "s/^Environment=LIMIT_MAX_REQUESTS=5000$/Environment=LIMIT_MAX_REQUESTS=${LIMIT_MAX_REQUESTS}/" \
-        -e "s|http://127.0.0.1:8080/health|http://127.0.0.1:${APP_PORT}/health|" \
+        -e "s|http://127.0.0.1:8080/health/deep|http://127.0.0.1:${APP_PORT}/health/deep|" \
         "$QUADLET_SRC" > "$QUADLET_PATCHED"
 fi
 
@@ -172,6 +173,41 @@ remote_copy_dir() {
     $scp_cmd "$src" "${REMOTE_USER}@${REMOTE_HOST}:${dst}"
 }
 
+preserve_remote_diagnostics() {
+    [[ "$PRESERVE_DIAGNOSTICS" != "true" ]] && return 0
+
+    echo "▸ Preserving pre-deploy diagnostics..."
+    remote_exec "set -u
+        ts=\$(date +%Y%m%d-%H%M%S)
+        diag_dir='${REMOTE_DIR}/diagnostics/predeploy-'\$ts
+        mkdir -p \"\$diag_dir\"
+        chmod 700 \"${REMOTE_DIR}/diagnostics\" \"\$diag_dir\"
+
+        {
+            echo \"timestamp=\$(date -Is)\"
+            echo \"host=\$(hostname)\"
+            echo \"uptime=\$(uptime -p 2>/dev/null || true)\"
+            echo
+            df -h 2>&1 || true
+            echo
+            free -h 2>&1 || true
+        } > \"\$diag_dir/system.txt\" 2>&1
+
+        timeout 5s systemctl --user status scraper-api.service --no-pager > \"\$diag_dir/systemctl-status.txt\" 2>&1 || true
+        timeout 5s systemctl --user show scraper-api.service --no-pager > \"\$diag_dir/systemctl-show.txt\" 2>&1 || true
+        timeout 8s journalctl --user -u scraper-api.service --since '72 hours ago' --no-pager -o short-iso > \"\$diag_dir/journal-72h.txt\" 2>&1 || true
+
+        timeout 5s podman ps -a > \"\$diag_dir/podman-ps.txt\" 2>&1 || true
+        timeout 5s podman images > \"\$diag_dir/podman-images.txt\" 2>&1 || true
+        timeout 5s podman inspect scraper-api > \"\$diag_dir/podman-inspect-scraper-api.json\" 2>&1 || true
+        timeout 8s podman logs --since 72h scraper-api > \"\$diag_dir/podman-logs-scraper-api-72h.log\" 2>&1 || true
+
+        chmod 600 \"\$diag_dir\"/* 2>/dev/null || true
+        ln -sfn \"\$diag_dir\" \"${REMOTE_DIR}/diagnostics/latest-predeploy\"
+        echo \"  Saved diagnostics to \$diag_dir\"
+    " || echo "⚠ Warning: could not preserve pre-deploy diagnostics."
+}
+
 # ------------------------------------------------------------- parse args
 POSITIONAL=()
 while [[ $# -gt 0 ]]; do
@@ -183,6 +219,7 @@ while [[ $# -gt 0 ]]; do
         --without-config) WITHOUT_CONFIG=true; shift ;;
         --pull-only)    PULL_ONLY=true;    shift ;;
         --no-healthcheck) NO_HEALTHCHECK=true; shift ;;
+        --no-predeploy-diagnostics) PRESERVE_DIAGNOSTICS=false; shift ;;
         --tag)          IMAGE_TAG="$2";    shift 2 ;;
         --image-tag)    IMAGE_TAG="$2";    shift 2 ;;
         --help)         SHOW_HELP=true;    shift ;;
@@ -206,6 +243,8 @@ done
     echo "  --without-config       Skip uploading config YAML"
     echo "  --pull-only            Only pull base image, skip build (local build mode)"
     echo "  --no-healthcheck       Skip health check after deploy"
+    echo "  --no-predeploy-diagnostics"
+    echo "                          Skip saving remote status/logs before restart"
     echo "  --help                 Show this help"
     echo ""
     exit 0
@@ -351,6 +390,8 @@ for attempt in 1 2 3; do
 done
 
 if [[ "$SERVICE_EXISTS" == "true" ]]; then
+    preserve_remote_diagnostics
+
     # Force-remove any stale container so systemd creates a fresh one
     # with the updated Quadlet configuration (image, ports, env vars).
     echo "▸ Removing stale container (if any)..."
@@ -381,6 +422,8 @@ else
     remote_exec "mkdir -p ${REMOTE_DIR}/{data,debug,logs}" || true
     remote_exec "chmod 777 ${REMOTE_DIR}/{data,debug,logs}" || true
 
+    preserve_remote_diagnostics
+
     PODMAN_RUN_CMD="podman run -d --name scraper-api --replace \
         -p ${APP_PORT}:8080 \
         -v ${REMOTE_DIR}/configs/config.yaml:/config/config.yaml:ro,z \
@@ -391,6 +434,12 @@ else
         --env SCRAPER_CACHE_SQLITE_PATH=/data/scraper-cache.db \
         --env SCRAPER_DEBUG_DIR=/debug \
         --env-file ${REMOTE_DIR}/.env \
+        --health-cmd \"python -c 'import urllib.request; import sys; urllib.request.urlopen(\\\"http://127.0.0.1:${APP_PORT}/health/deep\\\"); sys.exit(0)'\" \
+        --health-interval 30s \
+        --health-timeout 10s \
+        --health-retries 3 \
+        --health-start-period 60s \
+        --health-on-failure kill \
         --restart always \
         ${IMAGE_REF}"
 

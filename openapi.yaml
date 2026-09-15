@@ -67,8 +67,7 @@ components:
           default: ok
         checks:
           type: object
-          additionalProperties:
-            type: string
+          additionalProperties: true
 
     # Scrape endpoints
     ExtractField:
@@ -623,6 +622,27 @@ paths:
              application/json:
                schema:
                  $ref: '#/components/schemas/HealthResponse'
+
+   /health/deep:
+     get:
+       operationId: deepHealthCheck
+       summary: Deep health check
+       description: Verifies cache access and recent scrape error patterns. No authentication required. Intended for container healthchecks.
+       tags: [Health]
+       security: []
+       responses:
+         '200':
+           description: Internal checks are healthy
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ReadinessResponse'
+         '503':
+           description: One or more internal checks are degraded
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ReadinessResponse'
 
    /ready:
      get:

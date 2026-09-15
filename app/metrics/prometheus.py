@@ -7,6 +7,8 @@ Uses a lightweight in-process approach rather than the full
 """
 
 import threading
+import time
+from typing import Any
 
 
 class MetricsCollector:
@@ -42,12 +44,36 @@ class MetricsCollector:
         }
         self._gauges: dict[str, int | float] = {}
         self._up: bool = True
+        self._consecutive_scrape_errors = 0
+        self._last_scrape_error_at: float | None = None
+        self._last_scrape_success_at: float | None = None
 
     # --------------------------------------------------------------- counters
 
     def inc(self, name: str, value: int = 1) -> None:
         with self._lock:
             self._counters[name] = self._counters.get(name, 0) + value
+
+    def mark_scrape_success(self) -> None:
+        with self._lock:
+            self._consecutive_scrape_errors = 0
+            self._last_scrape_success_at = time.time()
+
+    def mark_scrape_error(self) -> None:
+        with self._lock:
+            self._consecutive_scrape_errors += 1
+            self._last_scrape_error_at = time.time()
+
+    def health_snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "consecutive_scrape_errors": self._consecutive_scrape_errors,
+                "last_scrape_error_at": self._last_scrape_error_at,
+                "last_scrape_success_at": self._last_scrape_success_at,
+                "scrape_requests_total": self._counters.get("scrape_requests_total", 0),
+                "scrape_success_total": self._counters.get("scrape_success_total", 0),
+                "scrape_error_total": self._counters.get("scrape_error_total", 0),
+            }
 
     def observe_latency(self, ms: float) -> None:
         with self._lock:

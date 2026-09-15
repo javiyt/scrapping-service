@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from app.api.dependencies import (
@@ -75,6 +75,60 @@ health_router = APIRouter()
 async def health():
     """Liveness check.  Always returns 200 when the service is running."""
     return HealthResponse()
+
+
+@health_router.get("/health/deep", response_model=ReadinessResponse, tags=["Health"])
+async def deep_health(request: Request):
+    """Deep health check for container restart policy.
+
+    Verifies internal dependencies and recent scrape error patterns. This is
+    intentionally separate from /health so cheap liveness checks still work.
+    """
+    checks: dict[str, str | int | float | None] = {}
+    ok = True
+
+    settings: Settings | None = getattr(request.app.state, "settings", None)
+    if settings is None:
+        try:
+            settings = get_settings()
+            checks["config"] = "ok"
+        except Exception as exc:
+            checks["config"] = f"error: {exc}"
+            ok = False
+    else:
+        checks["config"] = "ok"
+
+    cache: SqliteCache | None = getattr(request.app.state, "cache", None)
+    if cache is None:
+        checks["cache"] = "unavailable"
+        ok = False
+    else:
+        try:
+            cache.stats()
+            checks["cache"] = "ok"
+        except Exception as exc:
+            checks["cache"] = f"error: {exc}"
+            ok = False
+
+    metrics = get_metrics()
+    snapshot = metrics.health_snapshot()
+    consecutive_errors = int(snapshot["consecutive_scrape_errors"])
+    threshold = settings.health_max_consecutive_scrape_errors if settings is not None else 5
+    checks["consecutive_scrape_errors"] = consecutive_errors
+    checks["max_consecutive_scrape_errors"] = threshold
+    checks["last_scrape_error_at"] = snapshot["last_scrape_error_at"]
+    checks["last_scrape_success_at"] = snapshot["last_scrape_success_at"]
+
+    if consecutive_errors >= threshold:
+        checks["scrape_errors"] = "too_many_consecutive_errors"
+        ok = False
+    else:
+        checks["scrape_errors"] = "ok"
+
+    response = ReadinessResponse(status="ok" if ok else "degraded", checks=checks)
+    if ok:
+        return response
+    return JSONResponse(status_code=503, content=response.model_dump())
 
 
 # ================================================================= /ready
@@ -156,6 +210,7 @@ async def scrape_url(
 
         elapsed = int((time.monotonic() - start) * 1000)
         metrics_collector.inc("scrape_success_total")
+        metrics_collector.mark_scrape_success()
         metrics_collector.observe_latency(elapsed)
 
         if result.get("from_cache"):
@@ -193,6 +248,7 @@ async def scrape_url(
     except ScraperError as exc:
         elapsed = int((time.monotonic() - start) * 1000)
         metrics_collector.inc("scrape_error_total")
+        metrics_collector.mark_scrape_error()
         metrics_collector.observe_latency(elapsed)
         return JSONResponse(
             status_code=exc.status_code,
@@ -233,6 +289,7 @@ async def scrape_url_v2(
 
         elapsed = int((time.monotonic() - start) * 1000)
         metrics_collector.inc("scrape_success_total")
+        metrics_collector.mark_scrape_success()
         metrics_collector.observe_latency(elapsed)
 
         if result.get("from_cache"):
@@ -268,6 +325,7 @@ async def scrape_url_v2(
     except ScraperError as exc:
         elapsed = int((time.monotonic() - start) * 1000)
         metrics_collector.inc("scrape_error_total")
+        metrics_collector.mark_scrape_error()
         metrics_collector.observe_latency(elapsed)
         return JSONResponse(
             status_code=exc.status_code,
@@ -332,10 +390,12 @@ async def scrape_batch(
                 result = _maybe_add_auth_profile(result, auth_context, expose_profile)
 
                 metrics_collector.inc("scrape_success_total")
+                metrics_collector.mark_scrape_success()
                 succeeded += 1
                 return {"url": item.url, "success": True, "result": result, "error": None}
             except ScraperError as exc:
                 metrics_collector.inc("scrape_error_total")
+                metrics_collector.mark_scrape_error()
                 failed += 1
                 return {
                     "url": item.url,

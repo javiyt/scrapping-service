@@ -17,6 +17,7 @@ from app.auth.resolver import init_profile_resolver
 from app.core.config import Settings
 from app.core.errors import SecurityError
 from app.main import app
+from app.metrics.prometheus import get_metrics
 
 # --------------------------------------------------------------------- helpers
 
@@ -58,6 +59,7 @@ def _clean_app_state():
     for attr in ("scraper", "cache", "settings"):
         if hasattr(app.state, attr):
             delattr(app.state, attr)
+    get_metrics().mark_scrape_success()
 
 
 # =============================================================== /health
@@ -74,6 +76,38 @@ class TestHealthEndpoint:
     def test_health_no_auth_required(self):
         response = TestClient(app).get("/health")
         assert response.status_code == 200
+
+    def test_deep_health_checks_cache_without_auth(self):
+        app.state.settings = Settings(api_key=VALID_API_KEY)
+        app.state.cache = MagicMock()
+        app.state.cache.stats.return_value = {"total_entries": 0}
+        get_metrics().mark_scrape_success()
+
+        response = TestClient(app).get("/health/deep")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["checks"]["cache"] == "ok"
+
+    def test_deep_health_fails_after_consecutive_scrape_errors(self):
+        app.state.settings = Settings(
+            api_key=VALID_API_KEY,
+            health_max_consecutive_scrape_errors=2,
+        )
+        app.state.cache = MagicMock()
+        app.state.cache.stats.return_value = {"total_entries": 0}
+        metrics = get_metrics()
+        metrics.mark_scrape_success()
+        metrics.mark_scrape_error()
+        metrics.mark_scrape_error()
+
+        response = TestClient(app).get("/health/deep")
+
+        assert response.status_code == 503
+        data = response.json()
+        assert data["status"] == "degraded"
+        assert data["checks"]["scrape_errors"] == "too_many_consecutive_errors"
 
 
 # =============================================================== API docs
