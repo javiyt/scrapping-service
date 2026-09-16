@@ -343,6 +343,7 @@ if [[ -z "$IMAGE_TAG" ]]; then
     remote_copy "$(dirname "$0")/../requirements.txt"         "${REMOTE_DIR}/requirements.txt"
     remote_copy "$(dirname "$0")/../Dockerfile"               "${REMOTE_DIR}/Dockerfile"
     remote_copy "$(dirname "$0")/../.dockerignore"            "${REMOTE_DIR}/.dockerignore"
+    remote_copy "$(dirname "$0")/../openapi.yaml"             "${REMOTE_DIR}/openapi.yaml"
 else
     # GHCR mode — only copy the Quadlet file
     echo "▸ Copying Quadlet files..."

@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -40,6 +41,25 @@ MIN_VALID_HTML_LENGTH = 500
 
 # HTTP status codes that look like a block page rather than real content.
 BLOCKED_STATUS_CODES = {403, 429, 503, 444}
+
+# Response-body markers that strongly indicate an anti-bot/interstitial page.
+# Keep these specific: common words like "blocked" appear in ordinary scripts
+# and metadata on large news sites, and would otherwise cause false browser
+# fallbacks for perfectly valid HTTP responses.
+BLOCKED_BODY_PATTERNS = [
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\baccess denied\b",
+        r"\bcaptcha\b",
+        r"\bunusual traffic\b",
+        r"\bplease complete the security check\b",
+        r"\byou (?:have been|are) blocked\b",
+        r"\brequest (?:has been )?blocked\b",
+        r"\btemporarily blocked\b",
+        r"\bcf-browser-verification\b",
+        r"\bchallenge-platform\b",
+    )
+]
 
 
 class ScraperService:
@@ -457,17 +477,7 @@ class ScraperService:
         if len(result.html.strip()) < MIN_VALID_HTML_LENGTH:
             return True
         # Check for common block-page markers.
-        lower = result.html.lower()
-        block_signals = [
-            "access denied",
-            "captcha",
-            "unusual traffic",
-            "please complete the security check",
-            "blocked",
-            "cf-browser-verification",
-            "challenge-platform",
-        ]
-        if any(signal in lower for signal in block_signals):
+        if any(pattern.search(result.html) for pattern in BLOCKED_BODY_PATTERNS):
             return True
         return False
 

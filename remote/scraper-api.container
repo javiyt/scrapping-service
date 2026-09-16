@@ -7,6 +7,10 @@ After=network-online.target
 Image=localhost/scraper-api:latest
 ContainerName=scraper-api
 Network=host
+# Temporary Raspberry rootless Podman workaround: the built image rootfs is
+# currently mounted with "/" inaccessible to the non-root scraper user.
+# Remove this once the image build preserves executable root traversal.
+User=0
 Volume=%h/scraper-api/configs/config.yaml:/config/config.yaml:ro,z
 Volume=%h/scraper-api/data:/data:z
 Volume=%h/scraper-api/debug:/debug:z
