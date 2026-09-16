@@ -19,7 +19,11 @@ def _result(html: str, status_code: int = 200) -> FetchResult:
 
 
 def test_plain_blocked_word_does_not_mark_large_response_as_blocked():
-    html = "<html><body>" + ("valid content " * 80) + "ad slot blocked by browser setting</body></html>"
+    html = (
+        "<html><body>"
+        + ("valid content " * 80)
+        + "ad slot blocked by browser setting</body></html>"
+    )
 
     assert _service()._looks_blocked(_result(html)) is False
 
