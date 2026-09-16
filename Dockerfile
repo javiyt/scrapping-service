@@ -58,7 +58,9 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libgtk-3-0
 
 RUN groupadd -r scraper && useradd -r -g scraper -d /app -s /usr/sbin/nologin scraper \
-    && mkdir -p /data /debug /logs /config && chown -R scraper:scraper /data /debug /logs /config
+    && mkdir -p /data /debug /logs /config \
+    && chown -R scraper:scraper /data /debug /logs /config \
+    && chmod 755 / /usr /usr/local /usr/local/bin
 
 COPY --chown=scraper:scraper app/ ./app/
 COPY --chown=scraper:scraper openapi.yaml .
