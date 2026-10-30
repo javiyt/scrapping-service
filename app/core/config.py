@@ -151,6 +151,14 @@ class Settings(BaseSettings):
     # the merged dict, but excluded from serialisation.
     raw_yaml_auth: dict[str, Any] | None = Field(default=None, exclude=True, alias="_raw_yaml_auth")
 
+    # Raw search YAML block — parsed by app.search.providers.  Same
+    # convention as ``raw_yaml_auth`` above.
+    raw_yaml_search: dict[str, Any] | None = Field(
+        default=None,
+        exclude=True,
+        alias="_raw_yaml_search",
+    )
+
     # ------------------------------------------------------------------ validators
 
     @field_validator("server_port")
@@ -292,6 +300,10 @@ class Settings(BaseSettings):
         # Auth block — stored raw for the ProfileResolver to parse.
         if "auth" in data and isinstance(data["auth"], dict):
             result["_raw_yaml_auth"] = data["auth"]
+
+        # Search block — stored raw for the search provider factory to parse.
+        if "search" in data and isinstance(data["search"], dict):
+            result["_raw_yaml_search"] = data["search"]
 
         return result
 
