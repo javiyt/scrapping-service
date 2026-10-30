@@ -6,9 +6,14 @@ from app.core.errors import (
     CacheError,
     HttpError,
     InternalError,
+    InvalidProviderResponseError,
+    NoProviderAvailableError,
     ScraperError,
+    SearchProviderTimeoutError,
+    SearchProviderUnavailableError,
     SecurityError,
     TimeoutError,
+    UnsupportedSearchCapabilityError,
     ValidationError,
 )
 
@@ -77,3 +82,41 @@ class TestErrorSubclasses:
     def test_validation_error_with_details(self):
         exc = ValidationError("bad field", {"field": "name"})
         assert exc.details == {"field": "name"}
+
+
+class TestSearchErrors:
+    def test_provider_unavailable(self):
+        exc = SearchProviderUnavailableError("search backend down")
+        assert exc.error_type == "search_provider_unavailable"
+        assert exc.status_code == 503
+
+    def test_provider_timeout(self):
+        exc = SearchProviderTimeoutError("search timed out")
+        assert exc.error_type == "search_provider_timeout"
+        assert exc.status_code == 504
+
+    def test_unsupported_search_capability(self):
+        exc = UnsupportedSearchCapabilityError("no provider supports maps")
+        assert exc.error_type == "unsupported_search_capability"
+        assert exc.status_code == 400
+
+    def test_invalid_provider_response(self):
+        exc = InvalidProviderResponseError("unparseable provider payload")
+        assert exc.error_type == "invalid_provider_response"
+        assert exc.status_code == 502
+
+    def test_no_provider_available(self):
+        exc = NoProviderAvailableError("no search providers configured")
+        assert exc.error_type == "no_provider_available"
+        assert exc.status_code == 503
+
+    def test_search_error_details_and_dict(self):
+        exc = SearchProviderUnavailableError("down", {"provider": "example"})
+        assert exc.details == {"provider": "example"}
+        assert exc.to_dict() == {
+            "error": {
+                "type": "search_provider_unavailable",
+                "message": "down",
+                "details": {"provider": "example"},
+            }
+        }

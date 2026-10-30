@@ -89,6 +89,41 @@ class CacheError(ScraperError):
         super().__init__("cache_error", message, details, 500)
 
 
+class SearchProviderUnavailableError(ScraperError):
+    """A search provider is unreachable or reports itself unavailable."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("search_provider_unavailable", message, details, 503)
+
+
+class SearchProviderTimeoutError(ScraperError):
+    """A search provider did not answer within the allowed time."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("search_provider_timeout", message, details, 504)
+
+
+class UnsupportedSearchCapabilityError(ScraperError):
+    """The request needs a capability no available provider supports."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("unsupported_search_capability", message, details, 400)
+
+
+class InvalidProviderResponseError(ScraperError):
+    """A search provider returned a payload that cannot be normalized."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("invalid_provider_response", message, details, 502)
+
+
+class NoProviderAvailableError(ScraperError):
+    """No configured search provider can serve the request."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("no_provider_available", message, details, 503)
+
+
 class InternalError(ScraperError):
     """Unexpected internal error."""
 
@@ -105,5 +140,10 @@ EXCEPTION_STATUS_MAP: dict[type, int] = {
     HttpError: 502,
     BrowserError: 502,
     CacheError: 500,
+    SearchProviderUnavailableError: 503,
+    SearchProviderTimeoutError: 504,
+    UnsupportedSearchCapabilityError: 400,
+    InvalidProviderResponseError: 502,
+    NoProviderAvailableError: 503,
     InternalError: 500,
 }
