@@ -186,6 +186,19 @@ health:
 # SCRAPER_SEARCH_SEARXNG_DEFAULT_LANGUAGE,
 # SCRAPER_SEARCH_SEARXNG_CONFIG_CACHE_TTL_SECONDS
 search:
+  # Routing policy (see SearchRouter):
+  #   default_provider: how requests with `provider: auto` are handled.
+  #                     `auto` = capability-aware routing with fallback;
+  #                     or an explicit provider name (no fallback).
+  #   provider_order:   routing priority for auto mode. Only registered
+  #                     providers are used; unknown names (e.g. a future
+  #                     `camofox`) are ignored with a warning.
+  #   probe_timeout_seconds: bound for the capabilities/health probe.
+  default_provider: auto
+  provider_order:
+    - searxng
+    # - camofox
+  probe_timeout_seconds: 10
   providers:
     searxng:
       enabled: false
