@@ -171,5 +171,28 @@ health:
   # restarts the container through HealthOnFailure=kill + Restart=always.
   max_consecutive_scrape_errors: 5
 
+# ------------------------------------------------------------------- Search
+# Search providers implementing the provider-agnostic search contract
+# (app/search/).  This block is parsed by the search provider factory;
+# nested string values support ${ENV_VAR} expansion.
+#
+# SearXNG (first backend).  Requires the JSON output format to be enabled
+# on the SearXNG instance (search.formats: [html, json] in its settings.yml).
+# The provider queries /config to discover enabled categories and engines
+# and caches that discovery for config_cache_ttl_seconds.
+#
+# Environment variable overrides: SCRAPER_SEARCH_SEARXNG_ENABLED,
+# SCRAPER_SEARCH_SEARXNG_BASE_URL, SCRAPER_SEARCH_SEARXNG_TIMEOUT_SECONDS,
+# SCRAPER_SEARCH_SEARXNG_DEFAULT_LANGUAGE,
+# SCRAPER_SEARCH_SEARXNG_CONFIG_CACHE_TTL_SECONDS
+search:
+  providers:
+    searxng:
+      enabled: false
+      base_url: null                  # e.g. http://searxng:8080
+      timeout_seconds: 15
+      default_language: null           # e.g. en or en-US (used when a request has none)
+      config_cache_ttl_seconds: 3600   # 0 = re-discover on every use
+
 # ---------------------------------------------------------------- Logging
 log_level: INFO
