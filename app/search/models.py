@@ -248,6 +248,15 @@ class SearchMetadata(BaseModel):
             "Standalone providers list only themselves."
         ),
     )
+    fallback_occurred: bool = Field(
+        default=False,
+        description=(
+            "``True`` when the router fell back to a second provider after a "
+            "transient failure. ``False`` when the selected provider answered "
+            "on the first attempt (always ``False`` for explicit-provider "
+            "requests, which never fall back)."
+        ),
+    )
     elapsed_ms: int = Field(
         default=0,
         ge=0,

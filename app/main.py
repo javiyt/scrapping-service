@@ -22,7 +22,7 @@ from app.core.logging import setup_logging
 from app.jobs.service import JobService
 from app.metrics.prometheus import get_metrics
 from app.scraper.browser_pool import BrowserFetcherPool
-from app.search.providers import build_search_providers
+from app.search import build_search_router
 
 logger = logging.getLogger("scraper-api")
 OPENAPI_YAML_PATH = Path(__file__).resolve().parents[1] / "openapi.yaml"
@@ -108,14 +108,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Job service is disabled")
 
-    # ---- Search providers
+    # ---- Search providers + router
     # Constructed from the `search` config block.  No REST routes are
-    # registered yet — providers sit on app.state for upcoming search APIs.
-    search_providers = build_search_providers(settings)
+    # registered yet — the router sits on app.state for upcoming search
+    # APIs.  The router owns provider registration; the app keeps the
+    # provider list on state for lifecycle (close) and logging.
+    search_router = build_search_router(settings)
+    app.state.search_router = search_router
+    search_providers = search_router.registry.all()
     app.state.search_providers = search_providers
     if search_providers:
+        order = ", ".join(search_router.config.provider_order) or "registration"
         logger.info(
-            "Search providers enabled: %s",
+            "Search router ready (default_provider=%s, priority=[%s]): %s",
+            search_router.config.default_provider,
+            order,
             ", ".join(provider.name for provider in search_providers),
         )
     else:

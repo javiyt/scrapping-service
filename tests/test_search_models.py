@@ -243,6 +243,7 @@ class TestSearchMetadata:
     def test_defaults(self):
         metadata = SearchMetadata(provider="example")
         assert metadata.providers_attempted == []
+        assert metadata.fallback_occurred is False
         assert metadata.elapsed_ms == 0
         assert metadata.from_cache is False
         assert metadata.stale is False
