@@ -594,6 +594,84 @@ actually reclaims the disk space. This means:
 
 ---
 
+## Search result cache
+
+A dedicated, **provider-agnostic** cache for *normalized* search responses.
+It sits above the individual search providers (the cache wraps the routing
+layer, not any single provider), so SearXNG today — and Camofox or any other
+provider later — all benefit from the same behaviour. Providers stay
+completely unaware of the cache, and nothing depends on any provider's
+internal cache semantics.
+
+- Only the normalized `SearchResponse` is stored (never raw provider
+  payloads). Entries live in a separate `search_cache` table inside the same
+  SQLite database as scrape entries — one connection, one maintenance loop,
+  but the two tables never mix: each has its own key space and the cleanup
+  limits apply to each table independently.
+
+### Cache key
+
+Keys are deterministic SHA-256 digests of the search *semantics* (canonical,
+field-order-insensitive JSON): the schema version, the **normalized query**
+(trimmed, whitespace-collapsed, casefolded), the **provider** selection
+(`auto` or an explicit name), the **verticals** (sorted), **language**,
+**time range**, **safe search**, **page**, **result limit**, and the
+**sources** (sorted, lowercased). Two equivalent requests — even with
+different JSON field ordering, query casing, or whitespace — always map to
+the same key; changing any semantic filter produces a different key.
+
+### TTL
+
+Configured per deployment in the `search.cache` block (`enabled`,
+`default_ttl_seconds`, `stale_if_error` — see `configs/config.example.yaml`),
+with `SCRAPER_SEARCH_CACHE_*` environment-variable overrides. A request's
+`cache_ttl_seconds` overrides the default; `force_refresh` bypasses the read
+but still refreshes the entry. A TTL of `0` means entries never expire on
+their own and are pruned only by the size/entry-count cleanup phases.
+
+### Stale-if-error
+
+When a *fresh* run fails, an expired cached entry may be served **only** if:
+
+1. `stale_if_error` is enabled, and
+2. a cached entry exists for the same key, and
+3. the failure is a retryable, provider-side error (provider unavailable,
+   timeout, or invalid response — including `NoProviderAvailableError`
+   raised because providers are down).
+
+Stale data is **never** served for invalid or unsatisfiable requests
+(validation errors, capability mismatches, unconfigured providers, empty
+registries), for forced refreshes, or for unexpected (non-provider) errors.
+Served responses carry `metadata.from_cache`, `metadata.stale`,
+`metadata.cached_at`, and `metadata.cache_age_seconds`; fresh responses keep
+them `False`/`None`, and stale serves add a human-readable warning.
+
+### Profiles and isolation
+
+Cache keys cover only search semantics — never provider credentials, API
+keys, or profile identifiers. All current providers are stateless, so this
+is complete isolation today. If a future provider uses credentials or
+profile-specific behaviour (proxies, logged-in sessions, account-bound
+results), its key material must grow a normalized *profile identity* token
+(provider-defined, never the credential itself) before it may join the
+shared cache — otherwise two profiles could share each other's entries.
+
+### Maintenance
+
+The periodic cleanup (`/v1/cache/cleanup` and the maintenance loop) runs the
+same phases against both tables: expiry grace window, max entries, max size,
+optional VACUUM. `/v1/cache/stats` reports each table separately (`search_*`
+fields are additive — scrape fields keep their meaning), and Prometheus
+metrics expose `search_cache_hits_total`, `search_cache_misses_total`,
+`search_cache_stale_hits_total`, plus entry/size gauges. Existing scrape
+cache behaviour is unchanged.
+
+> Note: no public REST endpoints for search are part of this release — the
+> cache and router are wired on application state for the upcoming search
+> APIs.
+
+---
+
 ## Security
 
 ### SSRF Protection

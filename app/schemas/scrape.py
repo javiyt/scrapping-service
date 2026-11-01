@@ -481,12 +481,20 @@ class V2ScrapeResponse(BaseModel):
 
 # ========================================================== CacheStats
 class CacheStats(BaseModel):
-    """Cache statistics."""
+    """Cache statistics.
+
+    The base fields describe the scrape entry table (``cache``); the
+    ``search_*`` fields (additive) describe the search result table
+    (``search_cache``) in the same database.
+    """
 
     total_entries: int
     total_size_bytes: int
     expired_entries: int
     cache_path: str
+    search_total_entries: int = 0
+    search_total_size_bytes: int = 0
+    search_expired_entries: int = 0
 
 
 # ============================================================ BatchResponse

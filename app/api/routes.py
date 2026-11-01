@@ -424,13 +424,16 @@ async def scrape_batch(
 async def cache_stats(
     cache: SqliteCache = Depends(get_cache),
 ):
-    """Return cache statistics (entries, size, expired count)."""
+    """Return cache statistics (entries, size, expired count, both tables)."""
     stats = cache.stats()
     return CacheStats(
         total_entries=stats["total_entries"],
         total_size_bytes=stats["total_size_bytes"],
         expired_entries=stats["expired_entries"],
         cache_path=stats["cache_path"],
+        search_total_entries=stats.get("search_total_entries", 0),
+        search_total_size_bytes=stats.get("search_total_size_bytes", 0),
+        search_expired_entries=stats.get("search_expired_entries", 0),
     )
 
 

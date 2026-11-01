@@ -199,6 +199,22 @@ search:
     - searxng
     # - camofox
   probe_timeout_seconds: 10
+  # Result cache (provider-agnostic — sits above the providers, shared by
+  # all of them; entries are normalized search responses, not raw provider
+  # payloads).  Requests may override the TTL per request via
+  # `cache_ttl_seconds`, and bypass it via `force_refresh`.
+  #   enabled:             master switch for the search result cache
+  #   default_ttl_seconds: TTL when the request sets no cache_ttl_seconds
+  #                        (0 = entries never expire on their own)
+  #   stale_if_error:      serve an expired entry when the live search fails
+  #                        with a retryable provider error (an invalid
+  #                        request is never masked by stale data)
+  # Environment variable overrides: SCRAPER_SEARCH_CACHE_ENABLED,
+  # SCRAPER_SEARCH_CACHE_DEFAULT_TTL_SECONDS, SCRAPER_SEARCH_CACHE_STALE_IF_ERROR
+  cache:
+    enabled: true
+    default_ttl_seconds: 900
+    stale_if_error: true
   providers:
     searxng:
       enabled: false

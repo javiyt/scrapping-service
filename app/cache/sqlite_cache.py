@@ -37,6 +37,25 @@ CREATE_INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at);
 """
 
+# Schema for the search result cache table.  Search entries are logically
+# separated from scrape entries: they live in their own table (own key
+# space, own size budget, own cleanup phases) inside the same database
+# file, so one connection and one maintenance loop serve both caches.
+CREATE_SEARCH_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS search_cache (
+    cache_key        TEXT PRIMARY KEY,
+    request          TEXT NOT NULL,
+    response         TEXT NOT NULL,
+    fetched_at       TEXT NOT NULL,
+    expires_at       TEXT,
+    content_length   INTEGER NOT NULL DEFAULT 0
+);
+"""
+
+CREATE_SEARCH_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_search_cache_expires ON search_cache(expires_at);
+"""
+
 
 class SqliteCache:
     """Persistent HTML cache backed by SQLite.
@@ -66,6 +85,8 @@ class SqliteCache:
         self._conn.execute("PRAGMA synchronous=NORMAL;")
         self._conn.execute(CREATE_TABLE_SQL)
         self._conn.execute(CREATE_INDEX_SQL)
+        self._conn.execute(CREATE_SEARCH_TABLE_SQL)
+        self._conn.execute(CREATE_SEARCH_INDEX_SQL)
         self._conn.commit()
 
     def close(self) -> None:
@@ -151,7 +172,7 @@ class SqliteCache:
             return cur.rowcount
 
     def stats(self) -> dict[str, Any]:
-        """Return cache statistics."""
+        """Return cache statistics (scrape entries plus the search table)."""
         with self._cursor() as cur:
             cur.execute(
                 "SELECT COUNT(*) AS cnt, COALESCE(SUM(content_length), 0) AS total_bytes FROM cache"
@@ -167,11 +188,98 @@ class SqliteCache:
             )
             expired = cur.fetchone()["cnt"]
 
-        return {
+        stats = {
             "total_entries": total,
             "total_size_bytes": total_bytes,
             "expired_entries": expired,
             "cache_path": self.db_path,
+        }
+        stats.update(self.search_stats())
+        return stats
+
+    # ----------------------------------------------- search result cache table
+    #
+    # The search_cache table stores normalized search responses (JSON) for
+    # the provider-agnostic search domain.  These methods deal in raw rows
+    # (primitives only); the search layer (``app.search.cache``) maps them
+    # onto typed domain models.  Scraping and search entries never mix.
+
+    def get_search_entry(self, cache_key: str) -> dict[str, Any] | None:
+        """Retrieve a raw search_cache row by key, or ``None``.
+
+        Timestamps are ISO-8601 strings; ``request`` and ``response`` are
+        JSON strings (canonical key material and the normalized response).
+        """
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT * FROM search_cache WHERE cache_key = ?",
+                (cache_key,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def set_search_entry(
+        self,
+        *,
+        cache_key: str,
+        request: str,
+        response: str,
+        fetched_at: datetime,
+        expires_at: datetime | None,
+        content_length: int,
+    ) -> None:
+        """Insert or replace one search_cache row."""
+        with self._cursor() as cur:
+            cur.execute(
+                """INSERT OR REPLACE INTO search_cache
+                   (cache_key, request, response, fetched_at, expires_at,
+                    content_length)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    cache_key,
+                    request,
+                    response,
+                    fetched_at.isoformat(),
+                    expires_at.isoformat() if expires_at else None,
+                    content_length,
+                ),
+            )
+
+    def delete_search_entry(self, cache_key: str) -> bool:
+        """Remove one search_cache entry.  Returns ``True`` if deleted."""
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM search_cache WHERE cache_key = ?", (cache_key,))
+            return cur.rowcount > 0
+
+    def purge_search(self) -> int:
+        """Remove all search_cache entries.  Returns count."""
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM search_cache")
+            return cur.rowcount
+
+    def search_stats(self) -> dict[str, Any]:
+        """Return statistics for the search result cache table only."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) AS cnt, COALESCE(SUM(content_length), 0) AS total_bytes "
+                "FROM search_cache"
+            )
+            row = cur.fetchone()
+
+            now = datetime.now(UTC).isoformat()
+            cur.execute(
+                "SELECT COUNT(*) AS cnt FROM search_cache "
+                "WHERE expires_at IS NOT NULL AND expires_at < ?",
+                (now,),
+            )
+            expired = cur.fetchone()["cnt"]
+
+        return {
+            "search_total_entries": row["cnt"],
+            "search_total_size_bytes": row["total_bytes"],
+            "search_expired_entries": expired,
         }
 
     def exists(self, cache_key: str) -> bool:
@@ -304,6 +412,69 @@ class SqliteCache:
             logger.info("Cleanup max_size deleted %d entries", total_deleted)
         return total_deleted
 
+    # Search-cache cleanup phases.  Same semantics as the scrape variants
+    # above, applied to the search_cache table, so one cleanup() call keeps
+    # both tables within budget.
+
+    def cleanup_expired_search(self, delete_expired_after_seconds: int) -> int:
+        """Delete search entries that expired more than *delete_expired_after_seconds* ago."""
+        cutoff = (datetime.now(UTC) - timedelta(seconds=delete_expired_after_seconds)).isoformat()
+        with self._cursor() as cur:
+            cur.execute(
+                "DELETE FROM search_cache WHERE expires_at IS NOT NULL AND expires_at < ?",
+                (cutoff,),
+            )
+            deleted = cur.rowcount
+        if deleted:
+            logger.info("Cleanup expired deleted %d search entries (cutoff=%s)", deleted, cutoff)
+        return deleted
+
+    def cleanup_by_max_entries_search(self, max_entries: int) -> int:
+        """If search entries exceed *max_entries*, delete the oldest entries."""
+        with self._cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM search_cache")
+            total = cur.fetchone()[0]
+            if total <= max_entries:
+                return 0
+            to_delete = total - max_entries
+            cur.execute(
+                """DELETE FROM search_cache WHERE cache_key IN (
+                       SELECT cache_key FROM search_cache ORDER BY fetched_at ASC LIMIT ?
+                   )""",
+                (to_delete,),
+            )
+            deleted = cur.rowcount
+        if deleted:
+            logger.info("Cleanup max_entries deleted %d search entries", deleted)
+        return deleted
+
+    def cleanup_by_max_size_search(self, max_size_bytes: int) -> int:
+        """Delete oldest search entries in batches until content length is under the limit."""
+        total_deleted = 0
+        while True:
+            with self._cursor() as cur:
+                cur.execute("SELECT COALESCE(SUM(content_length), 0), COUNT(*) FROM search_cache")
+                row = cur.fetchone()
+                total_size = row[0]
+                count = row[1]
+                if total_size <= max_size_bytes or count == 0:
+                    break
+                excess = total_size - max_size_bytes
+                avg_size = max(1, total_size // count)
+                batch = min(100, max(1, excess // avg_size + 1))
+                cur.execute(
+                    """DELETE FROM search_cache WHERE cache_key IN (
+                           SELECT cache_key FROM search_cache ORDER BY fetched_at ASC LIMIT ?
+                       )""",
+                    (batch,),
+                )
+                if cur.rowcount == 0:
+                    break
+                total_deleted += cur.rowcount
+        if total_deleted:
+            logger.info("Cleanup max_size deleted %d search entries", total_deleted)
+        return total_deleted
+
     def cleanup(
         self,
         delete_expired_after_seconds: int = 86400,
@@ -311,12 +482,17 @@ class SqliteCache:
         max_size_bytes: int = 512 * 1024 * 1024,
         vacuum: bool = False,
     ) -> CacheCleanupResult:
-        """Run all cleanup phases and return a structured result.
+        """Run all cleanup phases on both tables and return a structured result.
 
-        1. Delete expired entries past the grace period.
-        2. If total rows exceed *max_entries*, delete the oldest.
+        1. Delete entries past the expiry grace period.
+        2. If entries exceed *max_entries*, delete the oldest.
         3. If content size exceeds *max_size_bytes*, delete in batches.
         4. Optionally run VACUUM.
+
+        Each phase runs against the scrape table (``cache``) and the search
+        table (``search_cache``) with the same limits.  Scrape-only counters
+        are reported in the base fields; search-table counters in the
+        ``search_*`` fields (additive — existing consumers unaffected).
         """
         file_exists = os.path.exists(self.db_path)
         size_before = os.path.getsize(self.db_path) if file_exists else 0
@@ -324,10 +500,16 @@ class SqliteCache:
         with self._cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM cache")
             entries_before = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM search_cache")
+            search_entries_before = cur.fetchone()[0]
 
         deleted_expired = self.cleanup_expired(delete_expired_after_seconds)
         deleted_by_max_entries = self.cleanup_by_max_entries(max_entries)
         deleted_by_max_size = self.cleanup_by_max_size(max_size_bytes)
+
+        search_deleted_expired = self.cleanup_expired_search(delete_expired_after_seconds)
+        search_deleted_by_max_entries = self.cleanup_by_max_entries_search(max_entries)
+        search_deleted_by_max_size = self.cleanup_by_max_size_search(max_size_bytes)
 
         vacuumed = False
         if vacuum and file_exists:
@@ -337,6 +519,8 @@ class SqliteCache:
         with self._cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM cache")
             entries_after = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM search_cache")
+            search_entries_after = cur.fetchone()[0]
 
         size_after = os.path.getsize(self.db_path) if os.path.exists(self.db_path) else 0
 
@@ -350,6 +534,14 @@ class SqliteCache:
             entries_before=entries_before,
             entries_after=entries_after,
             vacuumed=vacuumed,
+            search_deleted_expired=search_deleted_expired,
+            search_deleted_by_max_entries=search_deleted_by_max_entries,
+            search_deleted_by_max_size=search_deleted_by_max_size,
+            search_total_deleted=(
+                search_deleted_expired + search_deleted_by_max_entries + search_deleted_by_max_size
+            ),
+            search_entries_before=search_entries_before,
+            search_entries_after=search_entries_after,
         )
 
     def vacuum(self) -> CacheVacuumResult:

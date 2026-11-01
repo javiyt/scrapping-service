@@ -66,6 +66,14 @@ class CacheCleanupResult(BaseModel):
     entries_before: int = 0
     entries_after: int = 0
     vacuumed: bool = False
+    # Search result cache table (search_cache). Additive — the scrape fields
+    # above only ever count scrape entries.
+    search_deleted_expired: int = 0
+    search_deleted_by_max_entries: int = 0
+    search_deleted_by_max_size: int = 0
+    search_total_deleted: int = 0
+    search_entries_before: int = 0
+    search_entries_after: int = 0
 
 
 class CacheVacuumResult(BaseModel):
