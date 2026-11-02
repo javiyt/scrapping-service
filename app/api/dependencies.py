@@ -14,6 +14,7 @@ from app.jobs.service import JobService
 from app.metrics.prometheus import get_metrics
 from app.scraper.browser_pool import BrowserFetcherPool
 from app.scraper.service import ScraperService
+from app.search.cache import SearchCache
 
 logger = logging.getLogger("scraper-api.deps")
 
@@ -59,6 +60,27 @@ async def get_cache(request: Request) -> AsyncGenerator[SqliteCache, None]:
     """Yield the SQLite cache singleton."""
     cache = _get_cache(request)
     yield cache
+
+
+# ------------------------------------------------------------- search cache
+
+
+def get_search_cache(request: Request) -> SearchCache:
+    """Return the search result cache stored on app.state by the lifespan.
+
+    The search cache wraps the search router (all providers share it); upcoming
+    search APIs depend on this rather than on the router directly.
+    """
+    search_cache = getattr(request.app.state, "search_cache", None)
+    if search_cache is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "service_unavailable",
+                "message": "Search service is not ready yet",
+            },
+        )
+    return search_cache
 
 
 # ------------------------------------------------------------- auth context

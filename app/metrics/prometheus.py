@@ -34,6 +34,10 @@ class MetricsCollector:
             "cache_hits_total": 0,
             "cache_misses_total": 0,
             "cache_stale_hits_total": 0,
+            "search_cache_hits_total": 0,
+            "search_cache_misses_total": 0,
+            "search_cache_stale_hits_total": 0,
+            "search_cache_errors_total": 0,
             "proxy_requests_total": 0,
             "proxy_errors_total": 0,
             "auth_requests_total": 0,
@@ -184,6 +188,25 @@ class MetricsCollector:
                 lines.append(f"{counter_name}{suffix} {val}")
                 lines.append("")
 
+            # Search result cache counters
+            for counter_name, help_text in [
+                ("search_cache_hits_total", "Search result cache hits"),
+                ("search_cache_misses_total", "Search result cache misses"),
+                (
+                    "search_cache_stale_hits_total",
+                    "Stale search cache entries served on provider error",
+                ),
+                (
+                    "search_cache_errors_total",
+                    "Search executions that failed (before any stale fallback)",
+                ),
+            ]:
+                val = self._counters.get(counter_name, 0)
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                lines.append(f"{counter_name} {val}")
+                lines.append("")
+
             # Auth counters
             for counter_name, help_text in [
                 ("auth_requests_total", "Total authenticated requests"),
@@ -211,6 +234,8 @@ class MetricsCollector:
                 "cache_size_bytes",
                 "cache_entries_total",
                 "cache_expired_entries_total",
+                "search_cache_entries_total",
+                "search_cache_size_bytes",
             ]:
                 val = self._gauges.get(gauge_name, 0)
                 lines.append(f"# HELP {gauge_name} {gauge_name.replace('_', ' ')}")

@@ -273,6 +273,21 @@ class SearchMetadata(BaseModel):
             "background refresh is running)."
         ),
     )
+    cached_at: datetime | None = Field(
+        default=None,
+        description=(
+            "When the cached entry serving this response was created, when "
+            "``from_cache`` is ``True``. ``None`` for fresh responses."
+        ),
+    )
+    cache_age_seconds: float | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Age of the cached entry in seconds when ``from_cache`` is "
+            "``True``. ``None`` for fresh responses."
+        ),
+    )
     warnings: list[str] = Field(
         default_factory=list,
         description="Human-readable warnings, e.g. degraded capabilities.",

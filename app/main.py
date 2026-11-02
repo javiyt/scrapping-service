@@ -22,7 +22,7 @@ from app.core.logging import setup_logging
 from app.jobs.service import JobService
 from app.metrics.prometheus import get_metrics
 from app.scraper.browser_pool import BrowserFetcherPool
-from app.search import build_search_router
+from app.search import build_search_cache, build_search_router
 
 logger = logging.getLogger("scraper-api")
 OPENAPI_YAML_PATH = Path(__file__).resolve().parents[1] / "openapi.yaml"
@@ -127,6 +127,23 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
     else:
         logger.info("No search providers enabled")
+
+    # ---- Search result cache
+    # Provider-agnostic cache for normalized search responses, sitting above
+    # the router (all providers share it).  Entries live in the shared
+    # SQLite database, in their own table, maintained by the same loop as
+    # every other cache entry.  No REST routes are registered yet — the
+    # cache sits on app.state for upcoming search APIs.
+    search_cache = build_search_cache(settings, search_router, _cache)
+    app.state.search_cache = search_cache
+    if search_cache.config.enabled:
+        logger.info(
+            "Search result cache enabled (default_ttl=%ss, stale_if_error=%s)",
+            search_cache.config.default_ttl_seconds,
+            str(search_cache.config.stale_if_error).lower(),
+        )
+    else:
+        logger.info("Search result cache disabled")
 
     yield
 

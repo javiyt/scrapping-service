@@ -87,6 +87,10 @@ class CacheMaintenanceService:
                 metrics.inc("cache_cleanup_runs_total")
                 metrics.inc("cache_cleanup_deleted_entries_total", result.total_deleted)
                 self._update_gauges(metrics, result)
+                search_stats = self._cache.search_stats()
+                metrics.set_gauge(
+                    "search_cache_size_bytes", search_stats["search_total_size_bytes"]
+                )
             except Exception:
                 logger.exception("Cache cleanup run failed")
                 metrics.inc("cache_cleanup_errors_total")
@@ -109,3 +113,4 @@ class CacheMaintenanceService:
         expired = result.entries_before - result.entries_after - result.deleted_expired
         expired = max(0, expired)
         metrics.set_gauge("cache_expired_entries_total", expired)
+        metrics.set_gauge("search_cache_entries_total", result.search_entries_after)
