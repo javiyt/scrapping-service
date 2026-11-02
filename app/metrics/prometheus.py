@@ -4,6 +4,11 @@ Provides counters and histograms exposed via the ``/metrics`` endpoint.
 
 Uses a lightweight in-process approach rather than the full
 ``prometheus-client`` library to keep the dependency footprint small.
+
+Labelled counters (see :meth:`MetricsCollector.inc`) use a bounded,
+operator-configured label set (currently provider names).  Query text,
+result URLs and any other arbitrary user input must never appear in
+labels, as they would create unbounded metric series.
 """
 
 import threading
@@ -41,6 +46,7 @@ class MetricsCollector:
             "search_requests_total": 0,
             "search_success_total": 0,
             "search_error_total": 0,
+            "search_fallbacks_total": 0,
             "proxy_requests_total": 0,
             "proxy_errors_total": 0,
             "auth_requests_total": 0,
@@ -50,6 +56,9 @@ class MetricsCollector:
             "scrape_duration_ms_sum": 0.0,
             "search_duration_ms_sum": 0.0,
         }
+        # Labelled counters: metric name -> {((label, value), ...) -> count}.
+        # Label keys are sorted so series render deterministically.
+        self._labeled_counters: dict[str, dict[tuple[tuple[str, str], ...], int]] = {}
         self._gauges: dict[str, int | float] = {}
         self._up: bool = True
         self._consecutive_scrape_errors = 0
@@ -58,9 +67,21 @@ class MetricsCollector:
 
     # --------------------------------------------------------------- counters
 
-    def inc(self, name: str, value: int = 1) -> None:
+    def inc(self, name: str, value: int = 1, **labels: str) -> None:
+        """Increment a counter, optionally by a labelled series.
+
+        With no labels the value is tracked as a plain counter; with labels
+        it is tracked as a distinct Prometheus series.  Label values must
+        come from a bounded set (e.g. configured provider names) — never
+        from user input such as query text or URLs.
+        """
         with self._lock:
-            self._counters[name] = self._counters.get(name, 0) + value
+            if labels:
+                series = self._labeled_counters.setdefault(name, {})
+                key = tuple(sorted(labels.items()))
+                series[key] = series.get(key, 0) + value
+            else:
+                self._counters[name] = self._counters.get(name, 0) + value
 
     def mark_scrape_success(self) -> None:
         with self._lock:
@@ -90,6 +111,11 @@ class MetricsCollector:
     def observe_search_latency(self, ms: float) -> None:
         with self._lock:
             self._latencies["search_duration_ms_sum"] += ms
+
+    @staticmethod
+    def _escape_label(value: str) -> str:
+        """Escape a label value for the Prometheus text format."""
+        return value.replace("\\", "\\\\").replace('"', '\\"')
 
     def set_up(self, up: bool) -> None:
         with self._lock:
@@ -233,6 +259,35 @@ class MetricsCollector:
                 f"search_duration_ms_sum {self._latencies.get('search_duration_ms_sum', 0.0)}"
             )
             lines.append("")
+
+            # Search fallback counter (API-level)
+            for counter_name, help_text in [
+                ("search_fallbacks_total", "Search requests that required a provider fallback"),
+            ]:
+                val = self._counters.get(counter_name, 0)
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                lines.append(f"{counter_name} {val}")
+                lines.append("")
+
+            # Per-provider search counters.  The ``provider`` label is a
+            # bounded, operator-configured set — never user input.
+            for counter_name, help_text in [
+                ("search_provider_attempts_total", "Search attempts made, by provider"),
+                (
+                    "search_provider_success_total",
+                    "Successful search responses, by provider",
+                ),
+                ("search_provider_error_total", "Failed search responses, by provider"),
+            ]:
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                for labels, val in sorted(self._labeled_counters.get(counter_name, {}).items()):
+                    label_part = ",".join(
+                        f'"{key}"="{self._escape_label(value)}"' for key, value in labels
+                    )
+                    lines.append(f"{counter_name}{{{label_part}}} {val}")
+                lines.append("")
 
             # Auth counters
             for counter_name, help_text in [

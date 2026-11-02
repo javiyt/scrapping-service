@@ -18,6 +18,7 @@ from app.core.config import Settings
 from app.core.errors import SecurityError
 from app.main import app
 from app.metrics.prometheus import get_metrics
+from app.search import SearchCache, SearchCacheConfig, SearchProviderRegistry, SearchRouter
 
 # --------------------------------------------------------------------- helpers
 
@@ -56,7 +57,7 @@ SAMPLE_RESULT = {
 @pytest.fixture(autouse=True)
 def _clean_app_state():
     """Reset app.state before each test so tests don't leak state."""
-    for attr in ("scraper", "cache", "settings"):
+    for attr in ("scraper", "cache", "settings", "search_cache"):
         if hasattr(app.state, attr):
             delattr(app.state, attr)
     get_metrics().mark_scrape_success()
@@ -81,6 +82,11 @@ class TestHealthEndpoint:
         app.state.settings = Settings(api_key=VALID_API_KEY)
         app.state.cache = MagicMock()
         app.state.cache.stats.return_value = {"total_entries": 0}
+        app.state.search_cache = SearchCache(
+            store=MagicMock(),
+            router=SearchRouter(SearchProviderRegistry([])),
+            config=SearchCacheConfig(),
+        )
         get_metrics().mark_scrape_success()
 
         response = TestClient(app).get("/health/deep")
@@ -89,6 +95,8 @@ class TestHealthEndpoint:
         data = response.json()
         assert data["status"] == "ok"
         assert data["checks"]["cache"] == "ok"
+        assert data["checks"]["search"]["configured"] is True
+        assert data["checks"]["search"]["status"] == "no providers configured"
 
     def test_deep_health_fails_after_consecutive_scrape_errors(self):
         app.state.settings = Settings(

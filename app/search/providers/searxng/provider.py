@@ -198,6 +198,39 @@ class SearxngProvider:
         if self._owns_client:
             await self._client.aclose()
 
+    # ------------------------------------------------------------- diagnostics
+    def diagnostics(self) -> dict[str, Any]:
+        """Zero-I/O snapshot of this provider's internal state.
+
+        Used by ``/health/deep`` to report the SearXNG ``/config`` discovery
+        status without forcing a network round-trip (the report is the
+        *cached* discovery state; the bounded capabilities probe supplies
+        the live availability signal).  Never leaks the instance URL: only
+        whether a URL is configured, plus the discovered summary.
+        """
+        if self._instance is None:
+            return {
+                "base_url_configured": self._config.base_url is not None,
+                "discovery_state": "not_discovered",
+                "discovery_age_seconds": None,
+                "config_cache_ttl_seconds": self._config.config_cache_ttl_seconds,
+                "enabled_engines": None,
+                "instance_version": None,
+            }
+        ttl = self._config.config_cache_ttl_seconds
+        elapsed = time.monotonic() - self._instance_fetched_at
+        age = max(0.0, elapsed)
+        return {
+            "base_url_configured": self._config.base_url is not None,
+            # ``fresh`` mirrors :meth:`_get_instance`: with TTL 0 the cache
+            # is never fresh (every use re-discovers).
+            "discovery_state": "ok" if elapsed < max(ttl, 0) else "stale",
+            "discovery_age_seconds": round(age, 3),
+            "config_cache_ttl_seconds": ttl,
+            "enabled_engines": len(self._instance.enabled_engines),
+            "instance_version": self._instance.version,
+        }
+
     # ------------------------------------------------------------------ discovery
     async def _fetch_instance(self) -> SearxngInstance:
         """Fetch and parse ``/config``. Raises on any failure."""

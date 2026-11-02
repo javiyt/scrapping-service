@@ -18,10 +18,22 @@ The service listens on port `8080` by default.
 ## Useful URLs
 
 - Health check: <http://localhost:8080/health>
+- Deep health check (search subsystem included): <http://localhost:8080/health/deep>
+- Readiness check: <http://localhost:8080/ready>
+- Metrics (Prometheus): <http://localhost:8080/metrics>
 - Swagger UI: <http://localhost:8080/docs>
 - ReDoc: <http://localhost:8080/redoc>
 - OpenAPI JSON: <http://localhost:8080/openapi.json>
 - OpenAPI YAML: <http://localhost:8080/openapi.yaml>
+
+Search endpoints (require the API key; enable SearXNG in the config first):
+
+- `POST /v1/search` — provider-agnostic search
+- `GET /v1/search/capabilities` — service-level search capabilities
+
+The search result cache lives in a `search_cache` table inside the same
+SQLite database as the HTML cache, so the existing cache volume mount covers
+it.
 
 ## Run Tests
 

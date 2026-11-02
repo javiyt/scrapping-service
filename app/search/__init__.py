@@ -70,7 +70,10 @@ __all__ = [
 ]
 
 
-def build_search_router(settings: Settings) -> SearchRouter:
+def build_search_router(
+    settings: Settings,
+    metrics: MetricsCollector | None = None,
+) -> SearchRouter:
     """Build the search router from application settings.
 
     Constructs the enabled providers (via :func:`build_search_providers`),
@@ -78,12 +81,15 @@ def build_search_router(settings: Settings) -> SearchRouter:
     (``default_provider`` / ``provider_order`` / ``probe_timeout_seconds``)
     and returns a ready-to-route :class:`SearchRouter`.
 
+    ``metrics`` overrides the global metrics collector (used by tests); the
+    router records per-provider attempt/success/error counters on it.
+
     Raises:
         ValueError: on configuration errors (duplicate provider names, a
             ``default_provider`` that is not registered, ...).
     """
     registry = SearchProviderRegistry(build_search_providers(settings))
-    return SearchRouter(registry, SearchRouterConfig.from_settings(settings))
+    return SearchRouter(registry, SearchRouterConfig.from_settings(settings), metrics=metrics)
 
 
 def build_search_cache(

@@ -113,7 +113,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # through the public search API (POST /v1/search, GET
     # /v1/search/capabilities).  The router owns provider registration; the
     # app keeps the provider list on state for lifecycle (close) and logging.
-    search_router = build_search_router(settings)
+    search_router = build_search_router(settings, metrics=metrics)
     app.state.search_router = search_router
     search_providers = search_router.registry.all()
     app.state.search_providers = search_providers
