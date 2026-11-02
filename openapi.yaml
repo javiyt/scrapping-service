@@ -8,6 +8,7 @@ info:
     This API provides endpoints for:
       - Single URL scraping with multiple modes (HTTP, Browser, Auto)
       - Batch scraping of multiple URLs with controlled concurrency
+      - Provider-agnostic web search with stable normalized results
       - Async job queuing and management
       - Cache operations (stats, purge, cleanup, vacuum)
       - Health and readiness checks
@@ -30,6 +31,8 @@ tags:
      description: Health and readiness checks
    - name: Scrape
      description: URL scraping endpoints
+   - name: Search
+     description: Provider-agnostic web search endpoints
    - name: Cache
      description: Cache management operations
    - name: Jobs
@@ -593,6 +596,328 @@ components:
         total:
           type: integer
 
+    # Search endpoints
+    SearchRequest:
+      type: object
+      required: [query]
+      additionalProperties: false
+      properties:
+        query:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: The search query (1-1000 characters, must contain text)
+        verticals:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            enum: [web, news, images, videos, social, it, science, maps, music, files]
+          default: [web]
+          description: Verticals to search (additive, no duplicates). Each result is tagged with its vertical
+        language:
+          type: string
+          nullable: true
+          pattern: '^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$'
+          description: Optional BCP-47 style language tag, e.g. "en" or "en-US"
+        time_range:
+          type: string
+          enum: [day, week, month, year]
+          nullable: true
+          description: Restrict results to this time range
+        safe_search:
+          type: string
+          enum: [off, moderate, strict]
+          default: moderate
+          description: Safe-search filtering level
+        page:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 1
+          description: Result page number (1-based)
+        limit:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 100
+          description: Maximum number of results to return (1-100)
+        sources:
+          type: array
+          maxItems: 50
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          description: Optional preferred underlying sources (no duplicates). Semantics are provider-defined; see the capabilities endpoint
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 100
+          default: auto
+          description: Provider name to use, or "auto" to let the service pick an available provider
+        cache_ttl_seconds:
+          type: integer
+          nullable: true
+          minimum: 60
+          maximum: 2592000
+          description: Per-request cache TTL (60s - 30 days)
+        force_refresh:
+          type: boolean
+          default: false
+          description: If true, bypass the cache and query the provider fresh
+
+    SearchApiResult:
+      type: object
+      required: [title, url, rank, vertical, provider]
+      properties:
+        title:
+          type: string
+          description: Result title
+        url:
+          type: string
+          description: Absolute http(s) URL of the result
+        snippet:
+          type: string
+          nullable: true
+          description: Short summary or description, when the provider offers one
+        rank:
+          type: integer
+          minimum: 1
+          description: 1-based rank within its vertical
+        vertical:
+          type: string
+          enum: [web, news, images, videos, social, it, science, maps, music, files]
+          description: Vertical this result belongs to (normalized vocabulary)
+        source:
+          type: string
+          nullable: true
+          description: Underlying source (e.g. a specific search engine), when known
+        provider:
+          type: string
+          description: Provider that produced this result
+        thumbnail_url:
+          type: string
+          nullable: true
+          description: Optional thumbnail image URL
+        published_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Optional publication timestamp, when known
+
+    SearchPagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: Current result page, when the provider paginates
+        has_more:
+          type: boolean
+          nullable: true
+          description: Whether further pages exist. null when the provider does not report a total page count
+        total_pages:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: Total number of pages, when the provider reports it
+        total_results:
+          type: integer
+          nullable: true
+          minimum: 0
+          description: Estimated total number of matching results, if reported
+
+    SearchApiMetadata:
+      type: object
+      required: [provider]
+      properties:
+        provider:
+          type: string
+          description: Provider that produced this response
+        providers_attempted:
+          type: array
+          items:
+            type: string
+          description: Providers attempted in order, including failed ones
+        fallback_occurred:
+          type: boolean
+          default: false
+          description: True when the router fell back after a transient failure
+        from_cache:
+          type: boolean
+          default: false
+          description: True when the response was served from the search cache
+        stale:
+          type: boolean
+          default: false
+          description: True when a stale (expired) cache entry was served on error
+        cached_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the cached entry serving this response was created (null for fresh responses)
+        cache_age_seconds:
+          type: number
+          nullable: true
+          minimum: 0
+          description: Age of the served entry in seconds when from_cache is true (null for fresh responses)
+        elapsed_ms:
+          type: integer
+          minimum: 0
+          default: 0
+          description: Time spent serving, in ms
+        warnings:
+          type: array
+          items:
+            type: string
+          description: Human-readable warnings (degradations, fallbacks, ...)
+        degraded_capabilities:
+          type: array
+          items:
+            type: string
+          description: Machine-readable tokens for requested features the provider could not fully honor
+        auth_profile:
+          type: string
+          nullable: true
+          description: Authenticated profile name, present only when profile exposure is enabled
+
+    SearchApiResponse:
+      type: object
+      required: [query, results, pagination, metadata]
+      properties:
+        query:
+          type: string
+          description: Echo of the requested query
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchApiResult'
+          description: Normalized results, ordered by rank within each vertical
+        pagination:
+          $ref: '#/components/schemas/SearchPagination'
+        metadata:
+          $ref: '#/components/schemas/SearchApiMetadata'
+
+    SearchFilters:
+      type: object
+      properties:
+        language:
+          type: boolean
+          default: false
+          description: Filter results by language tag
+        safe_search:
+          type: boolean
+          default: false
+          description: Apply safe-search filtering
+        time_range:
+          type: boolean
+          default: false
+          description: Restrict results to a time range
+        paging:
+          type: boolean
+          default: false
+          description: Serve arbitrary result pages
+        source_selection:
+          type: boolean
+          default: false
+          description: Restrict results to specific sources
+
+    SearchProviderCapabilities:
+      type: object
+      required: [name, available]
+      properties:
+        name:
+          type: string
+          description: Stable provider identifier
+        available:
+          type: boolean
+          description: Provider health. false when the provider is down or its capabilities probe failed
+        verticals:
+          type: array
+          items:
+            type: string
+          description: Normalized verticals this provider can search (empty when unknown)
+        time_ranges:
+          type: array
+          items:
+            type: string
+            enum: [day, week, month, year]
+          description: Time-range filters this provider supports (empty when none)
+        filters:
+          $ref: '#/components/schemas/SearchFilters'
+        max_results:
+          type: integer
+          nullable: true
+          minimum: 1
+          description: Hard cap on results per request, when the provider has one
+        sources:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: Selectable source names, when the provider can discover them (null = not discoverable)
+        warnings:
+          type: array
+          items:
+            type: string
+          description: Human-readable notes, e.g. a failed capabilities probe
+
+    SearchCacheCapabilities:
+      type: object
+      required: [enabled, default_ttl_seconds, stale_if_error]
+      properties:
+        enabled:
+          type: boolean
+          description: Whether the search result cache is on
+        default_ttl_seconds:
+          type: integer
+          minimum: 0
+          description: TTL for cached entries when the request sets none (0 = never expires)
+        stale_if_error:
+          type: boolean
+          description: Whether expired entries are served when the live search fails
+
+    SearchCapabilitiesResponse:
+      type: object
+      required: [default_provider, providers, cache]
+      properties:
+        default_provider:
+          type: string
+          description: Routing behaviour for provider=auto requests
+        provider_order:
+          type: array
+          items:
+            type: string
+          description: Routing priority for auto mode (registered providers)
+        providers:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchProviderCapabilities'
+          description: Enabled providers, in routing priority order
+        verticals:
+          type: array
+          items:
+            type: string
+          description: Normalized verticals usable with provider=auto (union across available providers)
+        time_ranges:
+          type: array
+          items:
+            type: string
+            enum: [day, week, month, year]
+          description: Time-range filters usable with provider=auto (union across available providers)
+        filters:
+          $ref: '#/components/schemas/SearchFilters'
+        safe_search_levels:
+          type: array
+          items:
+            type: string
+            enum: [off, moderate, strict]
+          description: Normalized safe-search levels accepted by the request
+        cache:
+          $ref: '#/components/schemas/SearchCacheCapabilities'
+
     # Error models
     ErrorResponse:
       type: object
@@ -827,6 +1152,104 @@ paths:
              application/json:
                schema:
                  $ref: '#/components/schemas/ErrorResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   # ====================================================== Search Endpoints
+   /v1/search:
+     post:
+       operationId: search
+       summary: Search the web (provider-agnostic)
+       description: |
+         Run a normalized web search and return stable, provider-agnostic results.
+
+         The request uses service-level concepts only (query, verticals, language,
+         time range, safe search, page, limit, sources, provider); provider-specific
+         parameter names are rejected. Results are normalized into a stable shape
+         with pagination and metadata — raw provider payloads never appear.
+
+         When `provider` is `auto` (the default), the service selects a healthy
+         provider whose capabilities satisfy the request and falls back on
+         transient failures (fallbacks are reported in `metadata`).
+
+         Authentication: Required unless API key is disabled in config.
+
+       tags: [Search]
+       security:
+         - bearerAuth: []
+       requestBody:
+         required: true
+         content:
+           application/json:
+             schema:
+               $ref: '#/components/schemas/SearchRequest'
+       responses:
+         '200':
+           description: Normalized search results
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/SearchApiResponse'
+         '400':
+           description: Unknown provider or unsatisfiable capabilities for the explicitly requested provider
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '422':
+           description: Request validation error
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '503':
+           description: No provider is available (none configured, or all failed)
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '504':
+           description: Provider timed out
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v1/search/capabilities:
+     get:
+       operationId: searchCapabilities
+       summary: Search capabilities
+       description: |
+         Service-level search capabilities: enabled providers (in routing
+         priority order), the normalized verticals and filters usable in auto
+         mode, discoverable per-provider sources, safe-search levels, and the
+         search result cache policy.
+
+         This is an aggregate owned by this service; it does not proxy a
+         provider's own configuration/discovery endpoint.
+
+         Authentication: Required unless API key is disabled in config.
+
+       tags: [Search]
+       security:
+         - bearerAuth: []
+       responses:
+         '200':
+           description: Capabilities report
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/SearchCapabilitiesResponse'
          '401':
            description: Missing or invalid API key
            content:

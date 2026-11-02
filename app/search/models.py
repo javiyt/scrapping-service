@@ -386,6 +386,16 @@ class SearchCapabilities(BaseModel):
             "``None`` = no documented cap."
         ),
     )
+    sources: list[str] | None = Field(
+        default=None,
+        max_length=50,
+        description=(
+            "Underlying source names selectable through "
+            "``SearchQuery.sources``, when the provider can discover them "
+            "(e.g. the search engines an aggregator instance has enabled). "
+            "``None`` = the provider does not expose a source list."
+        ),
+    )
     available: bool = Field(
         default=True,
         description=(
@@ -400,6 +410,17 @@ class SearchCapabilities(BaseModel):
             raise ValueError("At least one supported vertical is required")
         if len(set(self.verticals)) != len(self.verticals):
             raise ValueError("Supported verticals must not contain duplicates")
+        return self
+
+    @model_validator(mode="after")
+    def _check_sources(self) -> "SearchCapabilities":
+        if self.sources is None:
+            return self
+        for source in self.sources:
+            if not source or len(source) > 100:
+                raise ValueError("Each supported source must be 1-100 characters")
+        if len(set(self.sources)) != len(self.sources):
+            raise ValueError("Supported sources must not contain duplicates")
         return self
 
     def degradations(self, request: SearchQuery) -> list[str]:

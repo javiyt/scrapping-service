@@ -14,6 +14,7 @@ from app.api.dependencies import (
     get_expose_profile,
     get_job_service,
     get_scraper,
+    get_search_cache,
     get_settings,
     verify_api_key,
 )
@@ -38,8 +39,14 @@ from app.schemas.scrape import (
     V2ScrapeRequest,
     V2ScrapeResponse,
 )
+from app.schemas.search import (
+    SearchApiResponse,
+    SearchCapabilitiesResponse,
+    SearchRequest,
+)
 from app.scraper.response_processing import format_scrape_content, process_scrape_response
 from app.scraper.service import ScraperService
+from app.search import SearchCache, SearchCapabilities
 
 logger = logging.getLogger("scraper-api.routes")
 
@@ -331,6 +338,81 @@ async def scrape_url_v2(
             status_code=exc.status_code,
             content=exc.to_dict(),
         )
+
+
+# =============================================================== /v1/search
+
+
+@router.post("/v1/search", response_model=SearchApiResponse, tags=["Search"])
+async def search(
+    request: SearchRequest,
+    search_cache: SearchCache = Depends(get_search_cache),
+    metrics_collector: MetricsCollector = Depends(get_metrics),
+    auth_context: AuthContext | None = Depends(get_auth_context),
+    expose_profile: bool = Depends(get_expose_profile),
+):
+    """Run a provider-agnostic search.
+
+    The request is validated before any provider is contacted, then served
+    through the shared :class:`app.search.SearchCache` (result cache above
+    the router, all providers share it).  ``provider: auto`` is the default;
+    an explicit provider name targets one provider without fallback.
+
+    The response is a service-owned envelope (results + pagination +
+    metadata) — never a raw provider payload.
+    """
+    metrics_collector.inc("search_requests_total")
+    start = time.monotonic()
+
+    try:
+        response = await search_cache.search(request.to_domain())
+    except ScraperError as exc:
+        elapsed = int((time.monotonic() - start) * 1000)
+        metrics_collector.inc("search_error_total")
+        metrics_collector.observe_search_latency(elapsed)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=exc.to_dict(),
+        )
+
+    elapsed = int((time.monotonic() - start) * 1000)
+    metrics_collector.inc("search_success_total")
+    metrics_collector.observe_search_latency(elapsed)
+
+    result = SearchApiResponse.from_domain(response)
+    if expose_profile and auth_context is not None:
+        result.metadata.auth_profile = auth_context.profile_name
+    return result
+
+
+# ================================================ /v1/search/capabilities
+
+
+@router.get("/v1/search/capabilities", response_model=SearchCapabilitiesResponse, tags=["Search"])
+async def search_capabilities(
+    search_cache: SearchCache = Depends(get_search_cache),
+):
+    """Return service-level search capabilities.
+
+    Exposes what clients, UIs and agents can rely on: enabled providers
+    (in routing priority order), their normalized verticals, filters and
+    discoverable sources, the default routing behaviour, and the result
+    cache policy.  Provider capabilities are probed through the provider
+    contract (bounded by the router probe timeout); a provider's own
+    discovery endpoint (e.g. SearXNG ``/config``) is never proxied.
+    """
+    router = search_cache.router
+    probes: list[tuple[str, SearchCapabilities | None]] = [
+        (provider.name, await router.probe_capabilities(provider))
+        for provider in router.ordered_candidates()
+    ]
+    return SearchCapabilitiesResponse.from_router(
+        router,
+        probes,
+        cache_enabled=search_cache.config.enabled,
+        cache_default_ttl_seconds=search_cache.config.default_ttl_seconds,
+        cache_stale_if_error=search_cache.config.stale_if_error,
+    )
 
 
 # ========================================================== /v1/scrape/batch

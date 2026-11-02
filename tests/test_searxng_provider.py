@@ -299,6 +299,8 @@ class TestConfigDiscovery:
         assert caps.supports_paging is True
         assert caps.supports_source_selection is True
         assert caps.max_results is None
+        # Discoverable sources = enabled engines, in instance order.
+        assert caps.sources == ["google", "duckduckgo", "openstreetmap"]
 
     async def test_time_ranges_only_when_an_engine_supports_them(self, make_provider):
         config_payload = json.loads(json.dumps(CONFIG_PAYLOAD))
@@ -315,6 +317,8 @@ class TestConfigDiscovery:
         assert caps.available is False
         # The full static vertical mapping is still advertised.
         assert len(caps.verticals) == 10
+        # No instance access → the source list cannot be discovered.
+        assert caps.sources is None
 
     async def test_config_failure_surfaces_as_unavailable_error(self, make_provider):
         provider, _ = make_provider(config_status=500)
@@ -540,7 +544,9 @@ class TestHttpErrors:
         provider, _ = make_provider(effect=httpx.ConnectError("connection refused"))
         with pytest.raises(SearchProviderUnavailableError) as excinfo:
             await provider.search(_full_query())
-        assert excinfo.value.details["base_url"] == BASE_URL
+        # Public-safe: the instance URL is logged, never exposed.
+        assert "base_url" not in excinfo.value.details
+        assert excinfo.value.message == "SearXNG instance is unreachable"
 
     async def test_non_2xx_search_raises_unavailable(self, make_provider):
         provider, _ = make_provider(search_status=500)
@@ -553,7 +559,9 @@ class TestHttpErrors:
         provider, _ = make_provider(search_effect=httpx.ConnectError("no route to host"))
         with pytest.raises(SearchProviderUnavailableError) as excinfo:
             await provider.search(_full_query())
-        assert excinfo.value.details["base_url"] == BASE_URL
+        # Public-safe: the instance URL is logged, never exposed.
+        assert "base_url" not in excinfo.value.details
+        assert excinfo.value.message == "SearXNG instance is unreachable"
 
     async def test_search_read_timeout_raises_domain_timeout_error(self, make_provider):
         provider, _ = make_provider(search_effect=httpx.ReadTimeout("slow"))

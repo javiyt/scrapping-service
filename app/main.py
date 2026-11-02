@@ -109,10 +109,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Job service is disabled")
 
     # ---- Search providers + router
-    # Constructed from the `search` config block.  No REST routes are
-    # registered yet — the router sits on app.state for upcoming search
-    # APIs.  The router owns provider registration; the app keeps the
-    # provider list on state for lifecycle (close) and logging.
+    # Constructed from the `search` config block.  The router is exercised
+    # through the public search API (POST /v1/search, GET
+    # /v1/search/capabilities).  The router owns provider registration; the
+    # app keeps the provider list on state for lifecycle (close) and logging.
     search_router = build_search_router(settings)
     app.state.search_router = search_router
     search_providers = search_router.registry.all()
@@ -132,8 +132,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Provider-agnostic cache for normalized search responses, sitting above
     # the router (all providers share it).  Entries live in the shared
     # SQLite database, in their own table, maintained by the same loop as
-    # every other cache entry.  No REST routes are registered yet — the
-    # cache sits on app.state for upcoming search APIs.
+    # every other cache entry.  The search API routes depend on it.
     search_cache = build_search_cache(settings, search_router, _cache)
     app.state.search_cache = search_cache
     if search_cache.config.enabled:
@@ -212,10 +211,12 @@ async def scraper_error_handler(request: Request, exc: ScraperError) -> JSONResp
 @app.exception_handler(Exception)
 async def general_error_handler(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled exception: %s", exc)
+    metrics = get_metrics()
     if request.url.path.startswith(("/v1/scrape", "/v2/scrape")):
-        metrics = get_metrics()
         metrics.inc("scrape_error_total")
         metrics.mark_scrape_error()
+    elif request.url.path.startswith("/v1/search"):
+        metrics.inc("search_error_total")
     return JSONResponse(
         status_code=500,
         content={

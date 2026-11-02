@@ -36,7 +36,8 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
 - **Debug features** — optional HTML dumps and screenshots.
 - **Containerised** — multi-arch Docker image (`linux/amd64`, `linux/arm64`).
 - **Quadlet deploy** — first-class Podman Quadlet support for Raspberry Pi.
-- **Full API** — scrape, batch scrape, cache management, health checks.
+- **Full API** — scrape, batch scrape, provider-agnostic web search, cache
+  management, health checks.
 - **Optional proxy support** — global or per-request proxy (HTTP, HTTPS, SOCKS5)
   with credential redaction, private-host blocking, and override controls.
 - **Per-request cookies** — send a standard Cookie header or full Netscape
@@ -372,6 +373,84 @@ Scrape multiple URLs with controlled concurrency.
 }
 ```
 
+### `POST /v1/search`
+
+Provider-agnostic web search. Returns normalized results with pagination
+and metadata; raw provider payloads never appear. All fields except `query`
+are optional:
+
+```json
+{
+  "query": "Miami Dolphins injury report",
+  "verticals": ["news", "web"],
+  "language": "en-US",
+  "time_range": "week",
+  "safe_search": "moderate",
+  "page": 1,
+  "limit": 20,
+  "sources": ["google"],
+  "provider": "auto",
+  "cache_ttl_seconds": 600,
+  "force_refresh": false
+}
+```
+
+```
+200 OK
+
+{
+  "query": "Miami Dolphins injury report",
+  "results": [
+    {
+      "title": "Dolphins injury report: ...",
+      "url": "https://example.com/dolphins-injury",
+      "snippet": "Quarterback reported as questionable for Sunday...",
+      "rank": 1,
+      "vertical": "news",
+      "source": "google",
+      "provider": "searxng",
+      "thumbnail_url": null,
+      "published_at": "2026-07-09T12:00:00Z"
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "has_more": true,
+    "total_pages": 12,
+    "total_results": 117
+  },
+  "metadata": {
+    "provider": "searxng",
+    "providers_attempted": ["searxng"],
+    "fallback_occurred": false,
+    "from_cache": false,
+    "stale": false,
+    "cached_at": null,
+    "cache_age_seconds": null,
+    "elapsed_ms": 320,
+    "warnings": [],
+    "degraded_capabilities": [],
+    "auth_profile": null
+  }
+}
+```
+
+- `provider: "auto"` (default) selects a healthy provider whose
+capabilities satisfy the request and falls back on transient failures
+  (reported via `metadata.providers_attempted` / `fallback_occurred`).
+- `400` when an explicitly requested provider is unknown or cannot satisfy
+  the request; `422` for malformed requests (unknown fields, including
+  provider-specific parameter names, are rejected); `503` when no provider
+  is available; `504` on provider timeout.
+
+### `GET /v1/search/capabilities`
+
+Service-level capabilities: enabled providers (routing priority order),
+normalized verticals and filters usable in auto mode, discoverable
+per-provider sources, safe-search levels, and the search result cache
+policy. Aggregated by this service — it never proxies a provider's own
+`/config`-style discovery endpoint.
+
 ### Cache management
 
 | Method   | Endpoint            | Description                        |
@@ -666,9 +745,34 @@ metrics expose `search_cache_hits_total`, `search_cache_misses_total`,
 `search_cache_stale_hits_total`, plus entry/size gauges. Existing scrape
 cache behaviour is unchanged.
 
-> Note: no public REST endpoints for search are part of this release — the
-> cache and router are wired on application state for the upcoming search
-> APIs.
+### Public endpoints
+
+Search is exposed through two stable, provider-agnostic endpoints (both
+authenticated with the same API-key/profile scheme as the scrape APIs, and
+documented in `openapi.yaml`):
+
+- `POST /v1/search` — runs a normalized search. Request fields: `query`
+  (required, 1-1000 chars), `verticals` (known values, at least one, no
+  duplicates; defaults to `["web"]`), `language` (BCP-47 style tag),
+  `time_range` (`day`/`week`/`month`/`year`), `safe_search` (`off`/
+  `moderate`/`strict`), `page` (1-100), `limit` (1-100), `sources` (at most
+  50), `provider` (`auto` by default), `cache_ttl_seconds`,
+  `force_refresh`. Unknown fields — including provider-specific names such
+  as `pageno` or `safesearch` — are rejected with a 422.
+
+  `provider: "auto"` (the default) routes to a healthy provider whose
+  capabilities satisfy the request and falls back on transient failures;
+  `metadata` reports `providers_attempted`, `fallback_occurred`, cache
+  flags, and human-readable warnings. An explicitly requested provider that
+  cannot satisfy the request yields a structured 400, and a provider that is
+  down or times out yields a 503/504 with the usual error envelope.
+
+- `GET /v1/search/capabilities` — service-level report: enabled providers in
+  routing priority order (with per-provider normalized verticals, time
+  ranges, filter flags, `max_results`, and discoverable `sources` when
+  available), the auto-mode unions, safe-search levels, and the search cache
+  policy. This is an aggregate owned by this service; it never proxies a
+  provider's own `/config`-style discovery endpoint.
 
 ---
 
