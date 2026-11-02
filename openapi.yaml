@@ -11,7 +11,8 @@ info:
       - Provider-agnostic web search with stable normalized results
       - Async job queuing and management
       - Cache operations (stats, purge, cleanup, vacuum)
-      - Health and readiness checks
+      - Health and readiness checks (the deep health check reports the search subsystem)
+      - Prometheus-style metrics, including per-provider search counters
 
     Authentication: API key via Bearer token in Authorization header (required for most endpoints).
 
@@ -29,6 +30,8 @@ servers:
 tags:
    - name: Health
      description: Health and readiness checks
+   - name: Monitoring
+     description: Metrics and monitoring endpoints
    - name: Scrape
      description: URL scraping endpoints
    - name: Search
@@ -937,7 +940,10 @@ paths:
      get:
        operationId: healthCheck
        summary: Liveness check
-       description: Always returns 200 when the service is running. No authentication required.
+       description: |
+         Always returns 200 when the service is running. Deliberately I/O-free:
+         it never touches the cache or any external dependency (including search
+         providers), so liveness stays cheap. No authentication required.
        tags: [Health]
        security: []
        responses:
@@ -952,7 +958,21 @@ paths:
      get:
        operationId: deepHealthCheck
        summary: Deep health check
-       description: Verifies cache access and recent scrape error patterns. No authentication required. Intended for container healthchecks.
+       description: |
+         Deep health check for container restart policy. Verifies internal
+         dependencies (config, cache) and recent scrape error patterns.
+
+         The `checks.search` object reports the search subsystem:
+         - `status`: `ok`, `no providers configured`, or `degraded (no provider available)`
+         - `configured`: whether the search subsystem is present
+         - `cache_enabled`: whether the search result cache is on
+         - `providers`: per-provider report — `name`, `available` (from a bounded capabilities probe), `probe` (`ok`/`failed`), plus provider diagnostics (e.g. SearXNG's `/config` discovery state)
+
+         External search backends are **reported but non-fatal**: a down provider
+         degrades the reported search status but never fails the check, so the
+         restart policy never depends on a search backend. Only local
+         infrastructure problems (missing cache or missing search subsystem)
+         fail the check. No authentication required.
        tags: [Health]
        security: []
        responses:
@@ -962,18 +982,51 @@ paths:
              application/json:
                schema:
                  $ref: '#/components/schemas/ReadinessResponse'
+               examples:
+                 searchSubsystemOk:
+                   summary: Search subsystem healthy (SearXNG discovered)
+                   value:
+                     status: ok
+                     checks:
+                       config: ok
+                       cache: ok
+                       scrape_errors: ok
+                       search:
+                         status: ok
+                         configured: true
+                         cache_enabled: true
+                         providers:
+                           - name: searxng
+                             available: true
+                             probe: ok
+                             base_url_configured: true
+                             discovery_state: ok
+                             discovery_age_seconds: 12.5
+                             config_cache_ttl_seconds: 3600
+                             enabled_engines: 23
+                             instance_version: "5.0.0"
          '503':
            description: One or more internal checks are degraded
            content:
              application/json:
                schema:
                  $ref: '#/components/schemas/ReadinessResponse'
+               examples:
+                 searchSubsystemMissing:
+                   summary: Search subsystem not initialized (local configuration problem)
+                   value:
+                     status: degraded
+                     checks:
+                       config: ok
+                       cache: ok
+                       scrape_errors: ok
+                       search: unavailable
 
    /ready:
      get:
        operationId: readinessCheck
        summary: Readiness probe
-       description: Verifies config, cache, and scraper are all initialized. Requires authentication for metrics collection.
+       description: Verifies config and cache are initialized. Requires authentication for metrics collection. For search subsystem diagnostics use `/health/deep`.
        tags: [Health]
        security:
          - bearerAuth: []
@@ -991,7 +1044,17 @@ paths:
      get:
        operationId: getMetrics
        summary: Prometheus-style metrics
-       description: Returns Prometheus-formatted text metrics for monitoring. No authentication required.
+       description: |
+         Returns Prometheus-formatted text metrics for monitoring. No authentication required.
+
+         Search metrics:
+         - `search_requests_total`, `search_success_total`, `search_error_total`
+         - `search_cache_hits_total`, `search_cache_misses_total`, `search_cache_stale_hits_total`, `search_cache_errors_total`
+         - `search_duration_ms_sum` (sum for average latency)
+         - `search_fallbacks_total` (auto-mode provider fallbacks)
+         - `search_provider_attempts_total`, `search_provider_success_total`, `search_provider_error_total` — labelled only by the bounded, operator-configured `provider` name
+
+         Label hygiene: user input (query text, result URLs) never appears in labels.
        tags: [Monitoring]
        security: []
        responses:
@@ -1001,6 +1064,13 @@ paths:
              text/plain:
                schema:
                  type: string
+               example: |
+                 # HELP search_requests_total Total search requests received
+                 # TYPE search_requests_total counter
+                 search_requests_total 42
+                 # HELP search_provider_attempts_total Search attempts made, by provider
+                 # TYPE search_provider_attempts_total counter
+                 search_provider_attempts_total{provider="searxng"} 39
 
    # ====================================================== Scrape Endpoints
    /v1/scrape:

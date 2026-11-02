@@ -16,7 +16,10 @@ including bots deployed on a Raspberry Pi through Podman and Quadlet.
 - Domain policies for rate limits, concurrency, TTL, and mode defaults.
 - HTML normalization and CSS selector extraction.
 - Async scrape jobs with polling and cancellation.
-- Prometheus-compatible metrics.
+- Provider-agnostic web search (`POST /v1/search`) with capability-aware
+  routing, fallback, a normalized result cache, and stale-if-error —
+  see [Search Providers](search-providers.md).
+- Prometheus-compatible metrics, including per-provider search counters.
 - Optional proxy, custom header, and per-request cookie support.
 
 ## Architecture
@@ -28,11 +31,14 @@ Client
 FastAPI app
   |
   v
-ScraperService
-  |--------- HttpFetcher
-  |--------- BrowserFetcher
-  |--------- SQLite cache
+ScraperService                  Search API
+  |--------- HttpFetcher         |--------- SearchRouter (auto routing + fallback)
+  |--------- BrowserFetcher      |--------- Search result cache (SQLite)
+  |--------- SQLite cache        |--------- SearXNG provider (more to come)
   |--------- Job service
+  |
+  v
+/health, /health/deep, /ready, /metrics, /docs
 ```
 
 ## Source Documents

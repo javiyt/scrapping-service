@@ -97,6 +97,7 @@ from app.core.errors import (
     UnsupportedSearchCapabilityError,
     ValidationError,
 )
+from app.metrics.prometheus import MetricsCollector, get_metrics
 from app.search.contract import SearchProvider
 from app.search.models import SearchCapabilities, SearchQuery, SearchResponse
 from app.search.registry import SearchProviderRegistry
@@ -252,15 +253,24 @@ class SearchRouter:
     :class:`SearchRouterConfig`; it owns no I/O of its own — all backend
     work is delegated to providers through the structural
     :class:`~app.search.SearchProvider` contract.
+
+    The router records per-provider observability counters
+    (``search_provider_attempts_total`` / ``search_provider_success_total`` /
+    ``search_provider_error_total`` on the injected
+    :class:`~app.metrics.prometheus.MetricsCollector`, labelled only by the
+    bounded, configured provider name) and a ``search_fallbacks_total``
+    counter for auto-mode fallbacks.
     """
 
     def __init__(
         self,
         registry: SearchProviderRegistry,
         config: SearchRouterConfig | None = None,
+        metrics: MetricsCollector | None = None,
     ) -> None:
         self._registry = registry
         self._config = config or SearchRouterConfig()
+        self._metrics = metrics if metrics is not None else get_metrics()
 
         default = self._config.default_provider
         if default != AUTO_PROVIDER and default not in registry:
@@ -338,7 +348,13 @@ class SearchRouter:
 
         # Transient failures propagate unchanged: an explicit request never
         # falls back silently.
-        response = await provider.search(request)
+        self._metrics.inc("search_provider_attempts_total", provider=name)
+        try:
+            response = await provider.search(request)
+        except Exception:
+            self._metrics.inc("search_provider_error_total", provider=name)
+            raise
+        self._metrics.inc("search_provider_success_total", provider=name)
 
         response.metadata.providers_attempted = [name]
         response.metadata.fallback_occurred = False
@@ -394,9 +410,14 @@ class SearchRouter:
         selected_caps: SearchCapabilities | None = None
         for index, (provider, caps) in enumerate(eligible):
             attempts.append(provider.name)
+            self._metrics.inc("search_provider_attempts_total", provider=provider.name)
             try:
                 response = await provider.search(request)
-            except FALLBACK_ELIGIBLE_ERRORS as exc:
+            except Exception as exc:
+                self._metrics.inc("search_provider_error_total", provider=provider.name)
+                if not isinstance(exc, FALLBACK_ELIGIBLE_ERRORS):
+                    # Non-transient failures are terminal; they never fall back.
+                    raise
                 failures.append(
                     {
                         "provider": provider.name,
@@ -410,11 +431,13 @@ class SearchRouter:
                 )
                 if index + 1 < len(eligible):
                     summary += f"; falling back to '{eligible[index + 1][0].name}'"
+                    self._metrics.inc("search_fallbacks_total")
                     logger.warning("Search routing fallback: %s", summary)
                 else:
                     logger.error("Search routing: %s", summary)
                 warnings.append(summary)
                 continue
+            self._metrics.inc("search_provider_success_total", provider=provider.name)
             selected_caps = caps
             break
 

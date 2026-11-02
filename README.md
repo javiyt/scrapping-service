@@ -32,7 +32,8 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
   and more).
 - **Domain policies** — per-domain rate limiting, concurrency control, and
   default TTL / mode overrides.
-- **Prometheus metrics** — lightweight built-in metrics endpoint.
+- **Prometheus metrics** — lightweight built-in metrics endpoint, including
+  scrape, job, cache, auth, and per-provider search counters.
 - **Debug features** — optional HTML dumps and screenshots.
 - **Containerised** — multi-arch Docker image (`linux/amd64`, `linux/arm64`).
 - **Quadlet deploy** — first-class Podman Quadlet support for Raspberry Pi.
@@ -71,7 +72,8 @@ The service is organised into these modules:
 | `api/`     | FastAPI routes, request/response schemas                                                  |
 | `auth/`    | Profile-aware API key authentication, resolver, effective settings computation            |
 | `core/`    | Config, error types, logging, URL security                                                |
-| `cache/`   | SQLite cache backend                                                                      |
+| `cache/`   | SQLite cache backend (HTML cache and search result cache)                          |
+| `search/`  | Provider-agnostic search API: contract, registry, router, result cache, SearXNG provider |
 | `jobs/`    | In-memory async job processing with background workers and retention policy               |
 | `scraper/` | Fetch orchestration, HTTP & browser fetchers, HTML normalisation, CSS selector extraction |
 | `metrics/` | Prometheus-style metrics collector                                                        |
@@ -194,23 +196,69 @@ Liveness probe — always returns `200` when the service is running.
 
 ### `GET /health/deep`
 
-Container health probe — verifies cache access and recent scrape error patterns.
-Returns `503` after too many consecutive scrape failures.
+Container health probe — verifies cache access and recent scrape error
+patterns. Returns `503` after too many consecutive scrape failures.
+
+It also reports the **search subsystem** under `checks.search`: whether it is
+configured, the result-cache policy, and — per enabled provider — availability
+(from a bounded capabilities probe), probe outcome, and provider diagnostics
+(e.g. the SearXNG `/config` discovery state: `ok`, `stale`, or
+`not_discovered`, with the engine count and instance version). External search
+backends are **reported but non-fatal**: a down provider degrades the reported
+search status but never fails the check, so the container restart policy never
+depends on a search backend. Only local infrastructure problems (missing cache
+or missing search subsystem) fail it.
+
+```json
+{
+  "status": "ok",
+  "checks": {
+    "config": "ok",
+    "cache": "ok",
+    "scrape_errors": "ok",
+    "search": {
+      "status": "ok",
+      "configured": true,
+      "cache_enabled": true,
+      "providers": [
+        {
+          "name": "searxng",
+          "available": true,
+          "probe": "ok",
+          "base_url_configured": true,
+          "discovery_state": "ok",
+          "discovery_age_seconds": 12.5,
+          "config_cache_ttl_seconds": 3600,
+          "enabled_engines": 23,
+          "instance_version": "5.0.0"
+        }
+      ]
+    }
+  }
+}
+```
 
 ### `GET /ready`
 
-Readiness probe — verifies config, cache, and internal state.
+Readiness probe — verifies config and internal state.
 
 ### `GET /metrics`
 
-Prometheus-style metrics:
+Prometheus-style metrics — scrape, job, cache, auth, proxy, and search
+counters:
 
 ```text
 # HELP scrape_requests_total Total scrape requests received
 # TYPE scrape_requests_total counter
 scrape_requests_total 42
+# HELP search_provider_attempts_total Search attempts made, by provider
+# TYPE search_provider_attempts_total counter
+search_provider_attempts_total{provider="searxng"} 12
 ...
 ```
+
+Search counters are labelled only by the bounded, configured `provider`
+name — user input (query text, result URLs) never appears in labels.
 
 ### `POST /v1/scrape`
 
@@ -486,6 +534,45 @@ environment variable overrides on top.
 | `TIMEOUT_KEEP_ALIVE`                   | `30`                     | Uvicorn keep-alive timeout (seconds)                                        |
 | `LIMIT_MAX_REQUESTS`                   | `5000`                   | Max requests per worker before restart                                      |
 | `CONFIG_PATH`                          | —                        | Path to YAML config file                                                    |
+| `SCRAPER_SEARCH_SEARXNG_ENABLED`       | `false`                  | Enable the SearXNG search provider                                          |
+| `SCRAPER_SEARCH_SEARXNG_BASE_URL`      | —                        | Base URL of your SearXNG instance, e.g. `http://searxng:8080`               |
+| `SCRAPER_SEARCH_SEARXNG_TIMEOUT_SECONDS` | `15`                    | Timeout for SearXNG `/config` and `/search` HTTP requests                   |
+| `SCRAPER_SEARCH_SEARXNG_CONFIG_CACHE_TTL_SECONDS` | `3600`              | TTL for the cached SearXNG `/config` discovery                             |
+
+### Search
+
+The search API is provider-agnostic: `POST /v1/search` and
+`GET /v1/search/capabilities` expose service-level concepts (verticals,
+filters, providers); providers plug in behind the
+[search router](app/search/router.py). The SearXNG provider is the first
+backend, disabled by default:
+
+```yaml
+search:
+  default_provider: auto        # or an explicit provider name
+  provider_order: [searxng]     # routing priority for auto mode
+  probe_timeout_seconds: 10     # bound for the capabilities/health probe
+  providers:
+    searxng:
+      enabled: true
+      base_url: http://searxng:8080
+      timeout_seconds: 15
+      default_language: en
+      config_cache_ttl_seconds: 3600
+  cache:
+    enabled: true
+    default_ttl_seconds: 900
+    stale_if_error: true
+```
+
+The SearXNG instance must allow JSON output (`search.formats: [html, json]`
+in `settings.yml`); see
+[`docs/search-providers.md`](docs/search-providers.md) for the SearXNG setup
+and how to add another provider.
+
+With **stale-if-error** (default on), an expired search result is served when
+the live search fails, flagged via `metadata.stale` with a warning — search
+availability degrades gracefully instead of failing outright.
 
 ### YAML config
 
@@ -1569,6 +1656,19 @@ The `/metrics` endpoint exposes simple counters in Prometheus text format:
 | `cache_hits_total`          | counter | Cache hits                      |
 | `cache_misses_total`        | counter | Cache misses                    |
 | `cache_stale_hits_total`    | counter | Stale cache served on error     |
+| `cache_errors_total`        | counter | Cache infrastructure errors     |
+| `search_requests_total`     | counter | All search requests             |
+| `search_success_total`      | counter | Successful searches             |
+| `search_error_total`        | counter | Failed searches                 |
+| `search_fallbacks_total`    | counter | Searches that required a provider fallback |
+| `search_cache_hits_total`   | counter | Search result cache hits        |
+| `search_cache_misses_total` | counter | Search result cache misses      |
+| `search_cache_stale_hits_total` | counter | Stale search entries served on error |
+| `search_cache_errors_total` | counter | Search cache infrastructure errors |
+| `search_duration_ms_sum`    | counter | Total search duration (ms)      |
+| `search_provider_attempts_total` | counter | Search attempts made, by provider (`provider` label) |
+| `search_provider_success_total`  | counter | Successful searches, by provider (`provider` label) |
+| `search_provider_error_total`    | counter | Failed searches, by provider (`provider` label) |
 | `scrape_duration_ms_sum`    | counter | Total scrape duration (ms)      |
 | `auth_requests_total`       | counter | Total authenticated requests    |
 | `auth_failures_total`       | counter | Total authentication failures   |

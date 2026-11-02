@@ -26,6 +26,14 @@ overrides can further specialize scrape behavior.
 | `SCRAPER_BROWSER_IDLE_TIMEOUT_SECONDS` | Browser idle release timeout. |
 | `LOG_LEVEL` | Application log level. |
 | `CONFIG_PATH` | Alternative YAML config path. |
+| `SCRAPER_SEARCH_SEARXNG_ENABLED` | Enable the SearXNG search provider. |
+| `SCRAPER_SEARCH_SEARXNG_BASE_URL` | Base URL of the SearXNG instance. |
+| `SCRAPER_SEARCH_SEARXNG_TIMEOUT_SECONDS` | SearXNG HTTP timeout. |
+| `SCRAPER_SEARCH_SEARXNG_DEFAULT_LANGUAGE` | Default BCP-47 language. |
+| `SCRAPER_SEARCH_SEARXNG_CONFIG_CACHE_TTL_SECONDS` | SearXNG `/config` discovery cache TTL. |
+| `SCRAPER_SEARCH_CACHE_ENABLED` | Enable the search result cache. |
+| `SCRAPER_SEARCH_CACHE_DEFAULT_TTL_SECONDS` | Default search result TTL (`0` = never expires). |
+| `SCRAPER_SEARCH_CACHE_STALE_IF_ERROR` | Serve an expired search entry when the live search fails. |
 
 See
 [`configs/config.example.yaml`](https://github.com/javiyt/scrapping-service/blob/main/configs/config.example.yaml)
@@ -59,3 +67,33 @@ cache:
   max_size_mb: 512
   vacuum_after_cleanup: false
 ```
+
+## Search
+
+The `search` section configures the provider-agnostic search API (see
+[Search Providers](search-providers.md)).
+
+```yaml
+search:
+  default_provider: auto        # or an explicit provider name (no fallback)
+  provider_order: [searxng]     # routing priority for auto mode
+  probe_timeout_seconds: 10     # bound for the capabilities/health probe
+  cache:
+    enabled: true
+    default_ttl_seconds: 900
+    stale_if_error: true
+  providers:
+    searxng:
+      enabled: false            # disabled by default
+      base_url: null            # e.g. http://searxng:8080
+      timeout_seconds: 15
+      default_language: null
+      config_cache_ttl_seconds: 3600
+```
+
+Requests override the cache TTL per request (`cache_ttl_seconds`) and bypass
+it (`force_refresh`). Stale-if-error serves an expired entry — flagged via
+`metadata.stale` and a warning — when the live search fails, so search
+availability degrades gracefully. Down search backends are reported by
+`GET /health/deep` but never fail it: container restart policy stays
+decoupled from search availability.

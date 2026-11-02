@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -78,9 +79,54 @@ health_router = APIRouter()
 # ================================================================ /health
 
 
+async def _search_health_report(search_cache: SearchCache) -> dict[str, Any]:
+    """Build the ``search`` section of the deep health report.
+
+    Reports whether search is configured, the result-cache policy, the
+    enabled providers (in routing priority order), per-provider
+    availability, and provider diagnostics (e.g. the SearXNG ``/config``
+    discovery state).  Availability comes from the router's bounded
+    capabilities probe; diagnostics are a zero-I/O read of cached provider
+    state.  A down provider degrades the reported ``status`` but never
+    fails the overall check — external search backends must not gate the
+    service's restart policy.
+    """
+    router = search_cache.router
+    providers: list[dict[str, Any]] = []
+    for provider in router.ordered_candidates():
+        caps = await router.probe_capabilities(provider)
+        entry: dict[str, Any] = {
+            "name": provider.name,
+            "available": bool(caps.available) if caps is not None else False,
+            "probe": "ok" if caps is not None else "failed",
+        }
+        diagnostics = getattr(provider, "diagnostics", None)
+        if callable(diagnostics):
+            entry.update(diagnostics())
+        providers.append(entry)
+
+    if not providers:
+        status = "no providers configured"
+    elif any(entry["available"] for entry in providers):
+        status = "ok"
+    else:
+        status = "degraded (no provider available)"
+
+    return {
+        "status": status,
+        "configured": True,
+        "cache_enabled": search_cache.config.enabled,
+        "providers": providers,
+    }
+
+
 @health_router.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health():
-    """Liveness check.  Always returns 200 when the service is running."""
+    """Liveness check.  Always returns 200 when the service is running.
+
+    Deliberately I/O-free: it never touches the cache or any external
+    dependency (including search providers), so liveness stays cheap.
+    """
     return HealthResponse()
 
 
@@ -90,8 +136,16 @@ async def deep_health(request: Request):
 
     Verifies internal dependencies and recent scrape error patterns. This is
     intentionally separate from /health so cheap liveness checks still work.
+
+    The ``search`` check reports the search subsystem: result-cache policy,
+    enabled providers, per-provider availability (bounded capabilities
+    probe) and provider diagnostics (e.g. SearXNG ``/config`` discovery).
+    External search backends are *reported but non-fatal*: a down provider
+    is surfaced in the report, but does not fail the check.  Only local
+    infrastructure problems (missing cache or missing search subsystem)
+    fail it, so the restart policy never depends on a search backend.
     """
-    checks: dict[str, str | int | float | None] = {}
+    checks: dict[str, Any] = {}
     ok = True
 
     settings: Settings | None = getattr(request.app.state, "settings", None)
@@ -131,6 +185,15 @@ async def deep_health(request: Request):
         ok = False
     else:
         checks["scrape_errors"] = "ok"
+
+    # Search subsystem — reported, non-fatal for external provider backends.
+    # (A missing subsystem is a local configuration problem: fatal.)
+    search_cache = getattr(request.app.state, "search_cache", None)
+    if search_cache is None:
+        checks["search"] = "unavailable"
+        ok = False
+    else:
+        checks["search"] = await _search_health_report(search_cache)
 
     response = ReadinessResponse(status="ok" if ok else "degraded", checks=checks)
     if ok:
