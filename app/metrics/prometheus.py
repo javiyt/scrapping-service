@@ -38,6 +38,9 @@ class MetricsCollector:
             "search_cache_misses_total": 0,
             "search_cache_stale_hits_total": 0,
             "search_cache_errors_total": 0,
+            "search_requests_total": 0,
+            "search_success_total": 0,
+            "search_error_total": 0,
             "proxy_requests_total": 0,
             "proxy_errors_total": 0,
             "auth_requests_total": 0,
@@ -45,6 +48,7 @@ class MetricsCollector:
         }
         self._latencies: dict[str, float] = {
             "scrape_duration_ms_sum": 0.0,
+            "search_duration_ms_sum": 0.0,
         }
         self._gauges: dict[str, int | float] = {}
         self._up: bool = True
@@ -82,6 +86,10 @@ class MetricsCollector:
     def observe_latency(self, ms: float) -> None:
         with self._lock:
             self._latencies["scrape_duration_ms_sum"] += ms
+
+    def observe_search_latency(self, ms: float) -> None:
+        with self._lock:
+            self._latencies["search_duration_ms_sum"] += ms
 
     def set_up(self, up: bool) -> None:
         with self._lock:
@@ -206,6 +214,25 @@ class MetricsCollector:
                 lines.append(f"# TYPE {counter_name} counter")
                 lines.append(f"{counter_name} {val}")
                 lines.append("")
+
+            # Search request counters (API-level)
+            for counter_name, help_text in [
+                ("search_requests_total", "Total search requests received"),
+                ("search_success_total", "Successful search responses"),
+                ("search_error_total", "Failed search responses"),
+            ]:
+                val = self._counters.get(counter_name, 0)
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                lines.append(f"{counter_name} {val}")
+                lines.append("")
+
+            lines.append("# HELP search_duration_ms Total search duration in ms (for avg)")
+            lines.append("# TYPE search_duration_ms counter")
+            lines.append(
+                f"search_duration_ms_sum {self._latencies.get('search_duration_ms_sum', 0.0)}"
+            )
+            lines.append("")
 
             # Auth counters
             for counter_name, help_text in [

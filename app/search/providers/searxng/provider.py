@@ -13,6 +13,9 @@ Clients never see SearXNG's raw API contract:
   reported through ``SearchMetadata.degraded_capabilities`` / ``warnings``.
 - Failures raise the search error types from :mod:`app.core.errors`
   (unavailable, timeout, invalid provider response) — never broken results.
+  The raised errors are public-safe: they carry no instance URL, upstream
+  exception text, or response body preview (all of which are logged instead),
+  so they may be rendered into HTTP responses as-is.
 
 Request mapping (normalized → SearXNG ``/search`` query parameters):
 
@@ -201,27 +204,36 @@ class SearxngProvider:
         try:
             response = await self._client.get("/config")
         except _HTTPX_TIMEOUT_EXCEPTIONS as exc:
+            logger.warning(
+                "SearXNG instance at %s /config request timed out after %ss",
+                self._config.base_url,
+                self._config.timeout_seconds,
+            )
+            # Public error omits the instance URL (internal-URL hygiene).
             raise SearchProviderTimeoutError(
                 f"SearXNG /config request timed out after {self._config.timeout_seconds}s",
-                details={
-                    "base_url": self._config.base_url,
-                    "timeout_seconds": self._config.timeout_seconds,
-                },
+                details={"timeout_seconds": self._config.timeout_seconds},
             ) from exc
         except httpx.HTTPError as exc:
-            raise SearchProviderUnavailableError(
-                f"SearXNG instance at {self._config.base_url} is unreachable: {exc}",
-                details={"base_url": self._config.base_url},
-            ) from exc
+            logger.warning(
+                "SearXNG instance at %s is unreachable: %s",
+                self._config.base_url,
+                exc,
+            )
+            # The public error deliberately omits the instance URL and the
+            # upstream exception text (it may echo internal addresses).
+            raise SearchProviderUnavailableError("SearXNG instance is unreachable") from exc
 
         if response.status_code != 200:
+            logger.warning(
+                "SearXNG instance at %s /config returned HTTP %d: %s",
+                self._config.base_url,
+                response.status_code,
+                response.text[:300],
+            )
             raise SearchProviderUnavailableError(
                 f"SearXNG /config returned HTTP {response.status_code}",
-                details={
-                    "base_url": self._config.base_url,
-                    "status_code": response.status_code,
-                    "body_preview": response.text[:300],
-                },
+                details={"status_code": response.status_code},
             )
 
         payload = _parse_json_payload(response, "/config")
@@ -289,6 +301,7 @@ class SearxngProvider:
                 supports_safe_search=supports_safe_search,
                 supports_paging=supports_paging,
                 supports_source_selection=supports_source_selection,
+                sources=None,
                 available=False,
             )
 
@@ -305,6 +318,10 @@ class SearxngProvider:
             time_ranges = []
             supports_paging = False
 
+        # Sources are the instance's enabled engines (the selectable values
+        # for the request's ``sources`` field), in instance order.
+        sources = [engine.name for engine in instance.engines if engine.enabled] or None
+
         return SearchCapabilities(
             verticals=verticals,
             time_ranges=time_ranges,
@@ -312,6 +329,8 @@ class SearxngProvider:
             supports_safe_search=supports_safe_search,
             supports_paging=supports_paging,
             supports_source_selection=supports_source_selection,
+            max_results=None,
+            sources=sources,
             available=True,
         )
 
@@ -406,27 +425,35 @@ class SearxngProvider:
         try:
             response = await self._client.get("/search", params=params)
         except _HTTPX_TIMEOUT_EXCEPTIONS as exc:
+            logger.warning(
+                "SearXNG instance at %s /search request timed out after %ss",
+                self._config.base_url,
+                self._config.timeout_seconds,
+            )
             raise SearchProviderTimeoutError(
                 f"SearXNG /search request timed out after {self._config.timeout_seconds}s",
-                details={
-                    "base_url": self._config.base_url,
-                    "timeout_seconds": self._config.timeout_seconds,
-                },
+                details={"timeout_seconds": self._config.timeout_seconds},
             ) from exc
         except httpx.HTTPError as exc:
-            raise SearchProviderUnavailableError(
-                f"SearXNG instance at {self._config.base_url} is unreachable: {exc}",
-                details={"base_url": self._config.base_url},
-            ) from exc
+            logger.warning(
+                "SearXNG instance at %s is unreachable: %s",
+                self._config.base_url,
+                exc,
+            )
+            # The public error deliberately omits the instance URL and the
+            # upstream exception text (it may echo internal addresses).
+            raise SearchProviderUnavailableError("SearXNG instance is unreachable") from exc
 
         if response.status_code >= 400:
+            logger.warning(
+                "SearXNG instance at %s /search returned HTTP %d: %s",
+                self._config.base_url,
+                response.status_code,
+                response.text[:300],
+            )
             raise SearchProviderUnavailableError(
                 f"SearXNG /search returned HTTP {response.status_code}",
-                details={
-                    "base_url": self._config.base_url,
-                    "status_code": response.status_code,
-                    "body_preview": response.text[:300],
-                },
+                details={"status_code": response.status_code},
             )
 
         payload = _parse_json_payload(response, "/search")
@@ -434,9 +461,13 @@ class SearxngProvider:
         # ---- normalize results
         raw_results = payload.get("results")
         if not isinstance(raw_results, list):
+            logger.warning(
+                "SearXNG /search response is missing the 'results' list: %s",
+                response.text[:300],
+            )
             raise InvalidProviderResponseError(
                 "SearXNG /search response is missing the 'results' list",
-                details={"body_preview": response.text[:300]},
+                details={"status_code": response.status_code},
             )
 
         results: list[SearchResult] = []
@@ -497,16 +528,25 @@ class SearxngProvider:
 
 # ================================================================== helpers
 def _parse_json_payload(response: httpx.Response, endpoint: str) -> dict[str, Any]:
-    """Parse a JSON object payload, raising a domain error on failure."""
+    """Parse a JSON object payload, raising a domain error on failure.
+
+    Error details are public-safe: upstream body previews are logged, never
+    surfaced in the raised error (raw provider blobs must not leak).
+    """
     try:
         payload = response.json()
     except ValueError as exc:
+        logger.warning(
+            "SearXNG %s returned invalid JSON (HTTP %d): %s",
+            endpoint,
+            response.status_code,
+            response.text[:300],
+        )
         raise InvalidProviderResponseError(
             f"SearXNG {endpoint} returned invalid JSON",
             details={
                 "status_code": response.status_code,
                 "content_type": response.headers.get("content-type"),
-                "body_preview": response.text[:300],
             },
         ) from exc
     if not isinstance(payload, dict):

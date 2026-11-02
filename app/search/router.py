@@ -316,7 +316,7 @@ class SearchRouter:
                 details={"provider": name, "available_providers": self._registry.names},
             )
 
-        caps = await self._probe_capabilities(provider)
+        caps = await self.probe_capabilities(provider)
         if caps is None:
             raise SearchProviderUnavailableError(
                 f"Provider '{name}' is currently unavailable (capabilities probe failed)",
@@ -349,7 +349,7 @@ class SearchRouter:
     # ------------------------------------------------------------------- auto
     async def _route_auto(self, request: SearchQuery, start: float) -> SearchResponse:
         """Capability-aware routing with deterministic transient fallback."""
-        candidates = self._ordered_candidates()
+        candidates = self.ordered_candidates()
         if not candidates:
             raise NoProviderAvailableError(
                 "No search providers are configured",
@@ -359,7 +359,7 @@ class SearchRouter:
         eligible: list[tuple[SearchProvider, SearchCapabilities]] = []
         skipped: list[dict[str, Any]] = []
         for provider in candidates:
-            caps = await self._probe_capabilities(provider)
+            caps = await self.probe_capabilities(provider)
             if caps is None:
                 skipped.append({"provider": provider.name, "reason": "unavailable (probe failed)"})
                 continue
@@ -436,12 +436,13 @@ class SearchRouter:
         return response
 
     # -------------------------------------------------------------- internals
-    def _ordered_candidates(self) -> list[SearchProvider]:
+    def ordered_candidates(self) -> list[SearchProvider]:
         """Registry providers in routing priority order.
 
         Configured ``provider_order`` entries come first (in the configured
         order, restricted to registered providers); the remaining registered
-        providers follow in registration order.
+        providers follow in registration order.  This is also the order in
+        which the capabilities endpoint probes and reports providers.
         """
         ordered: list[SearchProvider] = []
         seen: set[int] = set()
@@ -456,7 +457,7 @@ class SearchRouter:
                 ordered.append(provider)
         return ordered
 
-    async def _probe_capabilities(self, provider: SearchProvider) -> SearchCapabilities | None:
+    async def probe_capabilities(self, provider: SearchProvider) -> SearchCapabilities | None:
         """Best-effort current capabilities/health for one candidate.
 
         Returns ``None`` when the probe raises any error (including a
