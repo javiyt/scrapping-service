@@ -86,28 +86,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Background cache cleanup is disabled")
 
-    # ---- Job service
-    # Scrapers are now created per-request/per-job with profile-specific
-    # effective settings.  The JobService receives the shared cache and
-    # builds per-job scrapers internally.
-    _job_service: JobService | None = None
-    if settings.jobs_enabled:
-        _job_service = JobService(
-            scraper=None,  # scraper is built per-job from effective settings
-            settings=settings,
-            cache=_cache,
-            metrics=metrics,
-            browser_fetcher_pool=_browser_fetcher_pool,
-        )
-        await _job_service.start()
-        app.state.job_service = _job_service
-        logger.info(
-            "Job service started (max_concurrency=%d, max_retained=%d)",
-            settings.jobs_max_concurrency,
-            settings.jobs_max_retained,
-        )
-    else:
-        logger.info("Job service is disabled")
 
     # ---- Search providers + router
     # Constructed from the `search` config block.  The router is exercised
@@ -150,8 +128,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # the Camofox *search provider* is enabled the lifespan shares the
     # client that provider already built (one HTTP client per process —
     # sessions are still per-search); otherwise it builds its own for the
-    # future consumers (browser fallback / agent-browser).  Camofox is an
-    # external service: nothing is launched here, only an HTTP client.
+    # browser-fallback consumer.  Camofox is an external service: nothing is
+    # launched here, only an HTTP client.
     _camofox_client = None
     for provider in search_providers:
         provider_client = getattr(provider, "client", None)
@@ -165,6 +143,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Camofox client ready (external service client; no browser launched here)")
     else:
         logger.info("Camofox client disabled")
+
+    # ---- Job service
+    # Scrapers are now created per-request/per-job with profile-specific
+    # effective settings.  The JobService receives the shared cache and
+    # builds per-job scrapers internally.
+    _job_service: JobService | None = None
+    if settings.jobs_enabled:
+        _job_service = JobService(
+            scraper=None,  # scraper is built per-job from effective settings
+            settings=settings,
+            cache=_cache,
+            metrics=metrics,
+            browser_fetcher_pool=_browser_fetcher_pool,
+            camofox_client=_camofox_client,
+        )
+        await _job_service.start()
+        app.state.job_service = _job_service
+        logger.info(
+            "Job service started (max_concurrency=%d, max_retained=%d)",
+            settings.jobs_max_concurrency,
+            settings.jobs_max_retained,
+        )
+    else:
+        logger.info("Job service is disabled")
+
 
     yield
 

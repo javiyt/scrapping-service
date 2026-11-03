@@ -83,6 +83,37 @@ class MetricsCollector:
             else:
                 self._counters[name] = self._counters.get(name, 0) + value
 
+    def get(self, name: str, **labels: str) -> int:
+        """Return the current value of a counter (plain or labelled).
+
+        A convenience accessor for tests and debug endpoints.  With labels,
+        the labelled series is looked up; with no labels the plain counter is
+        returned.  Missing series return 0.
+        """
+        with self._lock:
+            if labels:
+                series = self._labeled_counters.get(name, {})
+                key = tuple(sorted(labels.items()))
+                return series.get(key, 0)
+            return self._counters.get(name, 0)
+
+    def reset(self) -> None:
+        """Reset all counters, gauges, and latencies to their initial values.
+
+        Intended for tests and for the readiness probe that wants a clean
+        slate.  Thread-safe.
+        """
+        with self._lock:
+            for name in self._counters:
+                self._counters[name] = 0
+            for name in self._latencies:
+                self._latencies[name] = 0.0
+            self._labeled_counters.clear()
+            self._gauges.clear()
+            self._consecutive_scrape_errors = 0
+            self._last_scrape_error_at = None
+            self._last_scrape_success_at = None
+
     def mark_scrape_success(self) -> None:
         with self._lock:
             self._consecutive_scrape_errors = 0
@@ -298,6 +329,30 @@ class MetricsCollector:
                 lines.append(f"# HELP {counter_name} {help_text}")
                 lines.append(f"# TYPE {counter_name} counter")
                 lines.append(f"{counter_name} {val}")
+                lines.append("")
+
+            # Per-browser-backend counters.  The ``backend`` label is a
+            # bounded, operator-configured set of backend names (e.g.
+            # ``botasaurus``, ``camofox``) — never a URL or other user input.
+            for counter_name, help_text in [
+                ("browser_backend_attempt_total", "Browser fetch attempts made, by backend"),
+                (
+                    "browser_backend_success_total",
+                    "Successful browser fetches, by backend",
+                ),
+                ("browser_backend_error_total", "Failed browser fetches, by backend"),
+                (
+                    "browser_backend_fallback_total",
+                    "Browser fetches that required a fallback backend",
+                ),
+            ]:
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                for labels, val in sorted(self._labeled_counters.get(counter_name, {}).items()):
+                    label_part = ",".join(
+                        f'"{key}"="{self._escape_label(value)}"' for key, value in labels
+                    )
+                    lines.append(f"{counter_name}{{{label_part}}} {val}")
                 lines.append("")
 
             # Proxy counters

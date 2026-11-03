@@ -111,6 +111,12 @@ class Settings(BaseSettings):
     )
     browser_idle_timeout_seconds: int = Field(default=300, ge=0)
     browser_max_uses: int | None = Field(default=None, ge=1)
+    # Browser backend selection.  Botasaurus is the *primary* backend; the
+    # fallback list is a bounded, operator-configured set (Camofox is the
+    # shipped option).  When no fallback is configured the orchestrator is
+    # not created and the service uses the primary backend directly.
+    browser_primary_backend: str = Field(default="botasaurus")
+    browser_fallback_backends: list[str] = Field(default_factory=list)
     browser_max_pool_size: int = Field(default=1, ge=1)
 
     # ------------------------------------------------------------- Security
@@ -165,6 +171,15 @@ class Settings(BaseSettings):
         default=None,
         exclude=True,
         alias="_raw_yaml_camofox",
+    )
+
+    # Raw browser YAML block — parsed by app.scraper.browser_backends. Same
+    # convention. Carries backend selection (``primary_backend`` /
+    # ``fallback_backends``) alongside the existing botasaurus driver options.
+    raw_yaml_browser: dict[str, Any] | None = Field(
+        default=None,
+        exclude=True,
+        alias="_raw_yaml_browser",
     )
 
     # ------------------------------------------------------------------ validators
@@ -316,6 +331,12 @@ class Settings(BaseSettings):
         # Camofox block — stored raw for app.camofox to parse.
         if "camofox" in data and isinstance(data["camofox"], dict):
             result["_raw_yaml_camofox"] = data["camofox"]
+
+        # Browser block — stored raw for app.scraper.browser_backends to parse.
+        # (Also mapped to flat fields above via section_mapping; the raw block
+        # carries the nested backend selection keys.)
+        if "browser" in data and isinstance(data["browser"], dict):
+            result["_raw_yaml_browser"] = data["browser"]
 
         return result
 

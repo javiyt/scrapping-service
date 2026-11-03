@@ -7,6 +7,7 @@ URL that does not require JavaScript rendering.
 import asyncio
 import logging
 import time
+from typing import Any
 
 import httpx
 
@@ -27,7 +28,13 @@ _HTTPX_TIMEOUT_EXCEPTIONS = (
 
 
 class FetchResult:
-    """Result from any fetcher implementation."""
+    """Result from any fetcher implementation.
+
+    ``backend_name`` identifies which fetcher produced the result (``None``
+    for the HTTP fetcher) so the service can record it in cache metadata and
+    backend metrics without depending on a specific fetcher implementation.
+    ``backend_metadata`` carries small, safe backend-specific details.
+    """
 
     def __init__(
         self,
@@ -36,12 +43,16 @@ class FetchResult:
         final_url: str,
         headers: dict[str, str] | None = None,
         elapsed_ms: int = 0,
+        backend_name: str | None = None,
+        backend_metadata: dict[str, Any] | None = None,
     ) -> None:
         self.html = html
         self.status_code = status_code
         self.final_url = final_url
         self.headers = headers or {}
         self.elapsed_ms = elapsed_ms
+        self.backend_name = backend_name
+        self.backend_metadata = backend_metadata or {}
 
 
 class HttpFetcher:

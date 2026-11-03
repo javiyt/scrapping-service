@@ -108,6 +108,17 @@ scraper:
 
 # ---------------------------------------------------------------- Browser
 browser:
+  # Browser backend selection.  Botasaurus is the *primary* engine; the
+  # fallback list is a bounded, operator-configured set.  When the primary
+  # fails with an *appropriate* error (driver crash/timeout/blocked page)
+  # the orchestrator tries each fallback exactly once.  Camofox is the
+  # shipped option: it participates only when it is listed here *and* the
+  # top-level `camofox:` section is enabled.  Leave `fallback_backends: []`
+  # for the historical behaviour (primary only, no fallback).
+  primary_backend: botasaurus
+  fallback_backends: []
+  # To enable the Camofox fallback:
+  #   fallback_backends: ["camofox"]
   # Release Chromium after this many idle seconds. Set 0 to keep it alive
   # until shutdown. Lower values reduce Raspberry Pi memory/CPU residency.
   idle_timeout_seconds: 300

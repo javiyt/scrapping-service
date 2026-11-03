@@ -147,6 +147,7 @@ def _get_scraper(
         settings=effective_settings,
         cache=cache,
         browser_fetcher_pool=_get_browser_fetcher_pool(request),
+        camofox_client=getattr(request.app.state, "camofox_client", None),
     )
 
 

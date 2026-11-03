@@ -97,3 +97,54 @@ it (`force_refresh`). Stale-if-error serves an expired entry — flagged via
 availability degrades gracefully. Down search backends are reported by
 `GET /health/deep` but never fail it: container restart policy stays
 decoupled from search availability.
+
+## Browser
+
+The scraper service renders pages through a pluggable **browser backend**
+abstraction.  **Botasaurus** is the *primary* backend (the engine that has
+always been used).  **Camofox** is an *optional fallback* backend backed by
+the external [camofox-browser](https://github.com/jo-inc/camofox-browser)
+REST service.
+
+### Backend selection
+
+```yaml
+browser:
+  primary_backend: botasaurus        # always the primary engine
+  fallback_backends: []              # bounded, operator-configured set
+  # To enable the Camofox fallback:
+  #   fallback_backends: ["camofox"]
+```
+
+When the primary backend fails with an **appropriate** error — a driver
+crash, a navigation timeout, a blocked/challenge page, or a missing import —
+the orchestrator tries each fallback backend **exactly once** (no retry
+loop).  Failures that are *not* a browser problem (security/invalid-input
+errors) are raised immediately and never trigger a fallback.  When every
+backend fails, the **primary** backend's error is raised, preserving the
+historical "browser failed" semantics and the original root cause.
+
+The Camofox fallback only participates when it is listed in
+`fallback_backends` **and** the top-level `camofox:` section is enabled (see
+the Camofox client docs below).  When no fallback is configured, the service
+behaves exactly as before (Botasaurus only).
+
+### Observability
+
+* Every scrape response's `metadata` carries `fetch_backend` — the name of
+  the backend that actually produced the HTML (`botasaurus`, `camofox`, or
+  `null` for HTTP-only fetches).  The same value is recorded in the cache
+  entry so a cached hit reports the backend that fetched it.
+* Bounded Prometheus counters are emitted with a `backend` label:
+  `browser_backend_attempt_total{backend}`,
+  `browser_backend_success_total{backend}`,
+  `browser_backend_error_total{backend}`, and
+  `browser_backend_fallback_total{backend}`.  The label set is limited to the
+  operator-configured backend names — it never grows from user input.
+
+### Request modes (unchanged)
+
+`mode` remains `http`, `browser`, or `auto` and is the **only** user-facing
+control, exactly as before.  Backend selection is *not* a request field; it is
+server configuration.  `auto` still prefers HTTP and escalates to the browser
+backend(s) only when the HTTP result looks blocked or the HTTP fetch fails.
