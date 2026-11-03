@@ -124,6 +124,25 @@ class Settings(BaseSettings):
     security_block_localhost: bool = True
     security_allowed_domains: list[str] = Field(default_factory=list)
 
+    # ------------------------------------------- Interactive agent browser
+    # Agent browser master switch.  When disabled (or when no provider is
+    # ready) the /v1/browser endpoints refuse all sessions and the background
+    # maintenance loop is not started.
+    agent_browser_enabled: bool = False
+    # JavaScript evaluation (POST .../evaluate) is a sensitive capability and
+    # is off by default; enable globally or per profile (`browser:` overrides).
+    agent_browser_allow_evaluate: bool = False
+    # Maximum interactive browser sessions per authenticated profile.
+    agent_browser_max_sessions: int = Field(default=5, ge=1)
+    # Maximum open tabs per session.
+    agent_browser_max_tabs_per_session: int = Field(default=3, ge=1)
+    # Idle TTL: sessions with no operation for this long are released.
+    agent_browser_session_ttl_seconds: int = Field(default=1800, ge=60)
+    # How often the background maintenance loop sweeps expired sessions.
+    agent_browser_cleanup_interval_seconds: int = Field(default=60, ge=5)
+    # Per-operation timeout (seconds) passed to the browser provider.
+    agent_browser_operation_timeout_seconds: int = Field(default=30, ge=1, le=300)
+
     # ---------------------------------------------------------------- Proxy
     proxy_enabled: bool = False
     proxy_url: str | None = None
@@ -180,6 +199,13 @@ class Settings(BaseSettings):
         default=None,
         exclude=True,
         alias="_raw_yaml_browser",
+    )
+
+    # Raw agent browser YAML block — parsed by app.browser.  Same convention.
+    raw_yaml_agent_browser: dict[str, Any] | None = Field(
+        default=None,
+        exclude=True,
+        alias="_raw_yaml_agent_browser",
     )
 
     # ------------------------------------------------------------------ validators
@@ -337,6 +363,14 @@ class Settings(BaseSettings):
         # carries the nested backend selection keys.)
         if "browser" in data and isinstance(data["browser"], dict):
             result["_raw_yaml_browser"] = data["browser"]
+
+        # Agent browser block — stored raw for app.browser to parse.  Its
+        # keys are also mapped to the flat ``agent_browser_*`` fields so the
+        # settings object (and per-profile overrides) reflect the YAML values.
+        if "agent_browser" in data and isinstance(data["agent_browser"], dict):
+            result["_raw_yaml_agent_browser"] = data["agent_browser"]
+            for key, value in data["agent_browser"].items():
+                result[f"agent_browser_{key}"] = value
 
         return result
 

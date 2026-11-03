@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, JSONResponse
 
+from app.api.browser_routes import browser_router, get_agent_browser_service  # noqa: F401
 from app.api.dependencies import get_settings
 from app.api.routes import health_router, router
 from app.auth.resolver import init_profile_resolver
@@ -143,6 +144,33 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Camofox client disabled")
 
+    # ---- Interactive agent browser service
+    # Owns the /v1/browser/... contract.  Built only when the agent browser is
+    # enabled AND a Camofox client is ready; otherwise the state holds None and
+    # the routes return a clean 503.  The maintenance loop (idle-session TTL)
+    # is started here and stopped on shutdown.
+    from app.browser import AgentBrowserService, create_provider
+
+    _agent_browser_provider = create_provider(settings, _camofox_client)
+    _agent_browser_service = None
+    if _agent_browser_provider is not None:
+        _agent_browser_service = AgentBrowserService(_agent_browser_provider, settings)
+        await _agent_browser_service.start_maintenance()
+        app.state.agent_browser_service = _agent_browser_service
+        logger.info(
+            "Agent browser service ready (provider=%s, interactive API enabled)",
+            _agent_browser_provider.name,
+        )
+    else:
+        app.state.agent_browser_service = None
+        if settings.agent_browser_enabled:
+            logger.info(
+                "Agent browser enabled but no provider ready (Camofox client missing) "
+                "— /v1/browser will report unavailable"
+            )
+        else:
+            logger.info("Agent browser service disabled")
+
     # ---- Job service
     # Scrapers are now created per-request/per-job with profile-specific
     # effective settings.  The JobService receives the shared cache and
@@ -172,6 +200,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ---- shutdown
     logger.info("Shutting down scraper-api")
     metrics.set_up(False)
+    if _agent_browser_service is not None:
+        await _agent_browser_service.stop_maintenance()
     if _job_service is not None:
         await _job_service.stop()
     if _maintenance is not None:
@@ -211,6 +241,7 @@ app.add_middleware(
 # --------------------------------------------------------------- routers
 app.include_router(health_router, tags=["Health"])
 app.include_router(router)
+app.include_router(browser_router)
 
 # Register custom OpenAPI schema for /docs and /redoc
 app.openapi = lambda: custom_openapi_schema(app)  # type: ignore[method-assign]

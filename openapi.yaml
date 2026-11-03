@@ -10,6 +10,7 @@ info:
       - Batch scraping of multiple URLs with controlled concurrency
       - Provider-agnostic web search with stable normalized results
       - Async job queuing and management
+      - Interactive agent browsing (stateful sessions, tabs, snapshot, click, type, navigate, evaluate)
       - Cache operations (stats, purge, cleanup, vacuum)
       - Health and readiness checks (the deep health check reports the search subsystem)
       - Prometheus-style metrics, including per-provider search counters
@@ -40,6 +41,8 @@ tags:
      description: Cache management operations
    - name: Jobs
      description: Async job queue management
+   - name: Browser
+     description: Interactive agent browser API (stateful sessions, tabs, snapshot, actions)
 
 components:
   securitySchemes:
@@ -935,6 +938,275 @@ components:
             details:
               type: object
 
+    # Interactive agent browser endpoints
+    BrowserProviderMetadata:
+      type: object
+      properties:
+        provider:
+          type: string
+          description: Backend provider serving the session (e.g. "camofox"). Never a raw upstream ID.
+
+    BrowserTab:
+      type: object
+      properties:
+        tab_id:
+          type: string
+        url:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          nullable: true
+          format: date-time
+      required: [tab_id]
+
+    BrowserSession:
+      type: object
+      properties:
+        session_id:
+          type: string
+        provider:
+          type: string
+        tabs:
+          type: array
+          items:
+            $ref: '#/components/schemas/BrowserTab'
+        created_at:
+          type: string
+          nullable: true
+          format: date-time
+        last_activity_at:
+          type: string
+          nullable: true
+          format: date-time
+        expires_at:
+          type: string
+          nullable: true
+          format: date-time
+      required: [session_id, provider, tabs]
+
+    BrowserSessionCreatedResponse:
+      type: object
+      properties:
+        session:
+          $ref: '#/components/schemas/BrowserSession'
+      required: [session]
+
+    BrowserSessionDeletedResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        message:
+          type: string
+      required: [session_id, message]
+
+    BrowserTabCreatedResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab:
+          $ref: '#/components/schemas/BrowserTab'
+      required: [session_id, tab]
+
+    BrowserTabDeletedResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        message:
+          type: string
+      required: [session_id, tab_id, message]
+
+    BrowserLink:
+      type: object
+      properties:
+        url:
+          type: string
+        text:
+          type: string
+          default: ""
+      required: [url]
+
+    SnapshotResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        url:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        snapshot:
+          type: string
+          description: Normalized accessible text/tree with stable element refs.
+        refs_count:
+          type: integer
+        truncated:
+          type: boolean
+        has_more:
+          type: boolean
+        next_offset:
+          type: integer
+          nullable: true
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/BrowserLink'
+        provider:
+          $ref: '#/components/schemas/BrowserProviderMetadata'
+      required: [session_id, tab_id, snapshot, refs_count, truncated, has_more, links, provider]
+
+    BrowserNavigateRequest:
+      type: object
+      properties:
+        url:
+          type: string
+        timeout_seconds:
+          type: number
+          nullable: true
+      required: [url]
+
+    BrowserNavigateResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        ok:
+          type: boolean
+        url:
+          type: string
+          nullable: true
+        title:
+          type: string
+          nullable: true
+        provider:
+          $ref: '#/components/schemas/BrowserProviderMetadata'
+      required: [session_id, tab_id, ok, provider]
+
+    BrowserClickRequest:
+      type: object
+      properties:
+        ref:
+          type: string
+          nullable: true
+        selector:
+          type: string
+          nullable: true
+      description: Provide exactly one of ``ref`` (snapshot ref) or ``selector`` (CSS).
+
+    BrowserClickResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        ok:
+          type: boolean
+        url:
+          type: string
+          nullable: true
+        provider:
+          $ref: '#/components/schemas/BrowserProviderMetadata'
+      required: [session_id, tab_id, ok, provider]
+
+    BrowserTypeRequest:
+      type: object
+      properties:
+        text:
+          type: string
+        ref:
+          type: string
+          nullable: true
+        selector:
+          type: string
+          nullable: true
+      required: [text]
+
+    BrowserTypeResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        ok:
+          type: boolean
+        url:
+          type: string
+          nullable: true
+        provider:
+          $ref: '#/components/schemas/BrowserProviderMetadata'
+      required: [session_id, tab_id, ok, provider]
+
+    BrowserEvaluateRequest:
+      type: object
+      properties:
+        expression:
+          type: string
+        timeout_ms:
+          type: integer
+          nullable: true
+      required: [expression]
+
+    BrowserEvaluateResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        tab_id:
+          type: string
+        ok:
+          type: boolean
+        result:
+          type: object
+          nullable: true
+        result_type:
+          type: string
+          nullable: true
+        truncated:
+          type: boolean
+        error:
+          type: string
+          nullable: true
+        error_type:
+          type: string
+          nullable: true
+        provider:
+          $ref: '#/components/schemas/BrowserProviderMetadata'
+      required: [session_id, tab_id, ok, truncated, provider]
+
+    BrowserCapabilitiesResponse:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        provider:
+          type: string
+          nullable: true
+        evaluate_enabled:
+          type: boolean
+        max_sessions:
+          type: integer
+        max_tabs_per_session:
+          type: integer
+        session_ttl_seconds:
+          type: integer
+      required: [enabled, evaluate_enabled, max_sessions, max_tabs_per_session, session_ttl_seconds]
+
 paths:
    /health:
      get:
@@ -1819,3 +2091,586 @@ paths:
                  $ref: '#/components/schemas/ErrorResponse'
          '404':
            description: Job not found
+
+   # ====================================================== Browser Endpoints
+
+   /v1/browser/sessions:
+     post:
+       operationId: createBrowserSession
+       summary: Create a browser session
+       description: |
+         Create a new interactive browser session owned by the authenticated
+         profile. Returns a service-owned `session_id` (a `ses_` ID). The
+         backend (Camofox) session is created on demand; provider identifiers
+         never appear in the response.
+       tags: [Browser]
+       security:
+         - bearerAuth: []
+       responses:
+         '201':
+           description: Session created
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/BrowserSessionCreatedResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '409':
+           description: Session limit reached for this profile
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '502':
+           description: Browser provider failure
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '503':
+           description: Interactive browser API is not enabled
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v1/browser/sessions/{session_id}:
+     get:
+       operationId: getBrowserSession
+       summary: Get browser session state
+       description: Return the current state of one of the caller's sessions, including open tabs.
+       tags: [Browser]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: session_id
+           in: path
+           required: true
+           schema:
+             type: string
+           description: Service-owned session ID (`ses_...`)
+       responses:
+         '200':
+           description: Session details
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/BrowserSession'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Session not found (unknown or not owned by the profile)
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '410':
+           description: Session expired (idle TTL elapsed)
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+     delete:
+       operationId: deleteBrowserSession
+       summary: Close a browser session
+       description: Close a session and all of its tabs, releasing the underlying browser.
+       tags: [Browser]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: session_id
+           in: path
+           required: true
+           schema:
+             type: string
+           description: Service-owned session ID (`ses_...`)
+       responses:
+         '200':
+           description: Session closed
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/BrowserSessionDeletedResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Session not found
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '410':
+           description: Session expired
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v1/browser/sessions/{session_id}/tabs:
+     post:
+       operationId: createBrowserTab
+       summary: Create a tab in a session
+       description: |
+         Create a tab in a session. Optionally open a URL, which is validated
+         against the profile's SSRF and domain-allowlist rules before the tab
+         is created.
+       tags: [Browser]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: session_id
+           in: path
+           required: true
+           schema:
+             type: string
+           description: Service-owned session ID (`ses_...`)
+         - name: url
+           in: query
+           required: false
+           schema:
+             type: string
+           description: URL to open in the new tab (validated by security rules)
+       responses:
+         '201':
+           description: Tab created
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/BrowserTabCreatedResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '403':
+           description: URL rejected by security rules (SSRF / domain policy)
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Session not found
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '409':
+           description: Tab limit reached for the session
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '410':
+           description: Session expired
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '502':
+           description: Browser provider failure
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v1/browser/sessions/{session_id}/tabs/{tab_id}:
+     delete:
+       operationId: deleteBrowserTab
+       summary: Close a tab
+       description: Close a single tab in a session.
+       tags: [Browser]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: session_id
+           in: path
+           required: true
+           schema:
+             type: string
+         - name: tab_id
+           in: path
+           required: true
+           schema:
+             type: string
+       responses:
+         '200':
+           description: Tab closed
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/BrowserTabDeletedResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Session or tab not found
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '410':
+           description: Session expired
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '502':
+           description: Browser provider failure
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v1/browser/sessions/{session_id}/tabs/{tab_id}/snapshot:
+     get:
+       operationId: snapshotBrowserTab
+       summary: Snapshot a page
+       description: |
+         Return a normalized page snapshot (accessible text/tree with stable
+         element refs, current URL and title, and optional extracted links).
+       tags: [Browser]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: session_id
+           in: path
+           required: true
+           schema:
+             type: string
+         - name: tab_id
+           in: path
+           required: true
+           schema:
+             type: string
+         - name: include_links
+           in: query
+           required: false
+           schema:
+             type: boolean
+             default: false
+           description: Also extract page links
+         - name: links_limit
+           in: query
+           required: false
+           schema:
+             type: integer
+             default: 50
+             minimum: 1
+             maximum: 500
+       responses:
+         '200':
+           description: Page snapshot
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/SnapshotResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Session or tab not found
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '410':
+           description: Session expired
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '502':
+           description: Browser provider failure
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v1/browser/sessions/{session_id}/tabs/{tab_id}/navigate:
+     post:
+       operationId: navigateBrowserTab
+       summary: Navigate a tab to a URL
+       description: Navigate a tab to a URL. The URL is validated against the profile's security rules.
+       tags: [Browser]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: session_id
+           in: path
+           required: true
+           schema:
+             type: string
+         - name: tab_id
+           in: path
+           required: true
+           schema:
+             type: string
+       requestBody:
+         required: true
+         content:
+           application/json:
+             schema:
+               $ref: '#/components/schemas/BrowserNavigateRequest'
+       responses:
+         '200':
+           description: Navigation result
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/BrowserNavigateResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '403':
+           description: URL rejected by security rules
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Session or tab not found
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '410':
+           description: Session expired
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '502':
+           description: Browser provider failure
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v1/browser/sessions/{session_id}/tabs/{tab_id}/click:
+     post:
+       operationId: clickBrowserTab
+       summary: Click an element
+       description: Click an element by snapshot `ref` or CSS `selector`.
+       tags: [Browser]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: session_id
+           in: path
+           required: true
+           schema:
+             type: string
+         - name: tab_id
+           in: path
+           required: true
+           schema:
+             type: string
+       requestBody:
+         required: true
+         content:
+           application/json:
+             schema:
+               $ref: '#/components/schemas/BrowserClickRequest'
+       responses:
+         '200':
+           description: Click result
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/BrowserClickResponse'
+         '400':
+           description: Neither ref nor selector provided
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Session or tab not found
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '410':
+           description: Session expired
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '502':
+           description: Browser provider failure
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v1/browser/sessions/{session_id}/tabs/{tab_id}/type:
+     post:
+       operationId: typeBrowserTab
+       summary: Type text
+       description: Type text into the active element, or one addressed by `ref`/`selector`.
+       tags: [Browser]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: session_id
+           in: path
+           required: true
+           schema:
+             type: string
+         - name: tab_id
+           in: path
+           required: true
+           schema:
+             type: string
+       requestBody:
+         required: true
+         content:
+           application/json:
+             schema:
+               $ref: '#/components/schemas/BrowserTypeRequest'
+       responses:
+         '200':
+           description: Type result
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/BrowserTypeResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Session or tab not found
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '410':
+           description: Session expired
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '502':
+           description: Browser provider failure
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v1/browser/sessions/{session_id}/tabs/{tab_id}/evaluate:
+     post:
+       operationId: evaluateBrowserTab
+       summary: Evaluate JavaScript
+       description: |
+         Evaluate JavaScript in the page context. Refused (403) unless
+         JavaScript evaluation is enabled for the caller's profile.
+       tags: [Browser]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: session_id
+           in: path
+           required: true
+           schema:
+             type: string
+         - name: tab_id
+           in: path
+           required: true
+           schema:
+             type: string
+       requestBody:
+         required: true
+         content:
+           application/json:
+             schema:
+               $ref: '#/components/schemas/BrowserEvaluateRequest'
+       responses:
+         '200':
+           description: Evaluation result
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/BrowserEvaluateResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '403':
+           description: JavaScript evaluation not enabled for this profile
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Session or tab not found
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '410':
+           description: Session expired
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '502':
+           description: Browser provider failure
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v1/browser/capabilities:
+     get:
+       operationId: browserCapabilities
+       summary: Interactive browser capabilities
+       description: Report the interactive browser capability and limits for the caller's profile.
+       tags: [Browser]
+       security:
+         - bearerAuth: []
+       responses:
+         '200':
+           description: Capabilities and limits
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/BrowserCapabilitiesResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'

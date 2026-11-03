@@ -19,6 +19,7 @@ SAFE_OVERRIDE_SECTIONS = frozenset(
         "debug",
         "browser",
         "jobs",
+        "agent_browser",
     }
 )
 
