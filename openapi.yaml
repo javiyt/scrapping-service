@@ -1240,11 +1240,16 @@ paths:
          - `cache_enabled`: whether the search result cache is on
          - `providers`: per-provider report — `name`, `available` (from a bounded capabilities probe), `probe` (`ok`/`failed`), plus provider diagnostics (e.g. SearXNG's `/config` discovery state)
 
-         External search backends are **reported but non-fatal**: a down provider
-         degrades the reported search status but never fails the check, so the
-         restart policy never depends on a search backend. Only local
-         infrastructure problems (missing cache or missing search subsystem)
-         fail the check. No authentication required.
+         External backends (search providers, Camofox) are **reported but non-fatal**:
+         a down backend degrades the reported status but never fails the check, so the
+         restart policy never depends on an external service.  Only local infrastructure
+         problems (missing cache or missing search subsystem) fail the check. No
+         authentication required.
+         
+         The `checks.camofox` object reports the external Camofox service when the
+         `camofox` client is enabled: `status` (`ok`/`unreachable`), `reason`,
+         `version`, `browser_connected`, `pool_size` (from the service's cheap
+         unauthenticated health probe); `disabled` when the client is off.
        tags: [Health]
        security: []
        responses:
@@ -1277,6 +1282,12 @@ paths:
                              config_cache_ttl_seconds: 3600
                              enabled_engines: 23
                              instance_version: "5.0.0"
+                       camofox:
+                         status: unreachable
+                         reason: connection refused
+                         version: null
+                         browser_connected: null
+                         pool_size: null
          '503':
            description: One or more internal checks are degraded
            content:

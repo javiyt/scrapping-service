@@ -1,0 +1,27 @@
+[Unit]
+Description=Camofox browser service (external browser backend for scraper-api)
+Wants=scraper-api-network.network
+After=network-online.target scraper-api-network.network
+
+[Container]
+Image=docker.io/camoufox/camoufox:latest
+ContainerName=camofox
+Network=scraper-network
+# Private only — do not add a Port= line unless public exposure is required.
+Environment=PORT=9377
+Environment=HOST=0.0.0.0
+# Secrets come from the environment file — never literal values in the repo.
+EnvironmentFile=%h/scraper-api/.env
+HealthCmd=python -c 'import urllib.request; import sys; urllib.request.urlopen("http://127.0.0.1:9377/health"); sys.exit(0)'
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=120s
+HealthOnFailure=kill
+
+[Service]
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=default.target

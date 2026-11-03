@@ -1,0 +1,32 @@
+# SearXNG settings for the scraper-api deployment.
+#
+# The scraper's SearXNG provider requires the JSON output format, and the
+# ``/config`` endpoint must be reachable from the scraper container.  Copy
+# this file to ~/scraper-api/searxng-settings.yml on the host (the
+# searxng.container unit mounts it read-only).
+#
+# NOTE: uncomment `url: http://0.0.0.0:8080` (or your host address) only if
+# you *also* expose the port publicly; on the private network the base URL
+# configured in the scraper is `http://searxng:8080` and no host exposure
+# is needed.
+use_default_settings: true
+
+search:
+  formats:
+    - html
+    - json
+
+# Optional: per-instance secret for session cookies.  If set in
+# searxng.container (SECRET_KEY env), SearXNG uses it automatically;
+# otherwise it generates one at startup.
+# secret_key: ${SEARXNG_SECRET_KEY}
+
+# Only the engines the scraper needs must be enabled — everything is
+# discovered at runtime through /config.
+# engines:
+#   - name: Google
+#     disabled: false
+#   - name: DuckDuckGo
+#     disabled: false
+#   - name: Bing
+#     disabled: false

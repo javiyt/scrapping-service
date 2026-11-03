@@ -125,9 +125,12 @@ backend fails, the **primary** backend's error is raised, preserving the
 historical "browser failed" semantics and the original root cause.
 
 The Camofox fallback only participates when it is listed in
-`fallback_backends` **and** the top-level `camofox:` section is enabled (see
-the Camofox client docs below).  When no fallback is configured, the service
-behaves exactly as before (Botasaurus only).
+`fallback_backends` **and** the top-level `camofox:` section is enabled.
+When no fallback is configured, the service behaves exactly as before
+(Botasaurus only).  The Camofox *service* runs as a separate container
+(see [Deployment](deployment.md#external-search-backends-searxng-and-camofox));
+its client is configured in the top-level `camofox` section
+(see [Camofox client](#camofox-client)).
 
 ### Observability
 
@@ -148,3 +151,40 @@ behaves exactly as before (Botasaurus only).
 control, exactly as before.  Backend selection is *not* a request field; it is
 server configuration.  `auto` still prefers HTTP and escalates to the browser
 backend(s) only when the HTTP result looks blocked or the HTTP fetch fails.
+
+## Camofox client
+
+The top-level `camofox` section configures the reusable HTTP client for the
+**external** Camofox browser service.  It is shared by three consumers: the
+Camofox search provider, the optional browser fallback, and the interactive
+`/v1/browser` API.  Nothing browser-related is ever launched inside this
+process — the client only talks to the external service over HTTP.
+
+```yaml
+camofox:
+  enabled: false          # master switch (client built only when true)
+  base_url: null          # e.g. http://camofox:9377
+  timeout_seconds: 60     # per-request timeout (1-3600 s)
+  access_key: null        # e.g. ${CAMOFOX_ACCESS_KEY}  — never a literal
+  api_key: null           # e.g. ${CAMOFOX_API_KEY}    — never a literal
+  user_id_prefix: scrapping-service
+```
+
+Environment overrides: `SCRAPER_CAMOFOX_ENABLED`, `SCRAPER_CAMOFOX_BASE_URL`,
+`SCRAPER_CAMOFOX_TIMEOUT_SECONDS`, `SCRAPER_CAMOFOX_ACCESS_KEY`,
+`SCRAPER_CAMOFOX_API_KEY`, `SCRAPER_CAMOFOX_USER_ID_PREFIX`.
+
+**Secrets** — `access_key` / `api_key` must come from the environment (the
+`${VAR}` form or the direct `SCRAPER_CAMOFOX_*` overrides).  Never put
+literal key values in the config file.  An unexpanded `${VAR}` placeholder
+(variable not set) is treated as *unset* with a startup warning and is never
+sent on the wire.  Keys are excluded from all serialization and masked in
+`repr()`.
+
+**Session limits** are set by the consumers, not the client: the
+interactive API (`agent_browser.max_sessions` / `max_tabs_per_session`)
+and the scraper's own concurrency/pool settings bound fallback usage.
+
+Deployment of the external Camofox service (networking, health, degraded
+behavior, secrets handling) is documented in
+[Deployment](deployment.md#external-search-backends-searxng-and-camofox).
