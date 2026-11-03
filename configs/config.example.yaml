@@ -223,5 +223,33 @@ search:
       default_language: null           # e.g. en or en-US (used when a request has none)
       config_cache_ttl_seconds: 3600   # 0 = re-discover on every use
 
+# ------------------------------------------------------------------ Camofox
+# Reusable client for the external Camofox browser REST service
+# (camofox-browser, default port 9377).  Camofox is never embedded in this
+# service: all browser automation goes through this HTTP client
+# (see app/camofox).  The REST API is consumed — not the MCP server.
+#
+#   enabled:          master switch (client is built only when true)
+#   base_url:        e.g. http://camofox:9377
+#   timeout_seconds:  per-request timeout for browser operations
+#   access_key:       general-purpose key (most routes)
+#   api_key:          elevated key (sensitive routes, e.g. cookie import)
+#   user_id_prefix:   prefix for generated Camofox userId values
+#
+# Secrets must come from the environment (${CAMOFOX_ACCESS_KEY} /
+# ${CAMOFOX_API_KEY}); a variable that is not set is treated as "unset".
+#
+# Environment variable overrides: SCRAPER_CAMOFOX_ENABLED,
+# SCRAPER_CAMOFOX_BASE_URL, SCRAPER_CAMOFOX_TIMEOUT_SECONDS,
+# SCRAPER_CAMOFOX_ACCESS_KEY, SCRAPER_CAMOFOX_API_KEY,
+# SCRAPER_CAMOFOX_USER_ID_PREFIX
+camofox:
+  enabled: false
+  base_url: null                    # e.g. http://camofox:9377
+  timeout_seconds: 60
+  access_key: null                  # e.g. ${CAMOFOX_ACCESS_KEY}
+  api_key: null                     # e.g. ${CAMOFOX_API_KEY}
+  user_id_prefix: scrapping-service
+
 # ---------------------------------------------------------------- Logging
 log_level: INFO
