@@ -56,3 +56,7 @@ docker run -d \
   -v $(pwd)/.env:/.env:ro \
   scraper-api:latest
 ```
+
+For the full production topology with external SearXNG and Camofox services
+(shared private network, Quadlet units, degraded behavior), see
+[Deployment](deployment.md#external-search-backends-searxng-and-camofox).

@@ -1,0 +1,5 @@
+[Interface]
+Name=scraper-network
+Driver=bridge
+
+[Network]

@@ -14,6 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.auth.resolver import init_profile_resolver
+from app.camofox.types import CamofoxHealthStatus
 from app.core.config import Settings
 from app.core.errors import SecurityError
 from app.main import app
@@ -57,7 +58,7 @@ SAMPLE_RESULT = {
 @pytest.fixture(autouse=True)
 def _clean_app_state():
     """Reset app.state before each test so tests don't leak state."""
-    for attr in ("scraper", "cache", "settings", "search_cache"):
+    for attr in ("scraper", "cache", "settings", "search_cache", "camofox_client"):
         if hasattr(app.state, attr):
             delattr(app.state, attr)
     get_metrics().mark_scrape_success()
@@ -116,6 +117,78 @@ class TestHealthEndpoint:
         data = response.json()
         assert data["status"] == "degraded"
         assert data["checks"]["scrape_errors"] == "too_many_consecutive_errors"
+
+    def test_deep_health_reports_camofox_disabled_when_client_absent(self):
+        app.state.settings = Settings(api_key=VALID_API_KEY)
+        app.state.cache = MagicMock()
+        app.state.cache.stats.return_value = {"total_entries": 0}
+        app.state.search_cache = SearchCache(
+            store=MagicMock(),
+            router=SearchRouter(SearchProviderRegistry([])),
+            config=SearchCacheConfig(),
+        )
+
+        response = TestClient(app).get("/health/deep")
+
+        assert response.status_code == 200
+        assert response.json()["checks"]["camofox"]["status"] == "disabled"
+
+    def test_deep_health_reports_camofox_unreachable_but_never_fails(self):
+        """A down external Camofox is reported, not fatal (restart policy
+        must never depend on external service availability)."""
+        app.state.settings = Settings(api_key=VALID_API_KEY)
+        app.state.cache = MagicMock()
+        app.state.cache.stats.return_value = {"total_entries": 0}
+        app.state.search_cache = SearchCache(
+            store=MagicMock(),
+            router=SearchRouter(SearchProviderRegistry([])),
+            config=SearchCacheConfig(),
+        )
+        camofox_client = MagicMock()
+        camofox_client.probe_health = AsyncMock(
+            return_value=CamofoxHealthStatus(available=False, reason="connection refused")
+        )
+        app.state.camofox_client = camofox_client
+        get_metrics().mark_scrape_success()
+
+        response = TestClient(app).get("/health/deep")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["checks"]["camofox"] == {
+            "status": "unreachable",
+            "reason": "connection refused",
+            "version": None,
+            "browser_connected": None,
+            "pool_size": None,
+        }
+
+    def test_deep_health_reports_camofox_reachable(self):
+        app.state.settings = Settings(api_key=VALID_API_KEY)
+        app.state.cache = MagicMock()
+        app.state.cache.stats.return_value = {"total_entries": 0}
+        app.state.search_cache = SearchCache(
+            store=MagicMock(),
+            router=SearchRouter(SearchProviderRegistry([])),
+            config=SearchCacheConfig(),
+        )
+        camofox_client = MagicMock()
+        camofox_client.probe_health = AsyncMock(
+            return_value=CamofoxHealthStatus(
+                available=True,
+                version="1.2.3",
+                browser_connected=True,
+                pool_size=2,
+            )
+        )
+        app.state.camofox_client = camofox_client
+        get_metrics().mark_scrape_success()
+
+        response = TestClient(app).get("/health/deep")
+
+        assert response.status_code == 200
+        assert response.json()["checks"]["camofox"]["status"] == "ok"
 
 
 # =============================================================== API docs

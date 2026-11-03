@@ -120,6 +120,33 @@ async def _search_health_report(search_cache: SearchCache) -> dict[str, Any]:
     }
 
 
+async def _camofox_health_report(request: Request, settings: Settings | None) -> dict[str, Any]:
+    """Build the ``camofox`` section of the deep health report.
+
+    Probes the external Camofox service with its cheap, unauthenticated
+    ``GET /health`` (no browser tab is created, no credentials sent) and
+    reports reachability plus the service-reported pool state.
+
+    External-service reachability is *reported but non-fatal*: a down
+    Camofox never fails the overall check, so the container restart policy
+    never depends on the external service.  The entry is only emitted when
+    the ``camofox`` client is enabled in the configuration.
+    """
+    if settings is None:
+        return {"status": "not configured"}
+    client = getattr(request.app.state, "camofox_client", None)
+    if client is None:
+        return {"status": "disabled"}
+    probe = await client.probe_health()
+    return {
+        "status": "ok" if probe.available else "unreachable",
+        "reason": probe.reason,
+        "version": probe.version,
+        "browser_connected": probe.browser_connected,
+        "pool_size": probe.pool_size,
+    }
+
+
 @health_router.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health():
     """Liveness check.  Always returns 200 when the service is running.
@@ -138,12 +165,13 @@ async def deep_health(request: Request):
     intentionally separate from /health so cheap liveness checks still work.
 
     The ``search`` check reports the search subsystem: result-cache policy,
-    enabled providers, per-provider availability (bounded capabilities
-    probe) and provider diagnostics (e.g. SearXNG ``/config`` discovery).
-    External search backends are *reported but non-fatal*: a down provider
-    is surfaced in the report, but does not fail the check.  Only local
-    infrastructure problems (missing cache or missing search subsystem)
-    fail it, so the restart policy never depends on a search backend.
+    enabled providers (with per-provider availability and diagnostics, e.g.
+    the SearXNG ``/config`` discovery state), and the Camofox reachability
+    probe (``checks.camofox``).  External backends are *reported but
+    non-fatal*: a down SearXNG or Camofox is surfaced in the report but does
+    not fail the check.  Only local infrastructure problems (missing cache or
+    missing search subsystem) fail it, so the restart policy never depends
+    on an external service.
     """
     checks: dict[str, Any] = {}
     ok = True
@@ -194,6 +222,9 @@ async def deep_health(request: Request):
         ok = False
     else:
         checks["search"] = await _search_health_report(search_cache)
+
+    # Camofox (external browser service) — reported, non-fatal.
+    checks["camofox"] = await _camofox_health_report(request, settings)
 
     response = ReadinessResponse(status="ok" if ok else "degraded", checks=checks)
     if ok:

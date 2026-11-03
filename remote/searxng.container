@@ -1,0 +1,30 @@
+[Unit]
+Description=SearXNG metasearch container (external search backend for scraper-api)
+Documentation=https://docs.searxng.org
+Wants=scraper-api-network.network
+After=network-online.target scraper-api-network.network
+
+[Container]
+Image=docker.io/searxng/searxng:latest
+ContainerName=searxng
+Network=scraper-network
+# Private only — do not add a Port= line unless public exposure is required.
+# SearXNG must allow JSON output (search.formats: [html, json]); the
+# settings.yml mount provides that (see the file in remote/config/searxng/).
+Volume=%h/scraper-api/searxng-settings.yml:/etc/searxng/settings.yml:ro,z
+Environment=SEARXNG_BASE_URL=http://127.0.0.1
+# Optional: bound SearXNG to a per-instance secret key (X-Session-Id).
+# Environment=SECRET_KEY=${SEARXNG_SECRET_KEY}
+HealthCmd=python -c 'import urllib.request; import sys; urllib.request.urlopen("http://127.0.0.1:8080/config"); sys.exit(0)'
+HealthInterval=30s
+HealthTimeout=10s
+HealthRetries=3
+HealthStartPeriod=60s
+HealthOnFailure=kill
+
+[Service]
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=default.target
