@@ -185,6 +185,67 @@ class CamofoxNavigationError(CamofoxError):
     _error_type = "camofox_navigation_failed"
 
 
+class BrowserSessionError(ScraperError):
+    """The requested interactive browser session does not exist.
+
+    Raised for unknown session IDs, sessions owned by another profile, and
+    sessions that have expired or were already closed.  The message never
+    reveals whether an ID exists under a different profile.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("browser_session_error", message, details, 404)
+
+
+class BrowserSessionExpiredError(ScraperError):
+    """The interactive browser session has expired (idle TTL)."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("browser_session_expired", message, details, 410)
+
+
+class BrowserTabError(ScraperError):
+    """The requested browser tab does not exist in the session."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("browser_tab_error", message, details, 404)
+
+
+class BrowserSessionLimitError(ScraperError):
+    """Too many concurrent interactive browser sessions for this client."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("browser_session_limit", message, details, 409)
+
+
+class BrowserTabLimitError(ScraperError):
+    """Too many open tabs in one interactive browser session."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("browser_tab_limit", message, details, 409)
+
+
+class BrowserDisabledError(ScraperError):
+    """The interactive browser API is not enabled or no provider is ready."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("browser_disabled", message, details, 503)
+
+
+class EvaluateDisabledError(ScraperError):
+    """JavaScript evaluation is not enabled for this client's profile."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("browser_evaluate_disabled", message, details, 403)
+
+
+class BrowserProviderError(ScraperError):
+    """The interactive browser backend provider failed."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("browser_provider_error", message, details, 502)
+
+
 class InternalError(ScraperError):
     """Unexpected internal error."""
 
@@ -214,5 +275,13 @@ EXCEPTION_STATUS_MAP: dict[type, int] = {
     CamofoxSessionExpiredError: 502,
     CamofoxTabNotFoundError: 502,
     CamofoxNavigationError: 502,
+    BrowserSessionError: 404,
+    BrowserSessionExpiredError: 410,
+    BrowserTabError: 404,
+    BrowserSessionLimitError: 409,
+    BrowserTabLimitError: 409,
+    BrowserDisabledError: 503,
+    EvaluateDisabledError: 403,
+    BrowserProviderError: 502,
     InternalError: 500,
 }

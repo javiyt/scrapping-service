@@ -271,5 +271,29 @@ camofox:
   api_key: null                     # e.g. ${CAMOFOX_API_KEY}
   user_id_prefix: scrapping-service
 
+# ------------------------------------------------------------------ Agent browser
+# Interactive, stateful browsing API (POST /v1/browser/sessions, tabs, snapshot,
+# click, type, navigate, evaluate).  Camofox is the first backend; Botasaurus
+# remains the stateless *scrape* backend only.  Off by default — interactive
+# browsing is more sensitive than scraping.  Requires the `camofox:` client to
+# be enabled.  Profiles may override this section per key.
+#
+#   enabled:                master switch for /v1/browser
+#   allow_evaluate:         enable JavaScript evaluation (off by default)
+#   max_sessions:           max active sessions per profile
+#   max_tabs_per_session:   max open tabs per session
+#   session_ttl_seconds:    idle TTL before a session is released
+#   cleanup_interval_seconds: how often the sweeper runs
+#   operation_timeout_seconds: per-operation timeout
+# Environment variable overrides: SCRAPER_AGENT_BROWSER_* (same keys, upper-case)
+agent_browser:
+  enabled: false
+  allow_evaluate: false
+  max_sessions: 5
+  max_tabs_per_session: 3
+  session_ttl_seconds: 1800
+  cleanup_interval_seconds: 60
+  operation_timeout_seconds: 30
+
 # ---------------------------------------------------------------- Logging
 log_level: INFO
