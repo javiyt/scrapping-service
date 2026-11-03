@@ -146,11 +146,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("Search result cache disabled")
 
     # ---- Camofox client
-    # Reusable client for the external Camofox browser REST service.  No
-    # consumer is wired up yet — it is constructed for the planned search
-    # provider / browser fallback / agent-browser consumers.  Camofox is an
+    # Reusable client for the external Camofox browser REST service.  When
+    # the Camofox *search provider* is enabled the lifespan shares the
+    # client that provider already built (one HTTP client per process —
+    # sessions are still per-search); otherwise it builds its own for the
+    # future consumers (browser fallback / agent-browser).  Camofox is an
     # external service: nothing is launched here, only an HTTP client.
-    _camofox_client = build_camofox_client(settings)
+    _camofox_client = None
+    for provider in search_providers:
+        provider_client = getattr(provider, "client", None)
+        if provider_client is not None and getattr(provider, "name", None) == "camofox":
+            _camofox_client = provider_client
+            break
+    if _camofox_client is None:
+        _camofox_client = build_camofox_client(settings)
     app.state.camofox_client = _camofox_client
     if _camofox_client is not None:
         logger.info("Camofox client ready (external service client; no browser launched here)")
