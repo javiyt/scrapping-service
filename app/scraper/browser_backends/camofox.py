@@ -58,9 +58,7 @@ CAMOFOX_NAME = NAME
 # Rendered-document extraction.  ``documentElement.outerHTML`` is the full
 # document (including ``<head>``); it is the HTML *document*, never an
 # accessibility snapshot.
-_HTML_JS = (
-    "document.readyState === 'complete' ? document.documentElement.outerHTML : null"
-)
+_HTML_JS = "document.readyState === 'complete' ? document.documentElement.outerHTML : null"
 
 
 def _camofox_cookies(cookies: list[dict] | None, final_url: str) -> list[CamofoxCookie]:

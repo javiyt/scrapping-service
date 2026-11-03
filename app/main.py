@@ -86,7 +86,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Background cache cleanup is disabled")
 
-
     # ---- Search providers + router
     # Constructed from the `search` config block.  The router is exercised
     # through the public search API (POST /v1/search, GET
@@ -167,7 +166,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
     else:
         logger.info("Job service is disabled")
-
 
     yield
 

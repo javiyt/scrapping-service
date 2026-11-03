@@ -234,7 +234,9 @@ def test_backend_result_defaults_from_fetch_result():
 
 
 def test_backend_result_falls_back_to_browser_name():
-    res = BrowserBackendResult(FetchResult(html="x", status_code=200, final_url="https://example.com"))
+    res = BrowserBackendResult(
+        FetchResult(html="x", status_code=200, final_url="https://example.com")
+    )
     assert res.backend_name == "browser"
     assert res.backend_metadata == {}
 
@@ -331,6 +333,7 @@ def botasaurus_stub_args() -> dict:
         "idle_timeout_seconds": 300,
         "max_uses": None,
     }
+
 
 @pytest.fixture
 def botasaurus_full_args() -> dict:
@@ -439,7 +442,9 @@ async def test_camofox_backend_happy_path():
 
 
 async def test_camofox_backend_captures_final_url_after_redirect():
-    client = _FakeCamofoxClient(tab=_tab("<html>landed</html>", final_url="https://example.com/landed"))
+    client = _FakeCamofoxClient(
+        tab=_tab("<html>landed</html>", final_url="https://example.com/landed")
+    )
     backend = _backend(client)
     result = await backend.fetch(
         url="https://example.com",
