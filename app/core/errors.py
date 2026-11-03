@@ -124,6 +124,67 @@ class NoProviderAvailableError(ScraperError):
         super().__init__("no_provider_available", message, details, 503)
 
 
+class CamofoxError(ScraperError):
+    """Base exception for the Camofox browser REST client.
+
+    All Camofox-specific failures are translated into this family so that
+    application code never handles raw upstream exceptions or REST payloads.
+    Public messages are safe to render: they never contain the configured
+    credentials, the service URL, or upstream response text (those are
+    logged instead).
+    """
+
+    _error_type: str = "camofox_error"
+    _status_code: int = 502
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(self._error_type, message, details, self._status_code)
+
+
+class CamofoxUnavailableError(CamofoxError):
+    """The Camofox service is unreachable or returned a server error."""
+
+    _error_type = "camofox_unavailable"
+    _status_code = 503
+
+
+class CamofoxTimeoutError(CamofoxError):
+    """A Camofox request did not complete within the allowed time."""
+
+    _error_type = "camofox_timeout"
+    _status_code = 504
+
+
+class CamofoxAuthError(CamofoxError):
+    """Camofox rejected the configured credentials (HTTP 401/403)."""
+
+    _error_type = "camofox_auth_failed"
+
+
+class CamofoxInvalidResponseError(CamofoxError):
+    """Camofox returned a payload that cannot be parsed into project types."""
+
+    _error_type = "camofox_invalid_response"
+
+
+class CamofoxSessionExpiredError(CamofoxError):
+    """The Camofox session no longer exists (idle cleanup or explicit close)."""
+
+    _error_type = "camofox_session_expired"
+
+
+class CamofoxTabNotFoundError(CamofoxError):
+    """The requested tab does not exist for the session's user."""
+
+    _error_type = "camofox_tab_not_found"
+
+
+class CamofoxNavigationError(CamofoxError):
+    """Navigation (URL or search macro) failed on the Camofox side."""
+
+    _error_type = "camofox_navigation_failed"
+
+
 class InternalError(ScraperError):
     """Unexpected internal error."""
 
@@ -145,5 +206,13 @@ EXCEPTION_STATUS_MAP: dict[type, int] = {
     UnsupportedSearchCapabilityError: 400,
     InvalidProviderResponseError: 502,
     NoProviderAvailableError: 503,
+    CamofoxError: 502,
+    CamofoxUnavailableError: 503,
+    CamofoxTimeoutError: 504,
+    CamofoxAuthError: 502,
+    CamofoxInvalidResponseError: 502,
+    CamofoxSessionExpiredError: 502,
+    CamofoxTabNotFoundError: 502,
+    CamofoxNavigationError: 502,
     InternalError: 500,
 }

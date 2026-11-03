@@ -159,6 +159,14 @@ class Settings(BaseSettings):
         alias="_raw_yaml_search",
     )
 
+    # Raw camofox YAML block — parsed by app.camofox.  Same convention as
+    # ``raw_yaml_auth`` / ``raw_yaml_search`` above.
+    raw_yaml_camofox: dict[str, Any] | None = Field(
+        default=None,
+        exclude=True,
+        alias="_raw_yaml_camofox",
+    )
+
     # ------------------------------------------------------------------ validators
 
     @field_validator("server_port")
@@ -304,6 +312,10 @@ class Settings(BaseSettings):
         # Search block — stored raw for the search provider factory to parse.
         if "search" in data and isinstance(data["search"], dict):
             result["_raw_yaml_search"] = data["search"]
+
+        # Camofox block — stored raw for app.camofox to parse.
+        if "camofox" in data and isinstance(data["camofox"], dict):
+            result["_raw_yaml_camofox"] = data["camofox"]
 
         return result
 

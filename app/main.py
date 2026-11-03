@@ -17,6 +17,7 @@ from app.api.routes import health_router, router
 from app.auth.resolver import init_profile_resolver
 from app.cache.maintenance import CacheMaintenanceService
 from app.cache.sqlite_cache import SqliteCache
+from app.camofox import build_camofox_client
 from app.core.errors import ScraperError
 from app.core.logging import setup_logging
 from app.jobs.service import JobService
@@ -144,6 +145,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Search result cache disabled")
 
+    # ---- Camofox client
+    # Reusable client for the external Camofox browser REST service.  No
+    # consumer is wired up yet — it is constructed for the planned search
+    # provider / browser fallback / agent-browser consumers.  Camofox is an
+    # external service: nothing is launched here, only an HTTP client.
+    _camofox_client = build_camofox_client(settings)
+    app.state.camofox_client = _camofox_client
+    if _camofox_client is not None:
+        logger.info("Camofox client ready (external service client; no browser launched here)")
+    else:
+        logger.info("Camofox client disabled")
+
     yield
 
     # ---- shutdown
@@ -158,6 +171,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         close = getattr(provider, "close", None)
         if close is not None:
             await close()
+    if _camofox_client is not None:
+        await _camofox_client.close()
     try:
         _cache.close()
     except Exception:
