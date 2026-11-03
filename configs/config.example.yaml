@@ -191,13 +191,13 @@ search:
   #                     `auto` = capability-aware routing with fallback;
   #                     or an explicit provider name (no fallback).
   #   provider_order:   routing priority for auto mode. Only registered
-  #                     providers are used; unknown names (e.g. a future
-  #                     `camofox`) are ignored with a warning.
+  #                     providers are used; unknown names are ignored with a
+  #                     warning.
   #   probe_timeout_seconds: bound for the capabilities/health probe.
   default_provider: auto
   provider_order:
     - searxng
-    # - camofox
+    - camofox
   probe_timeout_seconds: 10
   # Result cache (provider-agnostic — sits above the providers, shared by
   # all of them; entries are normalized search responses, not raw provider
@@ -222,6 +222,15 @@ search:
       timeout_seconds: 15
       default_language: null           # e.g. en or en-US (used when a request has none)
       config_cache_ttl_seconds: 3600   # 0 = re-discover on every use
+    camofox:
+      # Camofox search (Google / Reddit / YouTube through the Camofox search
+      # macros: web→google, social→reddit, videos→youtube; sources map 1:1).
+      # Requires the top-level `camofox` section (the shared REST client)
+      # to be enabled as well — base_url and keys live there, not here.
+      # Environment variable overrides: SCRAPER_SEARCH_CAMOFOX_ENABLED,
+      # SCRAPER_SEARCH_CAMOFOX_MAX_RESULTS
+      enabled: false
+      max_results: null               # optional documented result cap (1-100)
 
 # ------------------------------------------------------------------ Camofox
 # Reusable client for the external Camofox browser REST service
