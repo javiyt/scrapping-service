@@ -15,6 +15,7 @@ from typing import Any
 
 from app.auth.resolver import get_profile_resolver
 from app.cache.sqlite_cache import SqliteCache
+from app.camofox.client import CamofoxClient
 from app.core.config import Settings
 from app.core.errors import ScraperError
 from app.jobs.models import Job, JobStatus
@@ -47,12 +48,14 @@ class JobService:
         cache: SqliteCache,
         metrics: MetricsCollector,
         browser_fetcher_pool: BrowserFetcherPool | None = None,
+        camofox_client: CamofoxClient | None = None,
     ) -> None:
         self._scraper = scraper
         self._settings = settings
         self._cache = cache
         self._metrics = metrics
         self._browser_fetcher_pool = browser_fetcher_pool
+        self._camofox_client = camofox_client
 
         # In-memory store: job_id → Job
         self._jobs: dict[str, Job] = {}
@@ -205,6 +208,7 @@ class JobService:
                 settings=self._settings,
                 cache=self._cache,
                 browser_fetcher_pool=self._browser_fetcher_pool,
+                camofox_client=self._camofox_client,
             )
 
         # Resolve effective settings from the stored profile name.
@@ -219,6 +223,7 @@ class JobService:
             settings=effective,
             cache=self._cache,
             browser_fetcher_pool=self._browser_fetcher_pool,
+            camofox_client=self._camofox_client,
         )
 
     @staticmethod

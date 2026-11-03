@@ -10,6 +10,7 @@ from typing import Any
 
 from app.cache.models import CacheEntry
 from app.cache.sqlite_cache import SqliteCache
+from app.camofox.client import CamofoxClient
 from app.core.config import Settings
 from app.core.errors import (
     BrowserError,
@@ -25,6 +26,9 @@ from app.core.security import (
     validate_url,
 )
 from app.metrics.prometheus import get_metrics
+from app.scraper.browser_backend import BrowserBackend
+from app.scraper.browser_backends import BrowserBackendOrchestrator, build_botasaurus_backend
+from app.scraper.browser_backends.camofox import build_camofox_backend
 from app.scraper.browser_fetcher import BrowserFetcher
 from app.scraper.browser_pool import BrowserFetcherPool
 from app.scraper.cookies import cookies_for_url, parse_cookie_config
@@ -80,10 +84,12 @@ class ScraperService:
         settings: Settings,
         cache: SqliteCache,
         browser_fetcher_pool: BrowserFetcherPool | None = None,
+        camofox_client: CamofoxClient | None = None,
     ) -> None:
         self.settings = settings
         self.cache = cache
         self._browser_fetcher_pool = browser_fetcher_pool
+        self._camofox_client = camofox_client
 
         # Resolve global proxy URL.
         self._proxy_url: str | None = None
@@ -97,7 +103,10 @@ class ScraperService:
             proxy_url=self._proxy_url,
         )
 
-        # Browser fetcher (lazy — only instantiated if used)
+        # Browser backend abstraction (lazy).  Botasaurus is primary; Camofox
+        # is an optional fallback when a client is configured.
+        self._browser_backend: BrowserBackend | None = None
+        # Legacy direct BrowserFetcher (used only when no orchestrator is built).
         self._browser_fetcher: BrowserFetcher | None = None
         # Extract window size from arguments if present.
         window_size = (1366, 768)
@@ -151,15 +160,82 @@ class ScraperService:
 
     @property
     def browser_fetcher(self) -> BrowserFetcher:
-        """Lazy-init browser fetcher (only created when first needed)."""
+        """Backward-compatible accessor for the underlying Botasaurus
+        :class:`BrowserFetcher` (the *primary* browser backend's driver).
+
+        The service itself no longer drives this object directly — it talks to
+        the :attr:`browser_backend` contract.  This accessor is kept so existing
+        tests and integrations that inspect the low-level fetcher keep working.
+        """
         if self._browser_fetcher_pool is not None:
+            # The pool returns a BrowserFetcher; expose it as the primary backend.
             return self._browser_fetcher_pool.get(self._browser_fetcher_args)
         if self._browser_fetcher is None:
             self._browser_fetcher = BrowserFetcher(**self._browser_fetcher_args)
         return self._browser_fetcher
 
+    @property
+    def browser_backend(self) -> BrowserBackend:
+        """The backend the scraper service uses for all browser fetching.
+
+        * When an external :class:`BrowserBackend` (typically the
+          :class:`BrowserBackendOrchestrator`) is injected, it is used directly.
+        * Otherwise a Botasaurus backend is built from the shared pool (the
+          pool owns the expensive driver) or constructed directly.
+
+        Botasaurus is always the *primary* backend; the Camofox backend is an
+        optional fallback that is only constructed when a Camofox client is
+        available (i.e. the ``camofox`` section is enabled).  When no Camofox
+        client is configured the orchestrator is not created and the service
+        uses the primary Botasaurus backend directly (fully backward
+        compatible).
+        """
+        if self._browser_backend is not None:
+            return self._browser_backend
+
+        from app.scraper.browser_backends.botasaurus import BotasaurusBackend
+
+        # Primary backend is always Botasaurus.  When a shared pool exists we
+        # wrap the *actual* pool fetcher (so the orchestrator and the
+        # ``browser_fetcher`` accessor resolve to the same shared driver);
+        # otherwise we build one from the service's own fetcher or the
+        # browser-args dict.
+        primary: BrowserBackend
+        if self._browser_fetcher_pool is not None:
+            primary = build_botasaurus_backend(
+                self._browser_fetcher_args,
+                fetcher=self._browser_fetcher_pool.get(self._browser_fetcher_args),
+            )
+        elif self._browser_fetcher is not None:
+            primary = BotasaurusBackend.fetcher_only(self._browser_fetcher)
+        else:
+            primary = build_botasaurus_backend(self._browser_fetcher_args)
+
+        # Fallback backends come from the bounded, operator-configured set.
+        # Camofox only participates when it is *both* listed in the fallback
+        # set *and* a client is available.  Botasaurus can never be a fallback
+        # (it is the primary).
+        fallback_names = list(self.settings.browser_fallback_backends or [])
+        if "camofox" in fallback_names and self._camofox_client is not None:
+            fallbacks = [build_camofox_backend(self.settings, client=self._camofox_client)]
+        else:
+            fallbacks = []
+
+        backends = ([primary] if primary is not None else []) + fallbacks
+        if not backends:
+            raise RuntimeError("No browser backend is available")
+
+        if len(backends) > 1:
+            self._browser_backend = BrowserBackendOrchestrator(backends)
+        else:
+            self._browser_backend = backends[0]
+        return self._browser_backend
+
     def close(self) -> None:
         """Close resources owned by this service instance."""
+        if self._browser_backend is not None:
+            self._browser_backend.close()
+            self._browser_backend = None
         if self._browser_fetcher_pool is None and self._browser_fetcher is not None:
             self._browser_fetcher.close()
             self._browser_fetcher = None
@@ -396,6 +472,14 @@ class ScraperService:
         expires_at = None
         if ttl > 0:
             expires_at = datetime.now(UTC) + timedelta(seconds=ttl)
+        # Record *which* backend fetched the page (bounded, operator-configured
+        # set of backend names) so the cache entry is observable.  HTTP fetches
+        # have no browser backend (``None``); browser results carry the backend
+        # that actually produced the HTML (e.g. ``botasaurus`` / ``camofox``).
+        fetch_backend = result.backend_name
+        error_metadata = (
+            json.dumps({"fetch_backend": fetch_backend}) if fetch_backend is not None else None
+        )
         entry = CacheEntry(
             cache_key=cache_key,
             url=url,
@@ -407,7 +491,7 @@ class ScraperService:
             mode=used_mode,
             content_length=len(html),
             headers=json.dumps(result.headers) if result.headers else None,
-            error_metadata=None,
+            error_metadata=error_metadata,
         )
         self.cache.set(entry)
 
@@ -458,7 +542,7 @@ class ScraperService:
             ss_dir.mkdir(parents=True, exist_ok=True)
             screenshot_path = str(ss_dir / f"{int(time.time())}.png")
 
-        return await self.browser_fetcher.fetch(
+        return await self.browser_backend.fetch(
             url=url,
             timeout_seconds=timeout,
             wait_until=wait_until,
@@ -498,6 +582,14 @@ class ScraperService:
 
     @staticmethod
     def _entry_to_response(entry: CacheEntry, from_cache: bool, stale: bool) -> dict[str, Any]:
+        # Surface the backend that fetched the page (``None`` for HTTP) so the
+        # backend selection is observable in every response, cache hit or miss.
+        fetch_backend: str | None = None
+        if entry.error_metadata:
+            try:
+                fetch_backend = json.loads(entry.error_metadata).get("fetch_backend")
+            except (ValueError, TypeError):
+                fetch_backend = None
         return {
             "url": entry.url,
             "final_url": entry.final_url,
@@ -512,5 +604,6 @@ class ScraperService:
                 "elapsed_ms": 0,  # caller fills in
                 "content_length": entry.content_length,
                 "cache_key": entry.cache_key,
+                "fetch_backend": fetch_backend,
             },
         }
