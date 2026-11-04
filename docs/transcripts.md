@@ -62,8 +62,8 @@ The current default chain (and the providers in this service):
 | Order | Provider | Backend | Health signal |
 | --- | --- | --- | --- |
 | 1 | `camofox` | External Camofox service, `POST /youtube/transcript` (server-side yt-dlp or browser) | Cheap Camofox `/health` probe — no YouTube hit |
-| 2 | `youtube-transcript-api` | `youtube-transcript-api` Python library (when added, #146) | In-process library import check — no YouTube hit |
-| 3 | `yt-dlp` | `yt-dlp` (when added, #147) | In-process `yt-dlp` import check — no YouTube hit |
+| 2 | `youtube-transcript-api` | `youtube-transcript-api` Python library (ticket #146) | In-process library import check — no YouTube hit |
+| 3 | `yt-dlp` | `yt-dlp` (ticket #147) | In-process `yt-dlp` import check — no YouTube hit |
 
 The health probes deliberately do **not** hit YouTube: they check service
 reachability / library importability only, so health checks and routing stay

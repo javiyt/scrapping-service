@@ -281,14 +281,19 @@ camofox:
 #   providers.camofox:      Camofox transcript provider (POST /youtube/transcript).
 #                           Connection settings (base_url, keys, timeout) live in
 #                           the top-level `camofox:` section; reused when enabled.
+#   providers.youtube-transcript-api: youtube-transcript-api library, the first
+#                           non-Camofox fallback (plain HTTP; run in worker threads).
+#                           Requires `youtube-transcript-api` in requirements.txt.
 #   providers.yt-dlp:       yt-dlp library, the last fallback in the chain.
 #                           Requires `yt-dlp` in requirements.txt when enabled.
 # Environment variable overrides: SCRAPER_TRANSCRIPT_* / SCRAPER_TRANSCRIPT_CAMOFOX_* /
+#                                 SCRAPER_TRANSCRIPT_YT_TRANS_API_* /
 #                                 SCRAPER_TRANSCRIPT_YT_DLP_*
 transcript:
   default_provider: auto
   provider_order:
     - camofox
+    - youtube-transcript-api
     - yt-dlp
   probe_timeout_seconds: 10
   cache:
@@ -300,6 +305,10 @@ transcript:
       enabled: false
       timeout_seconds: null           # override camofox.timeout_seconds for transcripts
       health_probe: true
+    youtube-transcript-api:
+      enabled: false                  # first non-Camofox fallback in the chain
+      timeout_seconds: 30             # bound for transcript list + caption retrieval
+      proxy: null                     # e.g. http://proxy.example:8080 (off by default)
     yt-dlp:
       enabled: false                  # last fallback in the chain
       timeout_seconds: 60             # bound for extract_info + caption download
