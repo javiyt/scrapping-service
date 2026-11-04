@@ -106,6 +106,16 @@ ENVELOPE_KEYS = {
     "metadata",
 }
 
+#: Required by the documented ``TranscriptApiResponse`` schema.
+ENVELOPE_REQUIRED_KEYS = {
+    "video_id",
+    "segments",
+    "text",
+    "total_words",
+    "provider",
+    "metadata",
+}
+
 SEGMENT_KEYS = {"start", "duration", "text"}
 
 
@@ -133,6 +143,9 @@ def assert_public_contract(body: dict[str, Any]) -> None:
     )
     assert set(body) == ENVELOPE_KEYS, (
         f"unexpected envelope keys: {sorted(set(body) ^ ENVELOPE_KEYS)}"
+    )
+    assert ENVELOPE_REQUIRED_KEYS <= set(body), (
+        f"missing required keys: {sorted(ENVELOPE_REQUIRED_KEYS - set(body))}"
     )
     for segment in body["segments"]:
         assert set(segment) <= SEGMENT_KEYS, (
