@@ -151,6 +151,54 @@ async def _camofox_health_report(request: Request, settings: Settings | None) ->
     }
 
 
+async def _transcript_health_report(request: Request) -> dict[str, Any]:
+    """Build the ``transcript`` section of the deep health report.
+
+    Mirrors :func:`_search_health_report`: reports the transcript
+    subsystem — result-cache policy, the enabled providers (in routing
+    priority order), per-provider availability, and provider
+    diagnostics (zero-I/O reads of cached provider state).
+
+    Availability comes from the router's bounded health probe — for the
+    Camofox provider that is the cheap Camofox ``/health`` probe (no
+    YouTube request is ever made), and for library-backed providers it
+    is the in-process check that the library is importable.  A down
+    provider degrades the reported ``status`` but never fails the
+    overall check — external transcript backends must not gate the
+    service's restart policy.
+    """
+    transcript_cache = request.app.state.transcript_cache
+    router = transcript_cache.router
+    providers: list[dict[str, Any]] = []
+    for provider in router.ordered_candidates():
+        health = await router.probe_health(provider)
+        entry: dict[str, Any] = {
+            "name": provider.name,
+            "available": bool(health.available) if health is not None else False,
+            "probe": "ok" if health is not None else "failed",
+        }
+        if health is not None and health.reason:
+            entry["reason"] = health.reason
+        diagnostics = getattr(provider, "diagnostics", None)
+        if callable(diagnostics):
+            entry.update(diagnostics())
+        providers.append(entry)
+
+    if not providers:
+        status = "no providers configured"
+    elif any(entry["available"] for entry in providers):
+        status = "ok"
+    else:
+        status = "degraded (no provider available)"
+
+    return {
+        "status": status,
+        "configured": True,
+        "cache_enabled": transcript_cache.config.enabled,
+        "providers": providers,
+    }
+
+
 @health_router.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health():
     """Liveness check.  Always returns 200 when the service is running.
@@ -171,7 +219,8 @@ async def deep_health(request: Request):
     The ``search`` check reports the search subsystem: result-cache policy,
     enabled providers (with per-provider availability and diagnostics, e.g.
     the SearXNG ``/config`` discovery state), and the Camofox reachability
-    probe (``checks.camofox``).  External backends are *reported but
+    probe (``checks.camofox``).  The ``transcript`` check reports the
+    transcript subsystem the same way.  External backends are *reported but
     non-fatal*: a down SearXNG or Camofox is surfaced in the report but does
     not fail the check.  Only local infrastructure problems (missing cache or
     missing search subsystem) fail it, so the restart policy never depends
@@ -229,6 +278,19 @@ async def deep_health(request: Request):
 
     # Camofox (external browser service) — reported, non-fatal.
     checks["camofox"] = await _camofox_health_report(request, settings)
+
+    # Transcript subsystem — reported, non-fatal for external provider
+    # backends.  A *missing* transcript cache is never fatal: the
+    # application lifespan always builds one at startup, so a missing one
+    # means the caller (usually a search-only test fixture) replaced or
+    # removed ``app.state`` without a transcript stack.  Only missing
+    # *core* subsystems (cache, search) fail the check — external
+    # backends and optional subsystems are surfaced, not fatal.
+    transcript_cache = getattr(request.app.state, "transcript_cache", None)
+    if transcript_cache is None:
+        checks["transcript"] = "unavailable"
+    else:
+        checks["transcript"] = await _transcript_health_report(request)
 
     response = ReadinessResponse(status="ok" if ok else "degraded", checks=checks)
     if ok:

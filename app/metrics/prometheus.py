@@ -354,6 +354,18 @@ class MetricsCollector:
                 lines.append(f"{counter_name} {val}")
                 lines.append("")
 
+            # Transcript request counters (API-level)
+            for counter_name, help_text in [
+                ("transcript_requests_total", "Total transcript requests received"),
+                ("transcript_success_total", "Successful transcript responses"),
+                ("transcript_error_total", "Failed transcript responses"),
+            ]:
+                val = self._counters.get(counter_name, 0)
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                lines.append(f"{counter_name} {val}")
+                lines.append("")
+
             # Transcript router fallback counter (API-level)
             val = self._counters.get("transcript_fallbacks_total", 0)
             lines.append(

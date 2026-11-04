@@ -98,6 +98,63 @@ availability degrades gracefully. Down search backends are reported by
 `GET /health/deep` but never fail it: container restart policy stays
 decoupled from search availability.
 
+## Transcript
+
+The `transcript` section configures the provider-agnostic YouTube transcript
+API (see [Transcripts](transcripts.md)).  It follows the `search:` conventions
+(routing policy + result cache + provider blocks).
+
+```yaml
+transcript:
+  default_provider: auto        # or an explicit provider name (no fallback)
+  provider_order: [camofox]     # routing priority for the auto fallback chain
+  probe_timeout_seconds: 10     # bound for the provider health probe
+  cache:
+    enabled: true
+    default_ttl_seconds: 3600
+    stale_if_error: true
+  providers:
+    camofox:
+      enabled: false            # disabled by default
+      timeout_seconds: null     # override camofox.timeout_seconds for transcripts
+      health_probe: true
+```
+
+The `provider_order` chain is the fallback order for `provider: auto`
+requests: the configured order (registered providers only), then the
+remaining registered providers in registration order.  Names of providers
+that are not yet registered (e.g. `yt-dlp` before its ticket lands) are
+skipped with a startup warning, so the order can be declared in advance.
+
+Environment overrides follow the `search` convention:
+`SCRAPER_TRANSCRIPT_DEFAULT_PROVIDER`,
+`SCRAPER_TRANSCRIPT_PROVIDER_ORDER` (comma-separated),
+`SCRAPER_TRANSCRIPT_PROBE_TIMEOUT_SECONDS`,
+`SCRAPER_TRANSCRIPT_CACHE_ENABLED`,
+`SCRAPER_TRANSCRIPT_CACHE_DEFAULT_TTL_SECONDS`,
+`SCRAPER_TRANSCRIPT_CACHE_STALE_IF_ERROR`, and per provider
+`SCRAPER_TRANSCRIPT_CAMOFOX_ENABLED` / `SCRAPER_TRANSCRIPT_CAMOFOX_TIMEOUT_SECONDS`
+/ `SCRAPER_TRANSCRIPT_CAMOFOX_HEALTH_PROBE`.
+
+**Camofox provider** — connection settings (base URL, keys, the client
+request timeout) live in the shared top-level `camofox:` section, never
+here; the provider reads only its own policy options from
+`transcript.providers.camofox`.  When the shared Camofox client is absent
+(camofox section disabled) the provider registers as
+*unavailable* rather than failing startup.
+
+Per-request controls: `cache_ttl_seconds` overrides the TTL, `force_refresh`
+bypasses the cache, `lang` is the priority-ordered caption language list,
+and `provider` targets one provider explicitly (never falling back).
+
+Requests override the cache TTL per request (`cache_ttl_seconds`) and bypass
+it (`force_refresh`). Stale-if-error serves an expired entry — flagged via
+`metadata.stale` and a warning — when the live transcript fails with a
+*retryable* provider error; definitive video errors (no captions, language,
+private video) propagate instead. Down transcript providers are reported by
+`GET /health/deep` (under `checks.transcript`) but never fail it: container
+restart policy stays decoupled from transcript availability.
+
 ## Browser
 
 The scraper service renders pages through a pluggable **browser backend**
