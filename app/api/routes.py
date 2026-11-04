@@ -53,7 +53,6 @@ from app.scraper.service import ScraperService
 from app.search import SearchCache, SearchCapabilities
 from app.transcript.cache import TranscriptCache
 
-
 logger = logging.getLogger("scraper-api.routes")
 
 
