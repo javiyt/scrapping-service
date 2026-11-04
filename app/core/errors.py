@@ -124,6 +124,78 @@ class NoProviderAvailableError(ScraperError):
         super().__init__("no_provider_available", message, details, 503)
 
 
+class TranscriptProviderUnavailableError(ScraperError):
+    """A transcript provider is unreachable or reports itself unavailable."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("transcript_provider_unavailable", message, details, 503)
+
+
+class TranscriptProviderTimeoutError(ScraperError):
+    """A transcript provider did not answer within the allowed time."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("transcript_provider_timeout", message, details, 504)
+
+
+class TranscriptProviderBlockedError(ScraperError):
+    """YouTube (or an upstream) blocked the transcript request (e.g. IP block).
+
+    Treated as retryable by the router: another provider/IP may succeed.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("transcript_provider_blocked", message, details, 403)
+
+
+class TranscriptProviderInvalidResponseError(ScraperError):
+    """A transcript provider returned a payload that cannot be normalized."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("transcript_provider_invalid_response", message, details, 502)
+
+
+class NoTranscriptAvailableError(ScraperError):
+    """The video has no captions/subtitles in any of the requested languages.
+
+    A *definitive* error: the video simply has no captions, so no other
+    provider can serve it — the router must not fall back.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("no_transcript_available", message, details, 404)
+
+
+class TranscriptLanguageUnavailableError(ScraperError):
+    """The video has captions, but not in any of the requested languages.
+
+    A *definitive* error: available caption languages exist but none of
+    the requested ones is among them.  The available languages are exposed
+    through ``details`` so callers can retry with one of them.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("transcript_language_unavailable", message, details, 404)
+
+
+class VideoUnavailableError(ScraperError):
+    """The video does not exist, is private, or is otherwise not accessible.
+
+    A *definitive* error: no other provider can make a private or deleted
+    video appear — the router must not fall back.
+    """
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("video_unavailable", message, details, 404)
+
+
+class NoTranscriptProviderAvailableError(ScraperError):
+    """No configured transcript provider can serve the request."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__("no_transcript_provider_available", message, details, 503)
+
+
 class CamofoxError(ScraperError):
     """Base exception for the Camofox browser REST client.
 
@@ -267,6 +339,14 @@ EXCEPTION_STATUS_MAP: dict[type, int] = {
     UnsupportedSearchCapabilityError: 400,
     InvalidProviderResponseError: 502,
     NoProviderAvailableError: 503,
+    TranscriptProviderUnavailableError: 503,
+    TranscriptProviderTimeoutError: 504,
+    TranscriptProviderBlockedError: 403,
+    TranscriptProviderInvalidResponseError: 502,
+    NoTranscriptAvailableError: 404,
+    TranscriptLanguageUnavailableError: 404,
+    VideoUnavailableError: 404,
+    NoTranscriptProviderAvailableError: 503,
     CamofoxError: 502,
     CamofoxUnavailableError: 503,
     CamofoxTimeoutError: 504,

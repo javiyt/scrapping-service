@@ -15,11 +15,23 @@ from app.metrics.prometheus import get_metrics
 from app.scraper.browser_pool import BrowserFetcherPool
 from app.scraper.service import ScraperService
 from app.search.cache import SearchCache
+from app.transcript.cache import TranscriptCache
+from app.transcript.router import TranscriptRouter
 
 logger = logging.getLogger("scraper-api.deps")
 
 
-# ------------------------------------------------------------------ helpers
+# ------------------------------------------------------------------ singleton
+
+_settings: Settings | None = None
+
+
+def get_settings() -> Settings:
+    """Return the application settings singleton."""
+    global _settings
+    if _settings is None:
+        _settings = Settings.load()
+    return _settings
 
 
 def _get_cache(request: Request) -> SqliteCache:
@@ -35,14 +47,6 @@ def _get_cache(request: Request) -> SqliteCache:
         cache.open()
         request.app.state.cache = cache
     return cache
-
-
-# ---------------------------------------------------------------- settings
-
-
-def get_settings() -> Settings:
-    """Return the application settings singleton."""
-    return Settings.load()
 
 
 # -------------------------------------------------------- profile resolver
@@ -81,6 +85,40 @@ def get_search_cache(request: Request) -> SearchCache:
             },
         )
     return search_cache
+
+
+# --------------------------------------------------------- transcript router
+
+
+def get_transcript_router(request: Request) -> TranscriptRouter:
+    """Return the transcript router stored on app.state by the lifespan."""
+    router = getattr(request.app.state, "transcript_router", None)
+    if router is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "service_unavailable",
+                "message": "Transcript service is not ready yet",
+            },
+        )
+    return router
+
+
+# --------------------------------------------------------- transcript cache
+
+
+def get_transcript_cache(request: Request) -> TranscriptCache:
+    """Return the transcript result cache stored on app.state by the lifespan."""
+    transcript_cache = getattr(request.app.state, "transcript_cache", None)
+    if transcript_cache is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "service_unavailable",
+                "message": "Transcript service is not ready yet",
+            },
+        )
+    return transcript_cache
 
 
 # ------------------------------------------------------------- auth context

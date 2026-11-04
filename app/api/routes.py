@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 from app.api.dependencies import (
     get_auth_context,
@@ -17,6 +18,7 @@ from app.api.dependencies import (
     get_scraper,
     get_search_cache,
     get_settings,
+    get_transcript_cache,
     verify_api_key,
 )
 from app.auth.models import AuthContext
@@ -45,9 +47,11 @@ from app.schemas.search import (
     SearchCapabilitiesResponse,
     SearchRequest,
 )
+from app.schemas.transcript import TranscriptApiResponse, TranscriptQueryParams
 from app.scraper.response_processing import format_scrape_content, process_scrape_response
 from app.scraper.service import ScraperService
 from app.search import SearchCache, SearchCapabilities
+from app.transcript.cache import TranscriptCache
 
 logger = logging.getLogger("scraper-api.routes")
 
@@ -477,6 +481,102 @@ async def search(
     if expose_profile and auth_context is not None:
         result.metadata.auth_profile = auth_context.profile_name
     return result
+
+
+# =========================================================== /v1/transcript
+
+
+@router.get(
+    "/v1/transcript",
+    response_model=TranscriptApiResponse,
+    response_model_exclude_none=True,
+    tags=["Transcript"],
+    summary="Fetch the transcript (captions) of a YouTube video",
+)
+async def fetch_transcript(
+    request: Request,
+    transcript_cache: TranscriptCache = Depends(get_transcript_cache),
+    metrics_collector: MetricsCollector = Depends(get_metrics),
+    auth_context: AuthContext | None = Depends(get_auth_context),
+    expose_profile: bool = Depends(get_expose_profile),
+):
+    """Fetch the transcript of a YouTube video, backed by the result cache.
+
+    The request is the canonical video URL/ID plus preferred caption
+    languages (``lang=es,en``); the service normalizes it onto the
+    provider-agnostic domain model and the transcript router picks an
+    available provider (``auto`` fallback chain, or an explicitly
+    requested one).  Results are cached in the ``transcript_cache`` table
+    (stale-if-error on retryable provider failures).
+
+    The response is the normalized transcript (segments + full text +
+    metadata); a raw provider payload never appears.
+    """
+    metrics_collector.inc("transcript_requests_total")
+    start = time.monotonic()
+
+    # Query parameters -> public schema -> domain request.  Invalid
+    # parameters (schema violations or mapping errors, e.g. a non-YouTube
+    # URL) produce a 400; no stale data may mask an invalid request.
+    try:
+        params = TranscriptQueryParams(
+            url=request.query_params.get("url"),
+            video_id=request.query_params.get("video_id"),
+            lang=request.query_params.get("lang", ""),
+            provider=request.query_params.get("provider", "auto"),
+            cache_ttl_seconds=_optional_int(request.query_params.get("cache_ttl_seconds")),
+            force_refresh=_parse_bool(request.query_params.get("force_refresh"), False),
+        )
+        domain_request = params.to_domain()
+    except (ValidationError, ValueError) as exc:
+        metrics_collector.inc("transcript_error_total")
+        metrics_collector.observe_transcript_latency(int((time.monotonic() - start) * 1000))
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "type": "validation_error",
+                    "message": str(exc),
+                    "details": {},
+                }
+            },
+        )
+
+    try:
+        domain_request = params.to_domain()
+        response = await transcript_cache.fetch(domain_request)
+    except ScraperError as exc:
+        elapsed = int((time.monotonic() - start) * 1000)
+        metrics_collector.inc("transcript_error_total")
+        metrics_collector.observe_transcript_latency(elapsed)
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=exc.to_dict(),
+        )
+
+    elapsed = int((time.monotonic() - start) * 1000)
+    metrics_collector.inc("transcript_success_total")
+    metrics_collector.observe_transcript_latency(elapsed)
+
+    result = TranscriptApiResponse.from_domain(response)
+    if expose_profile and auth_context is not None:
+        result.metadata.auth_profile = auth_context.profile_name
+    return result
+
+
+def _parse_bool(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes")
+
+
+def _optional_int(value: str | None) -> int | None:
+    if value is None or not value.strip():
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        return None
 
 
 # ================================================ /v1/search/capabilities

@@ -25,6 +25,7 @@ from app.jobs.service import JobService
 from app.metrics.prometheus import get_metrics
 from app.scraper.browser_pool import BrowserFetcherPool
 from app.search import build_search_cache, build_search_router
+from app.transcript import build_transcript_cache, build_transcript_router
 
 logger = logging.getLogger("scraper-api")
 OPENAPI_YAML_PATH = Path(__file__).resolve().parents[1] / "openapi.yaml"
@@ -123,6 +124,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Search result cache disabled")
 
+    # ---- Transcript router + result cache
+    # Provider-agnostic YouTube transcript foundation (mirrors the search
+    # stack): an ordered provider registry + capability router, and a
+    # provider-agnostic result cache above it (own table, shared
+    # maintenance loop).  Concrete providers land in follow-up issues; with
+    # none enabled the router reports no_transcript_provider_available.
+    transcript_router = build_transcript_router(settings, metrics=metrics)
+    app.state.transcript_router = transcript_router
+    transcript_providers = transcript_router.registry.all()
+    app.state.transcript_providers = transcript_providers
+    transcript_cache = build_transcript_cache(settings, transcript_router, _cache, metrics=metrics)
+    app.state.transcript_cache = transcript_cache
+    if transcript_providers:
+        logger.info(
+            "Transcript router ready (default_provider=%s, priority=[%s]): %s",
+            transcript_router.config.default_provider,
+            ", ".join(transcript_router.config.provider_order) or "registration",
+            ", ".join(provider.name for provider in transcript_providers),
+        )
+    else:
+        logger.info("No transcript providers enabled")
+    if transcript_cache.config.enabled:
+        logger.info(
+            "Transcript result cache enabled (default_ttl=%ss, stale_if_error=%s)",
+            transcript_cache.config.default_ttl_seconds,
+            str(transcript_cache.config.stale_if_error).lower(),
+        )
+    else:
+        logger.info("Transcript result cache disabled")
+
     # ---- Camofox client
     # Reusable client for the external Camofox browser REST service.  When
     # the Camofox *search provider* is enabled the lifespan shares the
@@ -211,6 +242,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         close = getattr(provider, "close", None)
         if close is not None:
             await close()
+    for provider in transcript_providers:
+        close = getattr(provider, "close", None)
+        if close is not None:
+            await close()
     if _camofox_client is not None:
         await _camofox_client.close()
     try:
@@ -273,6 +308,8 @@ async def general_error_handler(request: Request, exc: Exception) -> JSONRespons
         metrics.mark_scrape_error()
     elif request.url.path.startswith("/v1/search"):
         metrics.inc("search_error_total")
+    elif request.url.path.startswith("/v1/transcript"):
+        metrics.inc("transcript_error_total")
     return JSONResponse(
         status_code=500,
         content={

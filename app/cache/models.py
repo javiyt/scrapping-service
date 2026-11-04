@@ -74,6 +74,13 @@ class CacheCleanupResult(BaseModel):
     search_total_deleted: int = 0
     search_entries_before: int = 0
     search_entries_after: int = 0
+    # Transcript result cache table (transcript_cache). Additive.
+    transcript_deleted_expired: int = 0
+    transcript_deleted_by_max_entries: int = 0
+    transcript_deleted_by_max_size: int = 0
+    transcript_total_deleted: int = 0
+    transcript_entries_before: int = 0
+    transcript_entries_after: int = 0
 
 
 class CacheVacuumResult(BaseModel):
