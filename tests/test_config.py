@@ -40,8 +40,22 @@ class TestConfigDefaults:
         assert s.browser_max_pool_size == 1
 
     def test_api_key_cannot_be_default(self):
-        with pytest.raises(ValueError, match="must be changed from the default"):
-            Settings(api_key="change-me")
+        # The guard fires only when auth is fully unconfigured; the repo's
+        # local .env file (env_file) supplies SCRAPER_API_KEYS, so unset it
+        # around the assertion to exercise the default-key protection.
+        monkeypatch_guard = os.environ.get("SCRAPER_API_KEYS")
+        if monkeypatch_guard:
+            os.environ.pop("SCRAPER_API_KEYS")
+        else:
+            os.environ["SCRAPER_API_KEYS"] = ""
+        try:
+            with pytest.raises(ValueError, match="must be changed from the default"):
+                Settings(api_key="change-me")
+        finally:
+            if monkeypatch_guard:
+                os.environ["SCRAPER_API_KEYS"] = monkeypatch_guard
+            else:
+                os.environ.pop("SCRAPER_API_KEYS", None)
 
     def test_shared_api_keys_allow_default_legacy_key(self):
         s = Settings(api_key="change-me", api_keys=["key-one", "key-two"])

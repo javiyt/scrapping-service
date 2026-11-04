@@ -192,6 +192,14 @@ class Settings(BaseSettings):
         alias="_raw_yaml_camofox",
     )
 
+    # Raw transcript YAML block — parsed by app.transcript.  Same
+    # convention as ``raw_yaml_auth`` / ``raw_yaml_search`` above.
+    raw_yaml_transcript: dict[str, Any] | None = Field(
+        default=None,
+        exclude=True,
+        alias="_raw_yaml_transcript",
+    )
+
     # Raw browser YAML block — parsed by app.scraper.browser_backends. Same
     # convention. Carries backend selection (``primary_backend`` /
     # ``fallback_backends``) alongside the existing botasaurus driver options.
@@ -357,6 +365,10 @@ class Settings(BaseSettings):
         # Camofox block — stored raw for app.camofox to parse.
         if "camofox" in data and isinstance(data["camofox"], dict):
             result["_raw_yaml_camofox"] = data["camofox"]
+
+        # Transcript block — stored raw for app.transcript to parse.
+        if "transcript" in data and isinstance(data["transcript"], dict):
+            result["_raw_yaml_transcript"] = data["transcript"]
 
         # Browser block — stored raw for app.scraper.browser_backends to parse.
         # (Also mapped to flat fields above via section_mapping; the raw block

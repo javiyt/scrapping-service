@@ -47,6 +47,14 @@ class MetricsCollector:
             "search_success_total": 0,
             "search_error_total": 0,
             "search_fallbacks_total": 0,
+            "transcript_cache_hits_total": 0,
+            "transcript_cache_misses_total": 0,
+            "transcript_cache_stale_hits_total": 0,
+            "transcript_cache_errors_total": 0,
+            "transcript_fallbacks_total": 0,
+            "transcript_requests_total": 0,
+            "transcript_success_total": 0,
+            "transcript_error_total": 0,
             "proxy_requests_total": 0,
             "proxy_errors_total": 0,
             "auth_requests_total": 0,
@@ -55,6 +63,7 @@ class MetricsCollector:
         self._latencies: dict[str, float] = {
             "scrape_duration_ms_sum": 0.0,
             "search_duration_ms_sum": 0.0,
+            "transcript_duration_ms_sum": 0.0,
         }
         # Labelled counters: metric name -> {((label, value), ...) -> count}.
         # Label keys are sorted so series render deterministically.
@@ -142,6 +151,10 @@ class MetricsCollector:
     def observe_search_latency(self, ms: float) -> None:
         with self._lock:
             self._latencies["search_duration_ms_sum"] += ms
+
+    def observe_transcript_latency(self, ms: float) -> None:
+        with self._lock:
+            self._latencies["transcript_duration_ms_sum"] += ms
 
     @staticmethod
     def _escape_label(value: str) -> str:
@@ -320,6 +333,72 @@ class MetricsCollector:
                     lines.append(f"{counter_name}{{{label_part}}} {val}")
                 lines.append("")
 
+            lines.append("")
+
+            # Transcript result cache counters
+            for counter_name, help_text in [
+                ("transcript_cache_hits_total", "Transcript result cache hits"),
+                ("transcript_cache_misses_total", "Transcript result cache misses"),
+                (
+                    "transcript_cache_stale_hits_total",
+                    "Stale transcript cache entries served on provider error",
+                ),
+                (
+                    "transcript_cache_errors_total",
+                    "Transcript cache read/write errors (degraded to live/uncached)",
+                ),
+            ]:
+                val = self._counters.get(counter_name, 0)
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                lines.append(f"{counter_name} {val}")
+                lines.append("")
+
+            # Transcript router fallback counter (API-level)
+            val = self._counters.get("transcript_fallbacks_total", 0)
+            lines.append(
+                "# HELP transcript_fallbacks_total "
+                "Transcript requests that required a provider fallback"
+            )
+            lines.append("# TYPE transcript_fallbacks_total counter")
+            lines.append(f"transcript_fallbacks_total {val}")
+            lines.append("")
+
+            # Transcript error counter (API-level)
+            val = self._counters.get("transcript_error_total", 0)
+            lines.append("# HELP transcript_error_total Failed transcript responses")
+            lines.append("# TYPE transcript_error_total counter")
+            lines.append(f"transcript_error_total {val}")
+            lines.append("")
+
+            # Per-provider transcript counters.  The ``provider`` label is a
+            # bounded, operator-configured set — never user input.
+            for counter_name, help_text in [
+                ("transcript_provider_attempts_total", "Transcript attempts made, by provider"),
+                (
+                    "transcript_provider_success_total",
+                    "Successful transcript responses, by provider",
+                ),
+                ("transcript_provider_error_total", "Failed transcript responses, by provider"),
+            ]:
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                for labels, val in sorted(self._labeled_counters.get(counter_name, {}).items()):
+                    label_part = ",".join(
+                        f'"{key}"="{self._escape_label(value)}"' for key, value in labels
+                    )
+                    lines.append(f"{counter_name}{{{label_part}}} {val}")
+                lines.append("")
+
+            # Transcript latency
+            lines.append("# HELP transcript_duration_ms Total transcript duration in ms (for avg)")
+            lines.append("# TYPE transcript_duration_ms counter")
+            lines.append(
+                f"transcript_duration_ms_sum "
+                f"{self._latencies.get('transcript_duration_ms_sum', 0.0)}"
+            )
+            lines.append("")
+
             # Auth counters
             for counter_name, help_text in [
                 ("auth_requests_total", "Total authenticated requests"),
@@ -373,6 +452,8 @@ class MetricsCollector:
                 "cache_expired_entries_total",
                 "search_cache_entries_total",
                 "search_cache_size_bytes",
+                "transcript_cache_entries_total",
+                "transcript_cache_size_bytes",
             ]:
                 val = self._gauges.get(gauge_name, 0)
                 lines.append(f"# HELP {gauge_name} {gauge_name.replace('_', ' ')}")

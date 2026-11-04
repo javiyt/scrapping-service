@@ -37,6 +37,8 @@ tags:
      description: URL scraping endpoints
    - name: Search
      description: Provider-agnostic web search endpoints
+   - name: Transcript
+     description: Provider-agnostic YouTube transcript (captions) endpoints
    - name: Cache
      description: Cache management operations
    - name: Jobs
@@ -603,6 +605,82 @@ components:
           type: integer
 
     # Search endpoints
+    TranscriptApiResponse:
+      type: object
+      description: Normalized, provider-agnostic transcript response
+      required:
+        - video_id
+        - segments
+        - text
+        - total_words
+        - provider
+        - metadata
+      properties:
+        video_id:
+          type: string
+        title:
+          type: string
+          nullable: true
+        language:
+          type: string
+          nullable: true
+          description: Language actually served (first requested tag that matched)
+        is_generated:
+          type: boolean
+          description: True when the transcript is auto-generated captions, not manual
+        provider:
+          type: string
+          description: Provider that produced this transcript
+        segments:
+          type: array
+          items:
+            type: object
+            required: [start, text]
+            properties:
+              start:
+                type: number
+              duration:
+                type: number
+              text:
+                type: string
+        text:
+          type: string
+          description: Full transcript text (segments joined)
+        total_words:
+          type: integer
+        metadata:
+          type: object
+          required: [provider]
+          properties:
+            provider:
+              type: string
+            providers_attempted:
+              type: array
+              items:
+                type: string
+            fallback_occurred:
+              type: boolean
+            elapsed_ms:
+              type: integer
+            from_cache:
+              type: boolean
+            stale:
+              type: boolean
+            cached_at:
+              type: string
+              format: date-time
+              nullable: true
+            cache_age_seconds:
+              type: number
+              nullable: true
+            warnings:
+              type: array
+              items:
+                type: string
+            auth_profile:
+              type: string
+              nullable: true
+
     SearchRequest:
       type: object
       required: [query]
@@ -1605,6 +1683,117 @@ paths:
                  $ref: '#/components/schemas/SearchCapabilitiesResponse'
          '401':
            description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+
+   /v1/transcript:
+     get:
+       operationId: transcript
+       summary: Fetch the transcript (captions) of a YouTube video
+       description: |
+         Fetch a normalized, provider-agnostic transcript for a YouTube video.
+
+         Identify the video with `url` (any YouTube URL form: watch, shorts,
+         youtu.be, embed, live) or `video_id`. `lang` is a comma-separated list
+         of preferred caption language tags; `provider` selects a transcript
+         backend (default `auto` = ordered fallback chain, explicit names never
+         fall back silently). Results are cached; `cache_ttl_seconds` overrides
+         the cache TTL for this response and `force_refresh` bypasses the cache.
+
+         Authentication: Required unless API key is disabled in config.
+
+       tags: [Transcript]
+       security:
+         - bearerAuth: []
+       parameters:
+         - name: url
+           in: query
+           required: false
+           description: "YouTube URL (watch/shorts/youtu.be/embed/live) or bare video ID"
+           schema:
+             type: string
+         - name: video_id
+           in: query
+           required: false
+           description: YouTube video ID (alternative to `url`)
+           schema:
+             type: string
+             pattern: '^[A-Za-z0-9_-]{11}$'
+         - name: lang
+           in: query
+           required: false
+           description: "Preferred caption languages, comma-separated (e.g. `es,en`; default `en`)"
+           schema:
+             type: string
+             default: ""
+         - name: provider
+           in: query
+           required: false
+           description: Transcript provider name, or `auto` for the fallback chain (default)
+           schema:
+             type: string
+             default: auto
+         - name: cache_ttl_seconds
+           in: query
+           required: false
+           description: Cache TTL override in seconds for this response (minimum 60)
+           schema:
+             type: integer
+             minimum: 60
+         - name: force_refresh
+           in: query
+           required: false
+           description: Bypass the result cache and re-fetch
+           schema:
+             type: boolean
+             default: false
+       responses:
+         '200':
+           description: Normalized transcript (segments + full text + metadata)
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/TranscriptApiResponse'
+         '400':
+           description: Invalid request (missing/bad url, non-YouTube video, unknown provider)
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '401':
+           description: Missing or invalid API key
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '403':
+           description: Transcript request blocked by the provider (e.g. IP block)
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '404':
+           description: Video unavailable, or no transcript/captions for the requested language
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '502':
+           description: Provider returned an unusable payload
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '503':
+           description: No transcript provider is available (none configured, or all down)
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/ErrorResponse'
+         '504':
+           description: Transcript provider timed out
            content:
              application/json:
                schema:
