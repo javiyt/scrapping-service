@@ -118,13 +118,22 @@ transcript:
       enabled: false            # disabled by default
       timeout_seconds: null     # override camofox.timeout_seconds for transcripts
       health_probe: true
+    youtube-transcript-api:
+      enabled: false            # first non-Camofox fallback; disabled by default
+      timeout_seconds: 30       # bound for transcript list + caption retrieval
+      proxy: null               # e.g. http://proxy.example:8080 (off by default)
+    yt-dlp:
+      enabled: false            # last fallback in the chain
+      timeout_seconds: 60
+      proxy: null
+      cookies: null             # optional Netscape cookies file (off by default)
 ```
 
 The `provider_order` chain is the fallback order for `provider: auto`
 requests: the configured order (registered providers only), then the
 remaining registered providers in registration order.  Names of providers
-that are not yet registered (e.g. `yt-dlp` before its ticket lands) are
-skipped with a startup warning, so the order can be declared in advance.
+that are not registered are skipped with a startup warning, so the order
+can be declared in advance.
 
 Environment overrides follow the `search` convention:
 `SCRAPER_TRANSCRIPT_DEFAULT_PROVIDER`,
@@ -134,7 +143,11 @@ Environment overrides follow the `search` convention:
 `SCRAPER_TRANSCRIPT_CACHE_DEFAULT_TTL_SECONDS`,
 `SCRAPER_TRANSCRIPT_CACHE_STALE_IF_ERROR`, and per provider
 `SCRAPER_TRANSCRIPT_CAMOFOX_ENABLED` / `SCRAPER_TRANSCRIPT_CAMOFOX_TIMEOUT_SECONDS`
-/ `SCRAPER_TRANSCRIPT_CAMOFOX_HEALTH_PROBE`.
+/ `SCRAPER_TRANSCRIPT_CAMOFOX_HEALTH_PROBE`,
+`SCRAPER_TRANSCRIPT_YT_TRANS_API_ENABLED` / `SCRAPER_TRANSCRIPT_YT_TRANS_API_TIMEOUT_SECONDS`
+/ `SCRAPER_TRANSCRIPT_YT_TRANS_API_PROXY`,
+`SCRAPER_TRANSCRIPT_YT_DLP_ENABLED` / `SCRAPER_TRANSCRIPT_YT_DLP_TIMEOUT_SECONDS`
+/ `SCRAPER_TRANSCRIPT_YT_DLP_PROXY` / `SCRAPER_TRANSCRIPT_YT_DLP_COOKIES`.
 
 **Camofox provider** — connection settings (base URL, keys, the client
 request timeout) live in the shared top-level `camofox:` section, never
@@ -142,6 +155,13 @@ here; the provider reads only its own policy options from
 `transcript.providers.camofox`.  When the shared Camofox client is absent
 (camofox section disabled) the provider registers as
 *unavailable* rather than failing startup.
+
+**youtube-transcript-api provider** (ticket #146) — the in-process
+`youtube-transcript-api` library: plain HTTP, no browser, run in worker
+threads.  Optional `proxy` (a `GenericProxyConfig` URL, off by default).
+Cookie authentication for age-restricted videos is broken upstream and is
+therefore unsupported by this provider; such videos surface as `404
+video_unavailable` and the router falls back.
 
 Per-request controls: `cache_ttl_seconds` overrides the TTL, `force_refresh`
 bypasses the cache, `lang` is the priority-ordered caption language list,
