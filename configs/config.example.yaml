@@ -271,6 +271,32 @@ camofox:
   api_key: null                     # e.g. ${CAMOFOX_API_KEY}
   user_id_prefix: scrapping-service
 
+# ------------------------------------------------------------------ Transcript
+# Provider-agnostic YouTube transcript API (GET /v1/transcript).  Routing
+# policy + result cache follow the `search:` conventions above.
+#   default_provider:       how `provider: auto` requests route (`auto` or a name)
+#   provider_order:         routing priority for auto mode
+#   probe_timeout_seconds:  bound for the provider health probe
+#   cache.*:                result cache (see `search.cache`)
+#   providers.camofox:      Camofox transcript provider (POST /youtube/transcript).
+#                           Connection settings (base_url, keys, timeout) live in
+#                           the top-level `camofox:` section; reused when enabled.
+# Environment variable overrides: SCRAPER_TRANSCRIPT_* / SCRAPER_TRANSCRIPT_CAMOFOX_*
+transcript:
+  default_provider: auto
+  provider_order:
+    - camofox
+  probe_timeout_seconds: 10
+  cache:
+    enabled: true
+    default_ttl_seconds: 3600
+    stale_if_error: true
+  providers:
+    camofox:
+      enabled: false
+      timeout_seconds: null           # override camofox.timeout_seconds for transcripts
+      health_probe: true
+
 # ------------------------------------------------------------------ Agent browser
 # Interactive, stateful browsing API (POST /v1/browser/sessions, tabs, snapshot,
 # click, type, navigate, evaluate).  Camofox is the first backend; Botasaurus

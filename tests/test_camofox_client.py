@@ -142,7 +142,7 @@ class MockCamofox:
                 "running": True,
                 "engine": "playwright",
                 "version": "1.2.3",
-                "browserConnected": False,
+                "browserConnected": True,
                 "poolSize": 2,
                 "activeUserCount": 1,
             }
@@ -512,9 +512,19 @@ class TestHealthProbe:
         assert status.available is True
         assert status.reason is None
         assert status.version == "1.2.3"
-        assert status.browser_connected is False
+        assert status.browser_connected is True
         assert status.pool_size == 2
         assert status.active_user_count == 1
+
+    @pytest.mark.asyncio
+    async def test_browser_down_still_unavailable(self):
+        # The service is up but its browser is not connected: the probe
+        # reports unavailable (browser features are down).
+        mock = MockCamofox(health_payload={"ok": True, "running": True, "browserConnected": False})
+        client = mock.make_client()
+        status = await client.probe_health()
+        assert status.available is False
+        assert status.browser_connected is False
 
     @pytest.mark.asyncio
     async def test_server_says_not_running(self):

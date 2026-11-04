@@ -124,13 +124,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Search result cache disabled")
 
+    # ---- Camofox client
+    # Reusable client for the external Camofox browser REST service.  When
+    # the Camofox *search provider* is enabled the lifespan shares the
+    # client that provider already built (one HTTP client per process —
+    # sessions are still per-search); otherwise it builds its own for the
+    # browser-fallback consumer.  Camofox is an external service: nothing is
+    # launched here, only an HTTP client.  (Resolving it before the
+    # transcript router so the transcript provider can reuse it.)
+    _camofox_client = None
+    for provider in search_providers:
+        provider_client = getattr(provider, "client", None)
+        if provider_client is not None and getattr(provider, "name", None) == "camofox":
+            _camofox_client = provider_client
+            break
+    if _camofox_client is None:
+        _camofox_client = build_camofox_client(settings)
+    app.state.camofox_client = _camofox_client
+    if _camofox_client is not None:
+        logger.info("Camofox client ready (external service client; no browser launched here)")
+    else:
+        logger.info("Camofox client disabled")
+
     # ---- Transcript router + result cache
-    # Provider-agnostic YouTube transcript foundation (mirrors the search
+    # Provider-agnostic YouTube transcript stack (mirrors the search
     # stack): an ordered provider registry + capability router, and a
     # provider-agnostic result cache above it (own table, shared
-    # maintenance loop).  Concrete providers land in follow-up issues; with
-    # none enabled the router reports no_transcript_provider_available.
-    transcript_router = build_transcript_router(settings, metrics=metrics)
+    # maintenance loop).  The Camofox provider reuses the shared client
+    # resolved above; with none enabled the router reports
+    # no_transcript_provider_available.
+    transcript_router = build_transcript_router(
+        settings, metrics=metrics, camofox_client=_camofox_client
+    )
     app.state.transcript_router = transcript_router
     transcript_providers = transcript_router.registry.all()
     app.state.transcript_providers = transcript_providers
@@ -153,27 +178,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
     else:
         logger.info("Transcript result cache disabled")
-
-    # ---- Camofox client
-    # Reusable client for the external Camofox browser REST service.  When
-    # the Camofox *search provider* is enabled the lifespan shares the
-    # client that provider already built (one HTTP client per process —
-    # sessions are still per-search); otherwise it builds its own for the
-    # browser-fallback consumer.  Camofox is an external service: nothing is
-    # launched here, only an HTTP client.
-    _camofox_client = None
-    for provider in search_providers:
-        provider_client = getattr(provider, "client", None)
-        if provider_client is not None and getattr(provider, "name", None) == "camofox":
-            _camofox_client = provider_client
-            break
-    if _camofox_client is None:
-        _camofox_client = build_camofox_client(settings)
-    app.state.camofox_client = _camofox_client
-    if _camofox_client is not None:
-        logger.info("Camofox client ready (external service client; no browser launched here)")
-    else:
-        logger.info("Camofox client disabled")
 
     # ---- Interactive agent browser service
     # Owns the /v1/browser/... contract.  Built only when the agent browser is

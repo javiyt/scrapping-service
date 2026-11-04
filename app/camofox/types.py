@@ -24,6 +24,7 @@ __all__ = [
     "CamofoxSnapshot",
     "CamofoxTab",
     "CamofoxTabInfo",
+    "CamofoxTranscript",
 ]
 
 
@@ -59,7 +60,7 @@ class CamofoxHealth(_CamofoxModel):
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     ok: bool = False
-    running: bool = False
+    running: bool | None = None
     engine: str | None = None
     version: str | None = None
     browser_connected: bool = Field(default=False, alias="browserConnected")
@@ -182,3 +183,30 @@ class CamofoxCookie(BaseModel):
         if self.same_site is not None:
             wire["sameSite"] = self.same_site
         return wire
+
+
+class CamofoxTranscript(_CamofoxModel):
+    """Parsed result of ``POST /youtube/transcript``.
+
+    A successful result (``ok=True``) carries the ``transcript`` text — a
+    plain text with ``[mm:ss]`` / ``[hh:mm:ss]`` line prefixes — plus the
+    video title, caption language and word count when the server reports
+    them.  Upstream *error* results (``ok=False``; e.g. no captions for the
+    video) carry the server's ``code`` / ``message``.  The transcript text
+    is never logged; only its length feeds diagnostics.
+    """
+
+    ok: bool = False
+    status: str | None = None
+    transcript: str | None = None
+    code: int | None = None
+    message: str | None = None
+    video_id: str | None = None
+    video_title: str | None = None
+    language: str | None = None
+    total_words: int | None = None
+
+    @property
+    def transcript_length(self) -> int:
+        """Length of the transcript text (``0`` for error results)."""
+        return len(self.transcript) if self.transcript is not None else 0
