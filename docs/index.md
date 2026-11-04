@@ -19,7 +19,11 @@ including bots deployed on a Raspberry Pi through Podman and Quadlet.
 - Provider-agnostic web search (`POST /v1/search`) with capability-aware
   routing, fallback, a normalized result cache, and stale-if-error —
   see [Search Providers](search-providers.md).
-- Prometheus-compatible metrics, including per-provider search counters.
+- YouTube transcripts (`GET /v1/transcript`) with an ordered provider
+  fallback chain, a normalized result cache, and stale-if-error —
+  see [Transcripts](transcripts.md).
+- Prometheus-compatible metrics, including per-provider search and
+  transcript counters.
 - Optional proxy, custom header, and per-request cookie support.
 
 ## Architecture
@@ -31,10 +35,10 @@ Client
 FastAPI app
   |
   v
-ScraperService                  Search API
-  |--------- HttpFetcher         |--------- SearchRouter (auto routing + fallback)
-  |--------- BrowserFetcher      |--------- Search result cache (SQLite)
-  |--------- SQLite cache        |--------- SearXNG provider (more to come)
+ScraperService                  Search API                  Transcript API
+  |--------- HttpFetcher         |--------- SearchRouter           |--------- TranscriptRouter (fallback chain)
+  |--------- BrowserFetcher      |--------- Search result cache      |--------- Transcript result cache (SQLite)
+  |--------- SQLite cache        |--------- SearXNG / Camofox providers |--------- Camofox provider (more to come)
   |--------- Job service
   |
   v

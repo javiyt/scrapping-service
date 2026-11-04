@@ -67,6 +67,13 @@ Useful search metrics: `search_requests_total`, `search_error_total`,
 `search_provider_success_total` / `search_provider_error_total` (labelled only
 by the bounded, configured `provider` name).
 
+Useful transcript metrics (same shape): `transcript_requests_total`,
+`transcript_error_total`, `transcript_fallbacks_total`,
+`transcript_cache_hits_total` / `transcript_cache_misses_total` /
+`transcript_cache_stale_hits_total`, `transcript_duration_ms_sum`, and the
+per-provider `transcript_provider_attempts_total` /
+`transcript_provider_success_total` / `transcript_provider_error_total`.
+
 ## External Search Backends: SearXNG and Camofox
 
 Search and browser automation are backed by **external** services that are

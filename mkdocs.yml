@@ -22,6 +22,7 @@ nav:
   - Getting Started: getting-started.md
   - Configuration: configuration.md
   - Search Providers: search-providers.md
+  - Transcripts: transcripts.md
   - API Reference: api.md
   - Development: development.md
   - Deployment: deployment.md
