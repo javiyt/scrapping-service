@@ -32,6 +32,7 @@ from app.camofox.types import (
     CamofoxSnapshot,
     CamofoxTab,
     CamofoxTabInfo,
+    CamofoxTranscript,
 )
 from app.core.config import Settings
 
@@ -48,6 +49,7 @@ __all__ = [
     "CamofoxSnapshot",
     "CamofoxTab",
     "CamofoxTabInfo",
+    "CamofoxTranscript",
     "build_camofox_client",
 ]
 

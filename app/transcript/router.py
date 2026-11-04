@@ -480,6 +480,7 @@ class TranscriptRouter:
 def build_transcript_router(
     settings: Settings,
     metrics: MetricsCollector | None = None,
+    camofox_client: Any | None = None,
 ) -> TranscriptRouter:
     """Build the transcript router from application settings.
 
@@ -488,6 +489,12 @@ def build_transcript_router(
     them, applies the ``transcript`` routing configuration
     (``default_provider`` / ``provider_order`` / ``probe_timeout_seconds``)
     and returns a ready-to-route :class:`TranscriptRouter`.
+
+    ``camofox_client`` is the application-wide shared Camofox client
+    (``app.state.camofox_client``); passing it lets the Camofox transcript
+    provider reuse it instead of opening a second HTTP client.  ``None``
+    (Camofox disabled/unconfigured) yields a registered-but-unavailable
+    provider.
 
     ``metrics`` overrides the global metrics collector (used by tests); the
     router records per-provider attempt/success/error counters on it.
@@ -498,7 +505,9 @@ def build_transcript_router(
     """
     from app.transcript.providers import build_transcript_providers
 
-    registry = TranscriptProviderRegistry(build_transcript_providers(settings))
+    registry = TranscriptProviderRegistry(
+        build_transcript_providers(settings, client=camofox_client)
+    )
     return TranscriptRouter(
         registry, TranscriptRouterConfig.from_settings(settings), metrics=metrics
     )

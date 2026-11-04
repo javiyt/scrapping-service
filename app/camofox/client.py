@@ -65,6 +65,7 @@ from app.camofox.types import (
     CamofoxSnapshot,
     CamofoxTab,
     CamofoxTabInfo,
+    CamofoxTranscript,
 )
 from app.core.errors import (
     CamofoxAuthError,
@@ -205,6 +206,56 @@ def _parse_links(payload: Any) -> CamofoxLinks:
     )
 
 
+def _parse_transcript(payload: Any) -> CamofoxTranscript:
+    """Parse the ``POST /youtube/transcript`` payload.
+
+    A successful response has ``status == "ok"`` and a ``transcript`` text
+    (with ``[mm:ss]`` line prefixes) plus ``video_title`` / ``language`` /
+    ``total_words``.  Upstream "error" results (e.g. ``status == "error"``
+    with a ``code``) are returned as ``ok=False`` — the provider maps those
+    to the project transcript errors.  A payload with no recognizable shape
+    is a :class:`CamofoxInvalidResponseError`.
+    """
+    if not isinstance(payload, dict):
+        raise CamofoxInvalidResponseError(
+            "Camofox transcript response is not an object",
+            details={"endpoint": "/youtube/transcript"},
+        )
+
+    status = _first_str(payload.get("status"))
+    if status == "ok":
+        transcript = _first_str(payload.get("transcript"))
+        if transcript is None:
+            raise CamofoxInvalidResponseError(
+                "Camofox transcript response is missing the transcript text",
+                details={"endpoint": "/youtube/transcript"},
+            )
+        return CamofoxTranscript(
+            ok=True,
+            status=status,
+            transcript=transcript,
+            video_id=_first_str(payload.get("video_id")),
+            video_title=_first_str(payload.get("video_title"), payload.get("title")),
+            language=_first_str(payload.get("language")),
+            total_words=_first_int(payload.get("total_words")),
+        )
+
+    if status == "error":
+        return CamofoxTranscript(
+            ok=False,
+            status=status,
+            code=_first_int(payload.get("code")),
+            message=_first_str(payload.get("message")),
+            video_id=_first_str(payload.get("video_id")),
+            video_title=_first_str(payload.get("video_title"), payload.get("title")),
+        )
+
+    raise CamofoxInvalidResponseError(
+        "Camofox transcript response has an unrecognized status",
+        details={"endpoint": "/youtube/transcript", "status": status},
+    )
+
+
 class CamofoxClient:
     """Typed async client for the external Camofox browser REST service.
 
@@ -307,7 +358,11 @@ class CamofoxClient:
             health = CamofoxHealth.model_validate(payload)
         except Exception:  # noqa: BLE001 - malformed payload must not raise
             return CamofoxHealthStatus(available=False, reason="invalid health payload")
-        available = bool(health.ok and health.running)
+        if not health.ok:
+            return CamofoxHealthStatus(
+                available=False, reason="server reported itself not ok", version=health.version
+            )
+        available = health.running is not False and health.browser_connected
         return CamofoxHealthStatus(
             available=available,
             reason=None if available else "server reported not running",
@@ -654,6 +709,81 @@ class CamofoxClient:
             auth="general",
         )
         session.forget_all_tabs()
+
+    # ------------------------------------------------------------------
+    # YouTube transcripts
+    # ------------------------------------------------------------------
+
+    async def youtube_transcript(
+        self,
+        url: str,
+        languages: list[str] | None = None,
+        *,
+        timeout_seconds: float | None = None,
+    ) -> CamofoxTranscript:
+        """Fetch a YouTube transcript via ``POST /youtube/transcript``.
+
+        The endpoint is server-side (it drives yt-dlp or a browser on the
+        Camofox host) and does not use sessions/tabs.  It is called with the
+        general auth scope, so the existing credential handling applies.
+
+        ``timeout_seconds`` optionally overrides the client-wide timeout for
+        this single request.  Transcripts are slow upstream (yt-dlp download
+        or a full browser intercept); leave it unset to use the configured
+        ``timeout_seconds`` rather than the upstream handler timeout.
+
+        Raises the standard Camofox error types.
+        """
+        body: dict[str, Any] = {"url": url}
+        if languages:
+            body["languages"] = list(languages)
+        else:
+            body["languages"] = ["en"]
+
+        # The upstream handler has its own fixed timeout (``HANDLER_TIMEOUT_MS``
+        # in camofox, default 30000) but the slow browser-fallback path can
+        # easily exceed it; a larger client-side timeout lets it finish.  We
+        # cannot pass the timeout to the endpoint, so this is a *local* budget.
+        request_timeout = timeout_seconds if timeout_seconds is not None else None
+
+        headers = self._auth_headers("general") or None
+        client_timeout: httpx.Timeout | None = None
+        if request_timeout is not None:
+            client_timeout = httpx.Timeout(request_timeout)
+        elif isinstance(self._client.timeout, httpx.Timeout):
+            client_timeout = self._client.timeout
+        try:
+            response = await self._client.request(
+                "POST",
+                "/youtube/transcript",
+                json=body,
+                headers=headers,
+                timeout=client_timeout,
+            )
+        except httpx.TimeoutException as exc:
+            effective = (
+                request_timeout if request_timeout is not None else self._config.timeout_seconds
+            )
+            logger.warning("Camofox /youtube/transcript timed out after %.1fs", effective)
+            raise CamofoxTimeoutError(
+                f"Camofox /youtube/transcript request timed out after {effective}s",
+                details={"endpoint": "/youtube/transcript"},
+            ) from exc
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "Camofox service is unreachable (POST /youtube/transcript): %s",
+                type(exc).__name__,
+            )
+            raise CamofoxUnavailableError(
+                "Camofox service is unreachable", details={"endpoint": "/youtube/transcript"}
+            ) from exc
+
+        status = response.status_code
+        if status >= 400:
+            self._raise_for_status("POST", "/youtube/transcript", status, response)
+            return  # unreachable (raises)
+        payload = self._parse_json("POST", "/youtube/transcript", status, response)
+        return _parse_transcript(payload)
 
     # ------------------------------------------------------------------
     # Internals
