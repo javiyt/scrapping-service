@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from app.mcp.client import MCPError, ScrapperClient, new_trace_id
+from app.mcp.client import MCPError, ScrapperClient, ServiceError, new_trace_id
 from app.mcp.observability import MCPMetrics, ToolCallContext
 
 logger = logging.getLogger("scraper-api.mcp.tools")
@@ -478,10 +478,12 @@ class ToolRegistry:
         )
         self.register(
             ToolSpec(
-                "transcript",
+                "get_youtube_transcript",
                 "Get a YouTube video transcript (timestamped segments + full text). The video "
                 "is identified by a bare 11-character ID or any YouTube URL. Caption tracks are "
-                "chosen by preference: ``languages`` is the priority order (alias of ``lang``).",
+                "chosen by preference: ``languages`` is the priority order (alias of ``lang``). "
+                "Use ``format`` to return plain text (default) or segments list; ``max_chars`` "
+                "controls output size.",
                 _json_schema(
                     {
                         "video_id": dict(_PROPS["video_id"]),
@@ -496,9 +498,28 @@ class ToolRegistry:
                         },
                         "provider": dict(_PROPS["provider"]),
                         "force_refresh": dict(_PROPS["force_refresh"]),
+                        "format": {
+                            "type": "string",
+                            "enum": ["text", "segments"],
+                            "default": "text",
+                            "description": (
+                                "Output format: ``text`` returns the full transcript as plain "
+                                "text with metadata; ``segments`` returns a list of "
+                                "start/duration/text objects."
+                            ),
+                        },
+                        "max_chars": {
+                            "type": "integer",
+                            "minimum": 100,
+                            "maximum": 100000,
+                            "description": (
+                                "Maximum output characters (default from client configuration). "
+                                "Set to truncate with explicit marker."
+                            ),
+                        },
                     },
                 ),
-                self.transcript,
+                self.get_youtube_transcript,
             )
         )
         self.register(
@@ -841,11 +862,16 @@ class ToolRegistry:
         )
         return self._client.render(response.json())
 
-    async def transcript(self, args: dict[str, Any], *, api_key_override: str | None = None) -> str:
+    async def get_youtube_transcript(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         video_id = _str(args.get("video_id"), flag="video_id")
         url = _str(args.get("url"), flag="url")
         if video_id is None and url is None:
-            raise MCPError("transcript needs a video_id (11-character ID or a YouTube URL)")
+            raise MCPError(
+                "get_youtube_transcript needs a video_id (11-character ID or a YouTube URL)"
+            )
+
         # ``video_id`` accepts either a bare ID or a full URL; the service
         # accepts a bare ID in ``url`` but a full URL does *not* round-trip
         # through ``video_id``, so resolve the parameter deliberately.
@@ -865,10 +891,137 @@ class ToolRegistry:
             params["provider"] = v
         if _bool(args.get("force_refresh"), flag="force_refresh") is True:
             params["force_refresh"] = "true"
-        response = await self._client.get(
-            "/v1/transcript", params=params, api_key_override=api_key_override
-        )
-        return self._client.render(response.json())
+
+        # Parse format and max_chars
+        fmt = _str(args.get("format"), flag="format")
+        if fmt is None:
+            fmt = "text"
+        if fmt not in ("text", "segments"):
+            raise MCPError("format must be 'text' or 'segments'")
+
+        max_chars = _int(args.get("max_chars"), flag="max_chars", minimum=100, maximum=100000)
+        if max_chars is None:
+            max_chars = self._client.max_output_chars
+
+        try:
+            response = await self._client.get(
+                "/v1/transcript", params=params, api_key_override=api_key_override
+            )
+        except ServiceError as exc:
+            # Map transcript-specific errors to concise MCPError messages
+            error_type = exc.error_type
+            if error_type == "no_transcript_available":
+                raise MCPError("No captions available for this video.")
+            if error_type == "transcript_language_unavailable":
+                # Extract available languages from details if present
+                if exc.details and isinstance(exc.details.get("error"), dict):
+                    error_details = exc.details["error"]
+                    if isinstance(error_details.get("available_languages"), list):
+                        langs = ", ".join(
+                            str(lang) for lang in error_details["available_languages"]
+                        )
+                        raise MCPError(
+                            f"No captions in the requested language(s). Available: {langs}"
+                        )
+                raise MCPError("No captions in the requested language(s).")
+            if error_type == "video_unavailable":
+                raise MCPError("Video is private, deleted, or otherwise unavailable.")
+            if error_type == "transcript_provider_blocked":
+                raise MCPError("Upstream provider blocked the request. Try again later.")
+            if error_type == "transcript_provider_unavailable":
+                raise MCPError("No transcript provider is currently available.")
+            if error_type == "transcript_provider_timeout":
+                raise MCPError("Transcript provider timed out. Try again later.")
+            if error_type == "transcript_provider_invalid_response":
+                raise MCPError("Transcript provider returned an invalid response.")
+            # Fallback for unknown transcript errors
+            raise MCPError(f"Transcript error: {exc.message}")
+
+        payload = response.json()
+        return self._render_transcript(payload, fmt, max_chars)
+
+    def _render_transcript(self, payload: dict[str, Any], fmt: str, max_chars: int) -> str:
+        """Format transcript payload for tool result.
+
+        Args:
+            payload: Raw transcript response from service.
+            fmt: Output format ('text' or 'segments').
+            max_chars: Maximum output size.
+
+        Returns:
+            Formatted string with truncation marker if needed.
+        """
+        metadata = payload.get("metadata", {})
+        provider = metadata.get("provider", "unknown")
+        language = payload.get("language")
+        is_generated = payload.get("is_generated")
+
+        if fmt == "text":
+            # Build text output with metadata header
+            text = payload.get("text", "")
+            lines = [
+                f"Provider: {provider}",
+            ]
+            if language is not None:
+                lines.append(f"Language: {language}")
+            if is_generated is not None:
+                lines.append(f"Generated captions: {'Yes' if is_generated else 'No'}")
+            if text:
+                lines.append("")  # blank line
+                lines.append(text)
+
+            full_text = "\n".join(lines)
+            if len(full_text) > max_chars:
+                return (
+                    full_text[:max_chars]
+                    + "\n… [truncated: {len(full_text) - max_chars} characters omitted; "
+                    "re-request with a narrower scope to read the rest]"
+                )
+            return full_text
+        else:
+            # segments format
+            segments = payload.get("segments", [])
+            if len(segments) > max_chars // 10:  # rough estimate
+                # Truncate segments to fit
+                # Calculate how many segments we can fit
+                segment_lines = []
+                for seg in segments:
+                    start = seg.get("start", 0)
+                    duration = seg.get("duration")
+                    seg_text = seg.get("text", "")
+                    line = f"[{start}s"
+                    if duration is not None:
+                        line += f" / {duration}s"
+                    line += f"] {seg_text}"
+                    segment_lines.append(line)
+
+                # Build full output
+                full_segments = "\n".join(segment_lines)
+                if len(full_segments) > max_chars:
+                    # Find a safe truncation point
+                    truncated = full_segments[:max_chars]
+                    # Find last complete line
+                    last_newline = truncated.rfind("\n")
+                    if last_newline > max_chars // 2:
+                        truncated = truncated[:last_newline]
+
+                    return (
+                        truncated
+                        + "\n… [truncated: {len(full_segments) - max_chars} characters omitted; "
+                        "re-request with a narrower scope to read the rest]"
+                    )
+
+            # No truncation needed or segments list empty
+            import pprint
+
+            result = pprint.pformat(segments, width=80, indent=2, sort_dicts=False)
+            if len(result) > max_chars:
+                return (
+                    result[:max_chars]
+                    + "\n… [truncated: {len(result) - max_chars} characters omitted; "
+                    "re-request with a narrower scope to read the rest]"
+                )
+            return result
 
     async def browser_capabilities(
         self, args: dict[str, Any], *, api_key_override: str | None = None
