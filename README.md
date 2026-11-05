@@ -46,6 +46,11 @@ especially Go bots running on a Raspberry Pi via Podman + Quadlet.
 - **Per-request custom headers** — send an allowlisted set of headers
   (`Authorization`, `Referer`, `Accept-Language`, `Origin`, or any `X-`
   prefixed header) without caching the result.
+- **MCP adapter** — `app/mcp` exposes the service as Model Context Protocol
+  tools (search, fetch, transcripts, interactive browser, cache) for AI
+  agents such as Claude, Pi and Cursor. Ships as a console script
+  (`scrapping-service-mcp`), `python -m app.mcp`, or a dedicated Docker
+  target. See [docs/mcp.md](docs/mcp.md).
 
 ---
 
@@ -77,6 +82,7 @@ The service is organised into these modules:
 | `jobs/`    | In-memory async job processing with background workers and retention policy               |
 | `scraper/` | Fetch orchestration, HTTP & browser fetchers, HTML normalisation, CSS selector extraction |
 | `metrics/` | Prometheus-style metrics collector                                                        |
+| `mcp/`     | Standalone MCP adapter: config, REST client, tool registry, stdio & HTTP transports       |
 
 ---
 

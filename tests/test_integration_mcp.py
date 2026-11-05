@@ -65,21 +65,22 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # ====================================================================== the gate
 
 
-def test_mcp_adapter_is_not_yet_implemented():
-    """Gate: there must be **no** ``app/mcp`` package.
+def test_mcp_adapter_is_implemented():
+    """Gate: the ``app/mcp`` package exists and is importable.
 
-    The MCP adapter is tracked in #149-#155.  This test asserts the honest
-    current state.  When the adapter lands, *remove this gate* and replace
-    the placeholders below with real adapter integration tests (same
-    deterministic style: in-memory fakes, zero network, full composition).
+    The adapter landed in #149 (ticket #129 scenario group 6).  The real
+    adapter tests live in ``tests/test_mcp_adapter_*.py`` (security,
+    contract schema, E2E over the MCP protocol) and
+    ``tests/test_mcp_contract_schema.py``.
     """
     has_mcp_package = (REPO_ROOT / "app" / "mcp" / "__init__.py").exists()
-    assert not has_mcp_package, (
-        "app/mcp now exists: delete this placeholder gate and write the real "
-        "MCP integration tests (scenarios 6.1-6.5 of ticket #129) — see "
-        "tickets #149-#155."
-    )
-    assert importlib.util.find_spec("app.mcp") is None
+    assert has_mcp_package, "app/mcp must exist (the adapter is implemented in #149)"
+    assert importlib.util.find_spec("app.mcp") is not None
+
+    # The adapter must expose its documented entry points.
+    from app.mcp import MCP_ADAPTER_VERSION  # noqa: PLC0415
+
+    assert MCP_ADAPTER_VERSION
 
 
 # ============================================ the contract the adapter will expose

@@ -1,0 +1,601 @@
+[
+  {
+    "name": "adapter_info",
+    "description": "Report the MCP adapter's configuration (service URL, key presence, version) and the service's health status. Use first to verify the wiring.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_capabilities",
+    "description": "Report whether interactive browser sessions are enabled on the service and their limits (max sessions/tabs, TTL, evaluate support).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_click",
+    "description": "Click an element in a tab, identified by its accessibility ``ref`` (e.g. ``@e2`` from a snapshot) or a CSS ``selector``. One of the two is required.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Browser session id from browser_create_session."
+        },
+        "tab_id": {
+          "type": "string",
+          "description": "Tab id from the session/tab responses."
+        },
+        "ref": {
+          "type": "string",
+          "description": "Accessibility ref from the page snapshot, e.g. ``@e2``."
+        },
+        "selector": {
+          "type": "string",
+          "description": "CSS selector of the element(s) to extract from the fetched page."
+        }
+      },
+      "required": [
+        "session_id",
+        "tab_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_close_session",
+    "description": "Close a browser session and all of its tabs. Always call this when the user is done browsing to free the session slot.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Browser session id from browser_create_session."
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_close_tab",
+    "description": "Close one tab of a browser session.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Browser session id from browser_create_session."
+        },
+        "tab_id": {
+          "type": "string",
+          "description": "Tab id from the session/tab responses."
+        }
+      },
+      "required": [
+        "session_id",
+        "tab_id"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_create_session",
+    "description": "Create an interactive browser session. Returns the ``session_id`` and a ``tabs`` list. Pass ``url`` to also open the first tab (its ``tab_id`` is returned). Keep both ids: the other browser tools require them. Close the session with browser_close_session when done.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Absolute http(s) URL."
+        },
+        "name": {
+          "type": "string",
+          "description": "Optional session name."
+        },
+        "ttl_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 86400,
+          "description": "Session TTL."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_evaluate",
+    "description": "Evaluate a JavaScript *expression* in a tab and return its value (requires the service to allow evaluate mode). The expression must be a single expression returning a JSON-serializable value, e.g. ``document.title`` or ``JSON.stringify([...].map(...))``.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Browser session id from browser_create_session."
+        },
+        "tab_id": {
+          "type": "string",
+          "description": "Tab id from the session/tab responses."
+        },
+        "expression": {
+          "type": "string",
+          "description": "JavaScript expression to evaluate in the page."
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120000,
+          "description": "Browser operation timeout in milliseconds."
+        }
+      },
+      "required": [
+        "session_id",
+        "tab_id",
+        "expression"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_navigate",
+    "description": "Navigate a tab to a URL (or open a new tab with ``new_tab: true``) and return the new page state: url, title, and an accessibility snapshot with element refs (``@eN``) you can pass to browser_click / browser_type.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Browser session id from browser_create_session."
+        },
+        "tab_id": {
+          "type": "string",
+          "description": "Tab id from the session/tab responses."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Absolute http(s) URL."
+        },
+        "new_tab": {
+          "type": "boolean",
+          "description": "Open the URL in a new tab (the service creates the tab)."
+        },
+        "wait_selector": {
+          "type": "string",
+          "description": "Browser mode only: CSS selector to wait for before extraction."
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "minimum": 5,
+          "maximum": 180,
+          "description": "Fetch timeout in seconds (default 90)."
+        }
+      },
+      "required": [
+        "session_id",
+        "url"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "browser_type",
+    "description": "Type text into a form field (by ``ref`` or CSS ``selector``, or the active element when neither is given). ``clear`` empties the field first; ``key`` presses a key afterwards (e.g. submit with ``Enter``).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Browser session id from browser_create_session."
+        },
+        "tab_id": {
+          "type": "string",
+          "description": "Tab id from the session/tab responses."
+        },
+        "text": {
+          "type": "string",
+          "description": "Text to type."
+        },
+        "ref": {
+          "type": "string",
+          "description": "Accessibility ref from the page snapshot, e.g. ``@e2``."
+        },
+        "selector": {
+          "type": "string",
+          "description": "CSS selector of the element(s) to extract from the fetched page."
+        },
+        "clear": {
+          "type": "boolean",
+          "description": "Clear the field before typing."
+        },
+        "key": {
+          "type": "string",
+          "enum": [
+            "Enter",
+            "Tab",
+            "Escape",
+            "Backspace",
+            "Delete",
+            "ArrowLeft",
+            "ArrowRight",
+            "ArrowUp",
+            "ArrowDown"
+          ],
+          "description": "Key to press after typing."
+        }
+      },
+      "required": [
+        "session_id",
+        "tab_id",
+        "text"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "cache_cleanup",
+    "description": "Run a cache maintenance pass (delete expired entries, enforce size/entry caps, optional VACUUM) and report exactly what was deleted.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "delete_expired_after_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Delete entries older than this."
+        },
+        "max_entries": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Shrink the cache to at most this many entries."
+        },
+        "max_size_mb": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Shrink the cache to at most this many megabytes."
+        },
+        "vacuum": {
+          "type": "boolean",
+          "description": "Also run VACUUM."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "cache_delete",
+    "description": "Remove one exact URL from the scrape cache.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Absolute http(s) URL."
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "cache_purge",
+    "description": "Delete all cached scrape entries, optionally scoped to one ``domain``. Destructive: use only when the user asks to clear the cache.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "domain": {
+          "type": "string",
+          "description": "Domain whose cache entries should be purged."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "cache_stats",
+    "description": "Report cache size, entry counts and expiry breakdowns for the scrape, search and transcript result caches.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "cache_vacuum",
+    "description": "Run SQLite VACUUM to reclaim disk space (I/O intensive; maintenance windows on low-power hosts preferred).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fetch_url",
+    "description": "Fetch one URL and return its content (markdown or JSON) plus metadata. Supports cached http mode and headless-browser mode, optional CSS-scoped extraction, and link extraction with follow depth.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Absolute http(s) URL."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "http",
+            "browser"
+          ],
+          "description": "Fetch strategy: auto (default), http, or browser."
+        },
+        "timeout_seconds": {
+          "type": "number",
+          "minimum": 5,
+          "maximum": 180,
+          "description": "Fetch timeout in seconds (default 90)."
+        },
+        "wait_selector": {
+          "type": "string",
+          "description": "Browser mode only: CSS selector to wait for before extraction."
+        },
+        "wait_until": {
+          "type": "string",
+          "enum": [
+            "load",
+            "domcontentloaded",
+            "networkidle",
+            "networkidle0"
+          ],
+          "description": "Browser wait strategy (default networkidle)."
+        },
+        "force_refresh": {
+          "type": "boolean",
+          "description": "Bypass the cache and fetch fresh content."
+        },
+        "cache_ttl_seconds": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 2592000,
+          "description": "Per-request cache TTL. Overrides the domain/global defaults."
+        },
+        "selector": {
+          "type": "string",
+          "description": "CSS selector of the element(s) to extract from the fetched page."
+        },
+        "max_links": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Maximum links to extract."
+        },
+        "include_external": {
+          "type": "boolean",
+          "description": "Include links outside the page origin."
+        },
+        "include_content": {
+          "type": "boolean",
+          "description": "Include the scraped content of each linked URL."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5,
+          "description": "Maximum link-follow depth."
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "fetch_url_batch",
+    "description": "Fetch up to 50 URLs in parallel (service caps concurrency). Each item: {url, mode?, timeout_seconds?, force_refresh?}. Results are per-URL; one failure does not fail the batch.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "urls": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192,
+                "description": "Absolute http(s) URL."
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "http",
+                  "browser"
+                ],
+                "description": "Fetch strategy: auto (default), http, or browser."
+              },
+              "timeout_seconds": {
+                "type": "number",
+                "minimum": 5,
+                "maximum": 180,
+                "description": "Fetch timeout in seconds (default 90)."
+              },
+              "force_refresh": {
+                "type": "boolean",
+                "description": "Bypass the cache and fetch fresh content."
+              }
+            },
+            "required": [
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          "description": "Up to 50 URLs to fetch. Each item: {url, mode?, timeout_seconds?, force_refresh?}."
+        },
+        "max_concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        }
+      },
+      "required": [
+        "urls"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "search",
+    "description": "Search the web (or social/videos/news verticals) via the service's search providers. Returns ranked results with title, url, snippet, vertical and rank. No search is run for an empty query.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Search query."
+        },
+        "verticals": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "web",
+              "social",
+              "videos",
+              "news",
+              "news_articles",
+              "local"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Verticals to search (default [\"web\"])."
+        },
+        "language": {
+          "type": "string",
+          "description": "BCP-47 language tag, e.g. ``en-US``."
+        },
+        "safe_search": {
+          "type": "string",
+          "enum": [
+            "off",
+            "moderate",
+            "strict"
+          ],
+          "description": "Safe-search level: off, moderate (default) or strict."
+        },
+        "time_range": {
+          "type": "string",
+          "enum": [
+            "day",
+            "week",
+            "month",
+            "year"
+          ],
+          "description": "Restrict results to this time range."
+        },
+        "max_results": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum number of results (alias of ``limit``)."
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Preferred underlying sources (provider-defined)."
+        },
+        "provider": {
+          "type": "string",
+          "description": "Provider name, or ``auto`` (default)."
+        },
+        "force_refresh": {
+          "type": "boolean",
+          "description": "Bypass the cache and fetch fresh content."
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "search_capabilities",
+    "description": "List the service's search providers and their capabilities (verticals, filters, time ranges, sources). Read-only discovery; no search is performed.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "transcript",
+    "description": "Get a YouTube video transcript (timestamped segments + full text). The video is identified by a bare 11-character ID or any YouTube URL. Caption tracks are chosen by preference: ``languages`` is the priority order (alias of ``lang``).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "video_id": {
+          "type": "string",
+          "description": "YouTube video ID (11 characters) or a full YouTube URL."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Absolute http(s) URL."
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Preferred caption languages in priority order (alias of ``lang``)."
+        },
+        "lang": {
+          "type": "string",
+          "description": "Comma-separated priority list, e.g. ``es,en`` (alias of ``languages``)."
+        },
+        "provider": {
+          "type": "string",
+          "description": "Provider name, or ``auto`` (default)."
+        },
+        "force_refresh": {
+          "type": "boolean",
+          "description": "Bypass the cache and fetch fresh content."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  }
+]

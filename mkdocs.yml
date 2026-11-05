@@ -24,6 +24,7 @@ nav:
   - Configuration: configuration.md
   - Search Providers: search-providers.md
   - Transcripts: transcripts.md
+  - MCP Adapter: mcp.md
   - API Reference: api.md
   - Development: development.md
   - Deployment: deployment.md

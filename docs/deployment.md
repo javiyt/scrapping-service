@@ -26,6 +26,34 @@ For a release tag:
 ./scripts/deploy.sh javiyt@raspberry5 --tag v1.1.0 --with-env
 ```
 
+## MCP Adapter Image
+
+The Dockerfile has a companion `mcp` target that runs **only** the MCP
+adapter — no browser, no other runtime dependency. It proxies to a
+separately-running service.
+
+```bash
+docker build --target mcp -t scrapping-service-mcp .
+
+# stdio (local MCP clients)
+docker run -i --rm \
+    -e MCP_SCRAPPER_BASE_URL=https://scraper.example.com \
+    -e MCP_SCRAPPER_API_KEY=*** \
+    scrapping-service-mcp
+
+# streamable HTTP on 8090 (remote clients)
+docker run -d -p 8090:8090 \
+    -e MCP_SCRAPPER_BASE_URL=https://scraper.example.com \
+    -e MCP_SCRAPPER_API_KEY=*** \
+    -e MCP_AUTH_TOKEN=*** \
+    scrapping-service-mcp scrapping-service-mcp-http
+```
+
+Operational notes: keep the adapter next to the MCP hosts (it adds one hop
+of latency per tool call); set `MCP_AUTH_TOKEN` whenever port 8090 is
+reachable beyond your machine; the adapter exposes its own `/health` and
+`/metrics` on the HTTP port for ops. Full reference in [MCP Adapter](mcp.md).
+
 ## GitHub Pages
 
 Documentation is deployed by `.github/workflows/pages.yml` after a successful
