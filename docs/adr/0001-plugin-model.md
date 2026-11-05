@@ -137,27 +137,32 @@ A plugin must implement:
 from typing import Protocol, runtime_checkable
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True)
 class PluginContext:
     """Read-only context passed to plugins during registration."""
+
     settings: Settings  # Subset for plugin-specific configuration
     logger: Logger
     http_client_factory: Callable[[], AsyncClient]  # Reusable client
 
+
 class PluginRegistry(Protocol):
     """Registry into which plugins register their providers."""
+
     def register_search_provider(self, provider: SearchProvider) -> None: ...
     def register_transcript_provider(self, provider: TranscriptProvider) -> None: ...
     def register_browser_provider(self, provider: AgentBrowserProvider) -> None: ...
 
+
 @runtime_checkable
 class Plugin(Protocol):
     """Base protocol every plugin must satisfy."""
-    
+
     name: str
     version: str
     api_version: str  # Must match PLUGIN_API_VERSION
-    
+
     def register(self, registry: PluginRegistry, ctx: PluginContext) -> None:
         """Register providers with the service."""
         ...
