@@ -3,6 +3,11 @@
 The scrapping-service exposes its capabilities as **Model Context Protocol**
 (MCP) tools through `app/mcp` — a thin adapter that proxies every tool call
 to the service's REST API. Agents (Claude, Pi, Cursor, ...) can therefore
+
+The adapter is the official implementation of [ticket #127](https://github.com/javiyt/scrapping-service/issues/127)
+and its sub-tickets (#149–152). All 19 tools proxy the service's REST API:
+security, caching, rate limits and providers apply unchanged. Please report
+any issues against that ticket.
 drive scraping, search, transcripts and the interactive browser without
 implementing any scraping logic themselves.
 
@@ -59,7 +64,7 @@ That installs the `mcp` SDK and two console scripts:
 package is installable from git:
 
 ```bash
-pip install "git+https://github.com/javiyt/scrapping-service.git#egg=scraper-api[mcp]"
+pip install "scraper-api[mcp] @ git+https://github.com/javiyt/scrapping-service.git"
 ```
 
 The adapter is also available as a standalone container target that needs no
