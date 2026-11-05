@@ -19,6 +19,7 @@ theme:
 
 nav:
   - Overview: index.md
+  - Architecture: architecture.md
   - Getting Started: getting-started.md
   - Configuration: configuration.md
   - Search Providers: search-providers.md
