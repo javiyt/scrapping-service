@@ -469,6 +469,61 @@
     }
   },
   {
+    "name": "get_youtube_transcript",
+    "description": "Get a YouTube video transcript (timestamped segments + full text). The video is identified by a bare 11-character ID or any YouTube URL. Caption tracks are chosen by preference: ``languages`` is the priority order (alias of ``lang``). Use ``format`` to return plain text (default) or segments list; ``max_chars`` controls output size.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "video_id": {
+          "type": "string",
+          "description": "YouTube video ID (11 characters) or a full YouTube URL."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192,
+          "description": "Absolute http(s) URL."
+        },
+        "languages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Preferred caption languages in priority order (alias of ``lang``)."
+        },
+        "lang": {
+          "type": "string",
+          "description": "Comma-separated priority list, e.g. ``es,en`` (alias of ``languages``)."
+        },
+        "provider": {
+          "type": "string",
+          "description": "Provider name, or ``auto`` (default)."
+        },
+        "force_refresh": {
+          "type": "boolean",
+          "description": "Bypass the cache and fetch fresh content."
+        },
+        "format": {
+          "type": "string",
+          "enum": [
+            "text",
+            "segments"
+          ],
+          "default": "text",
+          "description": "Output format: ``text`` returns the full transcript as plain text with metadata; ``segments`` returns a list of start/duration/text objects."
+        },
+        "max_chars": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 100000,
+          "description": "Maximum output characters (default from client configuration). Set to truncate with explicit marker."
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    }
+  },
+  {
     "name": "search",
     "description": "Search the web (or social/videos/news verticals) via the service's search providers. Returns ranked results with title, url, snippet, vertical and rank. No search is run for an empty query.",
     "inputSchema": {
@@ -554,46 +609,6 @@
     "inputSchema": {
       "type": "object",
       "properties": {},
-      "required": [],
-      "additionalProperties": false
-    }
-  },
-  {
-    "name": "transcript",
-    "description": "Get a YouTube video transcript (timestamped segments + full text). The video is identified by a bare 11-character ID or any YouTube URL. Caption tracks are chosen by preference: ``languages`` is the priority order (alias of ``lang``).",
-    "inputSchema": {
-      "type": "object",
-      "properties": {
-        "video_id": {
-          "type": "string",
-          "description": "YouTube video ID (11 characters) or a full YouTube URL."
-        },
-        "url": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 8192,
-          "description": "Absolute http(s) URL."
-        },
-        "languages": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Preferred caption languages in priority order (alias of ``lang``)."
-        },
-        "lang": {
-          "type": "string",
-          "description": "Comma-separated priority list, e.g. ``es,en`` (alias of ``languages``)."
-        },
-        "provider": {
-          "type": "string",
-          "description": "Provider name, or ``auto`` (default)."
-        },
-        "force_refresh": {
-          "type": "boolean",
-          "description": "Bypass the cache and fetch fresh content."
-        }
-      },
       "required": [],
       "additionalProperties": false
     }

@@ -59,7 +59,7 @@ def test_tool_names_are_stable_and_unique(registry: ToolRegistry) -> None:
         "search_capabilities",
         "fetch_url",
         "fetch_url_batch",
-        "transcript",
+        "get_youtube_transcript",
         "browser_capabilities",
         "browser_create_session",
         "browser_navigate",

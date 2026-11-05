@@ -196,7 +196,7 @@ envelope is preserved inside it.
 | `search_capabilities` | `GET /v1/search/capabilities` | What the service can search (providers, verticals). |
 | `fetch_url` | `POST /v1/scrape` | Fetch one URL. Params: `url` (required), `mode` (`http`/`browser`), `extract` (`html`/`markdown`), `timeout_seconds`. |
 | `fetch_url_batch` | `POST /v1/scrape` (parallel) | Fetch up to 20 URLs in one call; per-URL results + partial failures. |
-| `transcript` | `GET /v1/transcript` | YouTube captions. Params: `url` (required), `lang`, `force_refresh`. |
+| `get_youtube_transcript` | `GET /v1/transcript` | YouTube captions. Params: `video_id` (or `url`), `lang`, `format` (`text`/`segments`), `max_chars`, `provider`, `force_refresh`. |
 | `browser_capabilities` | `GET /v1/browser/capabilities` | Browser feature flags and limits for the current profile. |
 | `browser_create_session` | `POST /v1/browser/sessions` | Open an interactive session. Params: `profile_id` (optional). |
 | `browser_navigate` | `POST /v1/browser/{id}/tabs/{tab}/navigate` | Navigate a tab. Params: `session_id`, `tab_id`, `url` (required). |

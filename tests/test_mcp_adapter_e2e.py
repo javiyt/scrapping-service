@@ -69,12 +69,25 @@ def test_full_protocol_flow(session_factory: Any) -> None:
                 }
             )
         if path == "/v1/transcript":
+            video_id = request.url.params.get("video_id")
             return _ok(
                 {
-                    "video_id": request.url.params.get("video_id"),
+                    "video_id": video_id,
                     "title": "T",
-                    "text": "hello world",
+                    "text": f"Video ID: {video_id}\n\nhello world",
                     "total_words": 2,
+                    "provider": "test",
+                    "language": "en",
+                    "is_generated": True,
+                    "segments": [],
+                    "metadata": {
+                        "provider": "test",
+                        "providers_attempted": [],
+                        "fallback_occurred": False,
+                        "elapsed_ms": 0,
+                        "from_cache": False,
+                        "stale": False,
+                    },
                 }
             )
         return _ok({"ok": True})
@@ -99,9 +112,10 @@ def test_full_protocol_flow(session_factory: Any) -> None:
             assert data["results"][0]["rank"] == 1
 
             # -- transcript: query-param mapping --
-            res = await cs.call_tool("transcript", {"video_id": "dQw4w9WgXcQ"})
-            data = json.loads(_text(res))
-            assert data["video_id"] == "dQw4w9WgXcQ"
+            res = await cs.call_tool("get_youtube_transcript", {"video_id": "dQw4w9WgXcQ"})
+            text = _text(res)
+            assert "dQw4w9WgXcQ" in text
+            assert "hello world" in text
 
     import asyncio
 
