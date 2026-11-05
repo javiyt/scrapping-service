@@ -98,7 +98,15 @@ def _safe_message(value: Any, *, redact: str | None, max_chars: int = 2000) -> s
 
 
 class ScrapperClient:
-    """An async HTTP client bound to one scrapping-service deployment."""
+    """An async HTTP client bound to one scrapping-service deployment.
+
+    The client holds a fallback ``api_key`` used when no per-request
+    override is provided (ticket #154).  For credential pass-through,
+    callers pass ``api_key_override`` to ``request()`` / ``get()`` /
+    ``post()`` / ``delete()`` — that token replaces the client's
+    ``Authorization`` header.
+
+    """
 
     def __init__(
         self,
@@ -109,16 +117,16 @@ class ScrapperClient:
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.api_key = api_key
+        self.api_key = api_key  # fallback key
         self.max_output_chars = max_output_chars
-        headers: dict[str, str] = {"Accept": "application/json"}
+        self._default_headers: dict[str, str] = {"Accept": "application/json"}
         if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+            self._default_headers["Authorization"] = f"Bearer {api_key}"
         self._owns_transport = transport is None
         self._http = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=httpx.Timeout(timeout_seconds),
-            headers=headers,
+            headers=self._default_headers.copy(),
             follow_redirects=True,
             transport=transport,
         )
@@ -128,8 +136,14 @@ class ScrapperClient:
             await self._http.aclose()
 
     # ------------------------------------------------------- verb shortcuts
-    async def get(self, path: str, *, params: dict[str, Any] | None = None) -> httpx.Response:
-        return await self.request("GET", path, params=params)
+    async def get(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        api_key_override: str | None = None,
+    ) -> httpx.Response:
+        return await self.request("GET", path, params=params, api_key_override=api_key_override)
 
     async def post(
         self,
@@ -137,11 +151,20 @@ class ScrapperClient:
         *,
         json_body: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
+        api_key_override: str | None = None,
     ) -> httpx.Response:
-        return await self.request("POST", path, params=params, json_body=json_body)
+        return await self.request(
+            "POST", path, params=params, json_body=json_body, api_key_override=api_key_override
+        )
 
-    async def delete(self, path: str, *, params: dict[str, Any] | None = None) -> httpx.Response:
-        return await self.request("DELETE", path, params=params)
+    async def delete(
+        self,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        api_key_override: str | None = None,
+    ) -> httpx.Response:
+        return await self.request("DELETE", path, params=params, api_key_override=api_key_override)
 
     def config_view(self) -> dict[str, Any]:
         """A redacted view of the adapter configuration (safe for logs/results)."""
@@ -160,11 +183,25 @@ class ScrapperClient:
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
         trace_id: str | None = None,
+        api_key_override: str | None = None,
     ) -> httpx.Response:
-        """Perform one request; map every failure onto an :class:`MCPError`."""
+        """Perform one request; map every failure onto an :class:`MCPError`.
+
+        Args:
+            method: HTTP method.
+            path: Path relative to ``base_url``.
+            params: Query parameters.
+            json_body: JSON request body.
+            trace_id: Request ID to propagate to the service.
+            api_key_override: Replace the client's ``api_key`` for this
+                request (credential pass-through).
+
+        """
         headers: dict[str, str] = {}
         if trace_id:
             headers["X-MCP-Request-Id"] = trace_id
+        if api_key_override:
+            headers["Authorization"] = f"Bearer {api_key_override}"
         started = time.monotonic()
         try:
             response = await self._http.request(
