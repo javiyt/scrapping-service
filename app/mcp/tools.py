@@ -358,11 +358,24 @@ class ToolSpec:
 
 
 class ToolRegistry:
-    """The adapter's tool table plus the call dispatch."""
+    """The adapter's tool table plus the call dispatch.
 
-    def __init__(self, client: ScrapperClient, metrics: MCPMetrics) -> None:
+    Credential pass-through (ticket #154): when created with a
+    ``get_credential`` callback, tool handlers pass the returned token
+    to ``ScrapperClient`` so the caller's upstream credential is forwarded.
+
+    """
+
+    def __init__(
+        self,
+        client: ScrapperClient,
+        metrics: MCPMetrics,
+        *,
+        get_credential: Callable[[], str | None] | None = None,
+    ) -> None:
         self._client = client
         self._metrics = metrics
+        self._get_credential = get_credential
         self._tools: dict[str, ToolSpec] = {}
         self._register_all()
 
@@ -639,7 +652,15 @@ class ToolRegistry:
         return [spec.to_mcp_tool() for spec in self._tools.values()]
 
     async def call(self, name: str, arguments: dict[str, Any] | None) -> str:
-        """Dispatch one tool call. Returns bounded JSON text; never raises."""
+        """Dispatch one tool call. Returns bounded JSON text; never raises.
+
+        Credential pass-through (ticket #154): when ``_get_credential`` is
+        set (HTTP mode), it's called before each tool and passed as
+        ``api_key_override`` to ``ScrapperClient`` so the caller's token
+        is forwarded upstream.  When ``_get_credential`` is ``None`` (stdio
+        mode), the client's default ``api_key`` is used.
+
+        """
         spec = self._tools.get(name)
         if spec is None:
             return _error_json(f"Unknown tool '{name}'. Available tools: {', '.join(self.names())}")
@@ -649,7 +670,7 @@ class ToolRegistry:
         context = ToolCallContext(name, request_id)
         started = time.monotonic()
         try:
-            text = await spec.handler(arguments)
+            text = await self._call_with_credential(spec.handler, arguments)
             result = "ok"
         except MCPError as exc:
             text = self._client.render(exc.to_dict())
@@ -670,9 +691,14 @@ class ToolRegistry:
         context.log_end(result)
         return text
 
+    async def _call_with_credential(self, handler: ToolFn, arguments: dict[str, Any]) -> str:
+        """Call a handler with credential pass-through when configured."""
+        credential = self._get_credential() if self._get_credential else None
+        return await handler(arguments, api_key_override=credential)
+
     # ------------------------------------------------------------- tool bodies
-    async def info(self, args: dict[str, Any]) -> str:
-        health = await self._client.get("/health")
+    async def info(self, args: dict[str, Any], *, api_key_override: str | None = None) -> str:
+        health = await self._client.get("/health", api_key_override=api_key_override)
         return self._client.render(
             {
                 "adapter": {
@@ -684,7 +710,7 @@ class ToolRegistry:
             }
         )
 
-    async def search(self, args: dict[str, Any]) -> str:
+    async def search(self, args: dict[str, Any], *, api_key_override: str | None = None) -> str:
         query = _str(args.get("query"), flag="query", required=True)
         payload: dict[str, Any] = {"query": query}
         verticals = _string_list(args.get("verticals"), flag="verticals", max_items=6)
@@ -724,14 +750,20 @@ class ToolRegistry:
             is True
         ):
             payload["force_refresh"] = True
-        response = await self._client.post("/v1/search", json_body=payload)
+        response = await self._client.post(
+            "/v1/search", json_body=payload, api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def search_capabilities(self, args: dict[str, Any]) -> str:
-        response = await self._client.get("/v1/search/capabilities")
+    async def search_capabilities(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
+        response = await self._client.get(
+            "/v1/search/capabilities", api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def fetch_url(self, args: dict[str, Any]) -> str:
+    async def fetch_url(self, args: dict[str, Any], *, api_key_override: str | None = None) -> str:
         payload: dict[str, Any] = {"url": _str(args.get("url"), flag="url", required=True)}
         for key, flag in (
             ("mode", "mode"),
@@ -767,10 +799,14 @@ class ToolRegistry:
         # ``selector`` scoping rides on the service's ``extract`` config.
         if (v := _str(args.get("selector"), flag="selector")) is not None:
             payload["extract"] = {"enabled": True, "fields": {"content": {"selector": v}}}
-        response = await self._client.post("/v1/scrape", json_body=payload)
+        response = await self._client.post(
+            "/v1/scrape", json_body=payload, api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def fetch_url_batch(self, args: dict[str, Any]) -> str:
+    async def fetch_url_batch(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         urls = _json_list(args.get("urls"), flag="urls") or []
         if not 1 <= len(urls) <= 50:
             raise MCPError("urls must contain between 1 and 50 items")
@@ -800,10 +836,12 @@ class ToolRegistry:
             v := _int(args.get("max_concurrency"), flag="max_concurrency", minimum=1, maximum=10)
         ) is not None:
             payload["max_concurrency"] = v
-        response = await self._client.post("/v1/scrape/batch", json_body=payload)
+        response = await self._client.post(
+            "/v1/scrape/batch", json_body=payload, api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def transcript(self, args: dict[str, Any]) -> str:
+    async def transcript(self, args: dict[str, Any], *, api_key_override: str | None = None) -> str:
         video_id = _str(args.get("video_id"), flag="video_id")
         url = _str(args.get("url"), flag="url")
         if video_id is None and url is None:
@@ -827,14 +865,22 @@ class ToolRegistry:
             params["provider"] = v
         if _bool(args.get("force_refresh"), flag="force_refresh") is True:
             params["force_refresh"] = "true"
-        response = await self._client.get("/v1/transcript", params=params)
+        response = await self._client.get(
+            "/v1/transcript", params=params, api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def browser_capabilities(self, args: dict[str, Any]) -> str:
-        response = await self._client.get("/v1/browser/capabilities")
+    async def browser_capabilities(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
+        response = await self._client.get(
+            "/v1/browser/capabilities", api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def browser_create_session(self, args: dict[str, Any]) -> str:
+    async def browser_create_session(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         params: dict[str, Any] = {}
         if (v := _str(args.get("name"), flag="name")) is not None:
             params["name"] = v
@@ -844,10 +890,14 @@ class ToolRegistry:
             params["ttl_seconds"] = v
         if (v := _str(args.get("url"), flag="url")) is not None:
             params["url"] = v
-        response = await self._client.post("/v1/browser/sessions", params=params or None)
+        response = await self._client.post(
+            "/v1/browser/sessions", params=params or None, api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def browser_navigate(self, args: dict[str, Any]) -> str:
+    async def browser_navigate(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         session_id = _str(args.get("session_id"), flag="session_id", required=True)
         url = _str(args.get("url"), flag="url", required=True)
         payload: dict[str, Any] = {"url": url}
@@ -864,20 +914,27 @@ class ToolRegistry:
         if _bool(args.get("new_tab"), flag="new_tab") is True or (tab_id is None):
             # Open a new tab: the service creates it and returns tab + snapshot.
             response = await self._client.post(
-                f"/v1/browser/sessions/{session_id}/tabs", json_body=payload
+                f"/v1/browser/sessions/{session_id}/tabs",
+                json_body=payload,
+                api_key_override=api_key_override,
             )
             return self._client.render(response.json())
         response = await self._client.post(
-            f"/v1/browser/sessions/{session_id}/tabs/{tab_id}/navigate", json_body=payload
+            f"/v1/browser/sessions/{session_id}/tabs/{tab_id}/navigate",
+            json_body=payload,
+            api_key_override=api_key_override,
         )
         body = response.json()
         snapshot = await self._client.get(
-            f"/v1/browser/sessions/{session_id}/tabs/{tab_id}/snapshot"
+            f"/v1/browser/sessions/{session_id}/tabs/{tab_id}/snapshot",
+            api_key_override=api_key_override,
         )
         body["snapshot"] = snapshot.json()
         return self._client.render(body)
 
-    async def browser_click(self, args: dict[str, Any]) -> str:
+    async def browser_click(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         session_id = _str(args.get("session_id"), flag="session_id", required=True)
         tab_id = _str(args.get("tab_id"), flag="tab_id", required=True)
         payload: dict[str, Any] = {}
@@ -888,11 +945,15 @@ class ToolRegistry:
         if not payload:
             raise MCPError("browser_click needs either a ref or a selector")
         response = await self._client.post(
-            f"/v1/browser/sessions/{session_id}/tabs/{tab_id}/click", json_body=payload
+            f"/v1/browser/sessions/{session_id}/tabs/{tab_id}/click",
+            json_body=payload,
+            api_key_override=api_key_override,
         )
         return self._client.render(response.json())
 
-    async def browser_type(self, args: dict[str, Any]) -> str:
+    async def browser_type(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         session_id = _str(args.get("session_id"), flag="session_id", required=True)
         tab_id = _str(args.get("tab_id"), flag="tab_id", required=True)
         payload: dict[str, Any] = {"text": _str(args.get("text"), flag="text", required=True)}
@@ -905,11 +966,15 @@ class ToolRegistry:
         if (v := _str(args.get("key"), flag="key")) is not None:
             payload["key"] = v
         response = await self._client.post(
-            f"/v1/browser/sessions/{session_id}/tabs/{tab_id}/type", json_body=payload
+            f"/v1/browser/sessions/{session_id}/tabs/{tab_id}/type",
+            json_body=payload,
+            api_key_override=api_key_override,
         )
         return self._client.render(response.json())
 
-    async def browser_evaluate(self, args: dict[str, Any]) -> str:
+    async def browser_evaluate(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         session_id = _str(args.get("session_id"), flag="session_id", required=True)
         tab_id = _str(args.get("tab_id"), flag="tab_id", required=True)
         payload: dict[str, Any] = {
@@ -920,48 +985,76 @@ class ToolRegistry:
         ) is not None:
             payload["timeout_ms"] = v
         response = await self._client.post(
-            f"/v1/browser/sessions/{session_id}/tabs/{tab_id}/evaluate", json_body=payload
+            f"/v1/browser/sessions/{session_id}/tabs/{tab_id}/evaluate",
+            json_body=payload,
+            api_key_override=api_key_override,
         )
         return self._client.render(response.json())
 
-    async def browser_close_tab(self, args: dict[str, Any]) -> str:
+    async def browser_close_tab(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         session_id = _str(args.get("session_id"), flag="session_id", required=True)
         tab_id = _str(args.get("tab_id"), flag="tab_id", required=True)
-        response = await self._client.delete(f"/v1/browser/sessions/{session_id}/tabs/{tab_id}")
+        response = await self._client.delete(
+            f"/v1/browser/sessions/{session_id}/tabs/{tab_id}", api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def browser_close_session(self, args: dict[str, Any]) -> str:
+    async def browser_close_session(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         session_id = _str(args.get("session_id"), flag="session_id", required=True)
-        response = await self._client.delete(f"/v1/browser/sessions/{session_id}")
+        response = await self._client.delete(
+            f"/v1/browser/sessions/{session_id}", api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def cache_purge(self, args: dict[str, Any]) -> str:
+    async def cache_purge(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         domain = _str(args.get("domain"), flag="domain")
         params = {"domain": domain} if domain else None
-        response = await self._client.post("/v1/cache/purge", params=params)
+        response = await self._client.post(
+            "/v1/cache/purge", params=params, api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def cache_delete(self, args: dict[str, Any]) -> str:
+    async def cache_delete(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         url = _str(args.get("url"), flag="url", required=True)
-        response = await self._client.delete("/v1/cache", params={"url": url})
+        response = await self._client.delete(
+            "/v1/cache", params={"url": url}, api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def cache_cleanup(self, args: dict[str, Any]) -> str:
+    async def cache_cleanup(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
         payload: dict[str, Any] = {}
         for key in ("delete_expired_after_seconds", "max_entries", "max_size_mb"):
             if (v := _int(args.get(key), flag=key, minimum=0)) is not None:
                 payload[key] = v
         if (v := _bool(args.get("vacuum"), flag="vacuum")) is not None:
             payload["vacuum"] = v
-        response = await self._client.post("/v1/cache/cleanup", json_body=payload or None)
+        response = await self._client.post(
+            "/v1/cache/cleanup", json_body=payload or None, api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def cache_vacuum(self, args: dict[str, Any]) -> str:
-        response = await self._client.post("/v1/cache/vacuum", json_body=None)
+    async def cache_vacuum(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
+        response = await self._client.post(
+            "/v1/cache/vacuum", json_body=None, api_key_override=api_key_override
+        )
         return self._client.render(response.json())
 
-    async def cache_stats(self, args: dict[str, Any]) -> str:
-        response = await self._client.get("/v1/cache/stats")
+    async def cache_stats(
+        self, args: dict[str, Any], *, api_key_override: str | None = None
+    ) -> str:
+        response = await self._client.get("/v1/cache/stats", api_key_override=api_key_override)
         return self._client.render(response.json())
 
 

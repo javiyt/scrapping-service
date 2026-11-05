@@ -1,8 +1,18 @@
-"""MCP adapter configuration (ticket #149).
+"""MCP adapter configuration (ticket #149/#154).
 
 The adapter is configured exclusively through environment variables: the MCP
 host (Pi, Claude Desktop, Cursor, ...) passes the environment of the spawned
 process, which is the only portable way to hand a secret to a stdio child.
+
+Transport (ticket #154):
+
+- ``MCP_TRANSPORT`` — ``"stdio"`` (default) or ``"streamable-http"``.
+- ``MCP_HOST``     — Bind address (default ``"127.0.0.1"`` for HTTP mode).
+- ``MCP_PORT``     — Bind port (default ``8090``).
+- ``MCP_PATH``     — MCP endpoint path (default ``"/mcp"``).
+- ``MCP_AUTH_TOKEN`` — Bearer token guarding the HTTP endpoint (optional).
+
+Service connection (ticket #149):
 
 - ``MCP_SCRAPPER_BASE_URL``       — service root (no trailing slash)
 - ``MCP_SCRAPPER_API_KEY``        — bearer API key (required by the service)
@@ -36,6 +46,13 @@ MAX_OUTPUT_VAR = "MCP_SCRAPPER_MAX_OUTPUT_CHARS"
 ALIAS_MAX_OUTPUT_VAR = "MCP_SCRAPER_MAX_OUTPUT_CHARS"
 CONFIG_PATH_VAR = "MCP_SCRAPPER_CONFIG_PATH"
 ALIAS_CONFIG_PATH_VAR = "MCP_SCRAPER_CONFIG_PATH"
+
+# Streamable-HTTP transport (ticket #154)
+TRANSPORT_VAR = "MCP_TRANSPORT"
+HOST_VAR = "MCP_HOST"
+PORT_VAR = "MCP_PORT"
+PATH_VAR = "MCP_PATH"
+AUTH_TOKEN_VAR = "MCP_AUTH_TOKEN"
 
 
 def _env(name: str, alias: str | None = None) -> str | None:
@@ -96,6 +113,38 @@ class MCPAdapterConfig(BaseModel):
             "Truncation appends a marker naming the dropped remainder."
         ),
     )
+    transport: str = Field(
+        default="stdio",
+        description=("Transport mode: ``'stdio'`` (default) or ``'streamable-http'``."),
+    )
+    host: str = Field(
+        default="127.0.0.1",
+        description=(
+            "Bind address for the HTTP endpoint.  Default ``'127.0.0.1'`` "
+            "(loopback).  Binding to a non-loopback address without "
+            "authentication is logged as a warning."
+        ),
+    )
+    port: int = Field(
+        default=8090,
+        ge=1,
+        le=65535,
+        description=("Bind port for the HTTP endpoint.  Default ``8090``."),
+    )
+    path: str = Field(
+        default="/mcp",
+        description=("Path for the MCP endpoint.  Default ``'/mcp'``."),
+    )
+    auth_token: str | None = Field(
+        default=None,
+        description=(
+            "Bearer token guarding the MCP endpoint.  When set, clients must "
+            "send ``Authorization: Bearer <token>`` or ``x-api-key: <token>``. "
+            "If unset, authentication is disabled and the adapter uses "
+            "``MCP_SCRAPPER_API_KEY`` as the upstream credential."
+        ),
+        repr=False,
+    )
 
     @property
     def service_url(self) -> str:
@@ -109,6 +158,11 @@ class MCPAdapterConfig(BaseModel):
             "api_key_configured": self.api_key is not None,
             "timeout_seconds": self.timeout_seconds,
             "max_output_chars": self.max_output_chars,
+            "transport": self.transport,
+            "host": self.host,
+            "port": self.port,
+            "path": self.path,
+            "auth_token_configured": self.auth_token is not None,
         }
 
 
@@ -147,15 +201,44 @@ def load_config(env: dict[str, str] | None = None) -> MCPAdapterConfig:
             f"MCP_SCRAPPER_MAX_OUTPUT_CHARS must be an integer, got {max_output_raw!r}"
         ) from exc
 
+    transport_raw = _env(TRANSPORT_VAR)
+    if transport_raw is not None and transport_raw.lower() not in ("stdio", "streamable-http"):
+        raise MCPConfigError(
+            f"MCP_TRANSPORT must be 'stdio' or 'streamable-http', got {transport_raw!r}"
+        )
+    transport = transport_raw if transport_raw is not None else "stdio"
+
+    host_raw = _env(HOST_VAR)
+    host = host_raw if host_raw else "127.0.0.1"
+
+    port_raw = _env(PORT_VAR)
+    try:
+        port = int(port_raw) if port_raw else 8090
+    except ValueError as exc:
+        raise MCPConfigError(f"MCP_PORT must be an integer, got {port_raw!r}") from exc
+
+    path_raw = _env(PATH_VAR)
+    path = path_raw if path_raw else "/mcp"
+
+    auth_token = _env(AUTH_TOKEN_VAR)
+
     config_path = _env(CONFIG_PATH_VAR, ALIAS_CONFIG_PATH_VAR) or os.environ.get("CONFIG_PATH")
     if config_path:
-        path = Path(config_path)
-        if not path.exists():
-            raise MCPConfigError(f"{CONFIG_PATH_VAR} points to a file that does not exist: {path}")
+        path_ = Path(config_path)
+        if not path_.exists():
+            raise MCPConfigError(f"{CONFIG_PATH_VAR} points to a file that does not exist: {path_}")
 
     try:
         return MCPAdapterConfig(
-            base_url=base_url, api_key=api_key, timeout_seconds=timeout, max_output_chars=max_output
+            base_url=base_url,
+            api_key=api_key,
+            timeout_seconds=timeout,
+            max_output_chars=max_output,
+            transport=transport,
+            host=host,
+            port=port,
+            path=path,
+            auth_token=auth_token,
         )
     except Exception as exc:  # pydantic ValidationError and friends
         raise MCPConfigError(f"Invalid MCP adapter configuration: {exc}") from exc

@@ -159,22 +159,32 @@ class MCPServer:
 
     def mount_http(self, asgi_app: Any) -> None:
         """Mount the streamable-HTTP ``/mcp`` endpoint plus ops routes."""
-        from mcp.server.streamable_http import StreamableHTTPServerTransport
+        from mcp.server.sse import SseServerTransport
 
-        transport = StreamableHTTPServerTransport(
-            mcp_session_id="scrapping-service-mcp",
-            is_json_response_enabled=True,
-        )
-        asgi_app.state.mcp_transport = transport
+        transport = SseServerTransport(self.config.path)
 
         async def mcp_endpoint(scope: Any, receive: Any, send: Any) -> None:
-            async with transport.connect() as (read_stream, write_stream):
-                await _run_loop(self._server, read_stream, write_stream, _init_options())
+            # Extract the token from scope (set by TokenAuthMiddleware)
+            token = scope.get("mcp_token")
+            if token:
+                # Override the client's API key for credential pass-through
+                self.client._default_headers["Authorization"] = f"Bearer {token}"
+            try:
+                await transport.handle_post_message(scope, receive, send)
+            finally:
+                # Restore default headers
+                if token:
+                    if self.client.api_key:
+                        self.client._default_headers["Authorization"] = (
+                            f"Bearer {self.client.api_key}"
+                        )
+                    else:
+                        self.client._default_headers.pop("Authorization", None)
 
-        asgi_app.add_route("/mcp", mcp_endpoint)
+        asgi_app.add_route(self.config.path, mcp_endpoint)
         asgi_app.add_route("/health", health_route(self.client, self.metrics))
         asgi_app.add_route("/metrics", metrics_route(self.metrics, self.client))
-        logger.info("MCP streamable-http endpoint mounted at /mcp")
+        logger.info(f"MCP endpoint mounted at {self.config.path}")
 
     async def aclose(self) -> None:
         await self.client.aclose()
@@ -210,41 +220,122 @@ def _configure_logging() -> None:
     )
 
 
+def _parse_args() -> dict[str, Any]:
+    """Parse CLI args (ticket #154)."""
+    args: dict[str, Any] = {}
+    if "--transport" in sys.argv:
+        idx = sys.argv.index("--transport")
+        if idx + 1 < len(sys.argv):
+            args["transport"] = sys.argv[idx + 1]
+            sys.argv.pop(idx + 1)
+        sys.argv.pop(idx)
+    return args
+
+
 def main() -> None:
-    """``scrapping-service-mcp``: run the stdio MCP server."""
+    """``scrapping-service-mcp``: run the stdio MCP server.
+
+    Options:
+    --transport {stdio|streamable-http}  Override MCP_TRANSPORT env var.
+    """
+    args = _parse_args()
     _configure_logging()
     try:
         server = create_server()
     except MCPConfigError as exc:
         print(f"scrapping-service-mcp: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
-    try:
-        asyncio.run(server.run_stdio())
-    except (KeyboardInterrupt, SystemExit):
-        pass
+
+    # Dispatch transport based on config or CLI arg
+    if args.get("transport") == "streamable-http" or server.config.transport == "streamable-http":
+        # Run HTTP transport
+        from starlette.applications import Starlette
+        from starlette.middleware import Middleware
+        from starlette.middleware.errors import ServerErrorMiddleware
+
+        from app.mcp.middleware import OriginHostMiddleware, TokenAuthMiddleware
+
+        # Prepare middleware chain
+        middleware_list: list[Middleware] = []
+        host = server.config.host
+        auth_token = server.config.auth_token
+
+        middleware_list.append(Middleware(OriginHostMiddleware, host=host))
+        middleware_list.append(Middleware(TokenAuthMiddleware, expected_token=auth_token))
+        middleware_list.append(Middleware(ServerErrorMiddleware))
+
+        app = Starlette(middleware=middleware_list)
+        server.mount_http(app)
+        app.router.lifespan_context = _http_lifespan(server)
+
+        import uvicorn
+
+        port = int(os.environ.get("MCP_HTTP_PORT", "8090"))
+        if host not in ("127.0.0.1", "localhost", "::1"):
+            logger.warning(
+                "MCP adapter is bound to a non-loopback address (%s) without authentication. "
+                "Set MCP_AUTH_TOKEN before exposing the port.",
+                host,
+            )
+        uvicorn.run(app, host=host, port=port, log_level="info")
+    else:
+        # Run stdio transport
+        try:
+            asyncio.run(server.run_stdio())
+        except (KeyboardInterrupt, SystemExit):
+            pass
 
 
 def main_http() -> None:
     """``scrapping-service-mcp-http``: streamable HTTP + ops routes.
 
-    Binds 0.0.0.0:8090 by default; override with ``MCP_HTTP_PORT``.
+    Binds ``MCP_HOST`` (default ``127.0.0.1``) port ``MCP_HTTP_PORT``
+    (default ``8090``).  When ``MCP_AUTH_TOKEN`` is set, the adapter
+    requires ``Authorization: Bearer <token>`` or ``x-api-key: <token>``.
+
+    A warning is logged when binding to a non-loopback address without
+    authentication.
+
+    Origin/Host header validation is applied when the adapter binds to a
+    loopback address to prevent DNS rebinding attacks.
+
     """
     _configure_logging()
     from starlette.applications import Starlette
+    from starlette.middleware import Middleware
+    from starlette.middleware.errors import ServerErrorMiddleware
 
-    app = Starlette()
+    from app.mcp.middleware import OriginHostMiddleware, TokenAuthMiddleware
+
     try:
         server = create_server()
     except MCPConfigError as exc:
         print(f"scrapping-service-mcp-http: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
+
+    # Prepare middleware chain (origin/host validation runs before auth)
+    middleware_list: list[Middleware] = []
+    host = server.config.host
+    auth_token = server.config.auth_token
+
+    middleware_list.append(Middleware(OriginHostMiddleware, host=host))
+    middleware_list.append(Middleware(TokenAuthMiddleware, expected_token=auth_token))
+    middleware_list.append(Middleware(ServerErrorMiddleware))
+
+    app = Starlette(middleware=middleware_list)
     server.mount_http(app)
     app.router.lifespan_context = _http_lifespan(server)
 
     import uvicorn
 
     port = int(os.environ.get("MCP_HTTP_PORT", "8090"))
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        logger.warning(
+            "MCP adapter is bound to a non-loopback address (%s) without authentication. "
+            "Set MCP_AUTH_TOKEN before exposing the port.",
+            host,
+        )
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 def _http_lifespan(server: MCPServer) -> Callable[..., Any]:
