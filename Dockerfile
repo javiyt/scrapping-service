@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 #
 # Multi-stage build for scraper-api.
-# Targets:  production (default)  |  test
+# Targets:  production (default)  |  test  |  mcp
 
 # ================================================================ base
 FROM --platform=$TARGETPLATFORM python:3.15-slim-bookworm AS base
@@ -73,3 +73,34 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "info", "--timeout-keep-alive", "30", "--limit-max-requests", "5000"]
+
+# ============================================================ mcp (adapter)
+# A small companion image that runs *only* the MCP adapter (``app.mcp``).
+# It needs neither a browser nor any other runtime dependency: the adapter is
+# a thin REST proxy that talks to a separately-running scrapping-service.
+#
+# Build and run (stdio — the default for local MCP clients):
+#
+#   docker build --target mcp -t scrapping-service-mcp .
+#   docker run -i --rm -e MCP_SCRAPPER_BASE_URL=https://scraper.example.com \
+#       -e SCRAPER_API_KEY=***  \
+#       scrapping-service-mcp
+#
+# Streamable HTTP on port 8090:
+#
+#   docker run -d -p 8090:8090 -e MCP_SCRAPPER_BASE_URL=https://scraper.example.com \
+#       -e SCRAPER_API_KEY=*** \
+#       -e MCP_AUTH_TOKEN=***  \
+#       scrapping-service-mcp scrapping-service-mcp-http
+FROM deps AS mcp
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install mcp>=1.9.0,<2
+
+COPY --chown=scraper:scraper app/ ./app/
+
+USER scraper
+
+EXPOSE 8090
+
+CMD ["scrapping-service-mcp"]

@@ -265,3 +265,28 @@ and the scraper's own concurrency/pool settings bound fallback usage.
 Deployment of the external Camofox service (networking, health, degraded
 behavior, secrets handling) is documented in
 [Deployment](deployment.md#external-search-backends-searxng-and-camofox).
+
+## MCP adapter
+
+The standalone MCP adapter (`app/mcp`) is configured **only through
+environment variables** — it has no YAML section and never writes config.
+It runs as a separate process (or container target) in front of a
+deployed service.
+
+| Variable | Alias | Required | Default | Purpose |
+| --- | --- | --- | --- | --- |
+| `MCP_SCRAPPER_BASE_URL` | `MCP_SCRAPER_BASE_URL` | **yes** | — | Service root, e.g. `http://localhost:8080` (no trailing slash). |
+| `MCP_SCRAPPER_API_KEY` | `MCP_SCRAPER_API_KEY` | if the service needs one | — | Bearer key for the service. `SCRAPER_API_KEY` is honored as a pass-through. Never serialized. |
+| `MCP_SCRAPPER_TIMEOUT_SECONDS` | `MCP_SCRAPER_TIMEOUT_SECONDS` | no | `180` | Outbound request timeout; must exceed the service's browser-mode timeout. |
+| `MCP_SCRAPPER_MAX_OUTPUT_CHARS` | `MCP_SCRAPER_MAX_OUTPUT_CHARS` | no | `200000` | Per-result truncation cap. |
+
+Streamable-HTTP mode (`scrapping-service-mcp-http`) additionally accepts:
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `MCP_AUTH_TOKEN` | no | Bearer token guarding the adapter's own `/mcp` endpoint. |
+| `MCP_HTTP_PORT` | no | Bind port (default `8090`). |
+
+The adapter fails at startup (exit 2, actionable message on stderr) when
+`MCP_SCRAPPER_BASE_URL` is missing or invalid — it never starts pointing at
+nothing.

@@ -109,20 +109,27 @@ Client → Auth → AgentBrowserService
 
 ### MCP (Model Context Protocol)
 
-The MCP server (tickets #149–#155) is planned to expose the unified web-access
-capabilities as MCP tools. The integration tests in
-`tests/test_integration_mcp.py` pin the expected tool surface:
+The MCP adapter (tickets #149–#155, `app/mcp`) exposes the unified web-access
+capabilities as MCP tools. It is a **thin pass-through proxy**: every tool
+is a plain REST call to the service, so the service's security policies
+(SSRF guard, domain rules, auth, caching) apply unchanged and the adapter
+never re-implements scraping logic. Transports are stdio (what MCP hosts
+launch) and streamable HTTP for remote clients.
 
 | MCP tool | Maps to | Status |
 |----------|---------|--------|
-| `fetch_url` | `POST /v1/scrape` | Implemented (HTTP + browser fallback) |
-| `search` | `POST /v1/search` | Implemented (provider chain) |
+| `adapter_info` | `GET /health` | Implemented (wiring check) |
+| `search` / `search_capabilities` | `POST /v1/search` / `GET /v1/search/capabilities` | Implemented (provider chain) |
+| `fetch_url` / `fetch_url_batch` | `POST /v1/scrape` | Implemented (HTTP + browser fallback) |
 | `transcript` | `GET /v1/transcript` | Implemented (provider chain) |
-| `browser_session` | `/v1/browser/*` | Implemented (Camofox) |
-| `browser_navigate` | `/v1/browser/…/navigate` | Implemented |
-| `browser_evaluate` | `/v1/browser/…/evaluate` | Implemented (opt-in) |
-| `browser_snapshot` | `/v1/browser/…/snapshot` | Implemented |
-| `browser_capabilities` | `/v1/browser/capabilities` | Implemented |
+| `browser_*` (capabilities, session, navigate, click, type, evaluate, close) | `/v1/browser/*` | Implemented (Camofox) |
+| `cache_*` (purge, delete, cleanup, vacuum, stats) | `/v1/cache/*` | Implemented |
+
+The adapter's test suites (`tests/test_mcp_*.py`) cover the contract
+(schema snapshot), security (no key leakage, error isolation, output
+bounding) and the full MCP protocol flow over in-memory streams; an opt-in
+live integration test (`SCRAPER_TEST_MCP_LIVE=true`) drives the adapter
+against a real deployment. Full documentation: [MCP Adapter](mcp.md).
 
 ## Module Map
 
@@ -204,7 +211,7 @@ all external dependencies are replaced by in-memory fakes:
 | `tests/test_integration_scrape.py` | `POST /v1/scrape` → ScraperService → HTTP/browser backends → cache | `FakeHttpFetcher`, `FakeBrowserBackend`, real `SqliteCache` |
 | `tests/test_integration_agent_browser.py` | `/v1/browser/*` → AgentBrowserService → provider | `FakeAgentBrowserProvider` |
 | `tests/test_integration_transcript.py` | `GET /v1/transcript` → TranscriptCache → TranscriptRouter → provider | `FakeTranscriptProvider`, real `SqliteCache` |
-| `tests/test_integration_mcp.py` | Pins the future MCP tool surface over the HTTP API | `FakeAgentBrowserProvider` |
+| `tests/test_integration_mcp.py` | Pins the service contract each MCP tool proxies (search, scrape, transcript, browser) | `FakeAgentBrowserProvider` |
 
 Shared fakes live in `tests/fakes.py` and are used by both unit and
 integration tests.
