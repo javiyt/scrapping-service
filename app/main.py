@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import httpx
 import yaml as pyyaml
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +24,7 @@ from app.core.errors import ScraperError
 from app.core.logging import setup_logging
 from app.jobs.service import JobService
 from app.metrics.prometheus import get_metrics
+from app.plugins.loader import load_plugins
 from app.scraper.browser_pool import BrowserFetcherPool
 from app.search import build_search_cache, build_search_router
 from app.transcript import build_transcript_cache, build_transcript_router
@@ -88,15 +90,45 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Background cache cleanup is disabled")
 
-    # ---- Search providers + router
-    # Constructed from the `search` config block.  The router is exercised
-    # through the public search API (POST /v1/search, GET
-    # /v1/search/capabilities).  The router owns provider registration; the
-    # app keeps the provider list on state for lifecycle (close) and logging.
+    # Build search router first to get camofox_client from the provider
     search_router = build_search_router(settings, metrics=metrics)
     app.state.search_router = search_router
     search_providers = search_router.registry.all()
     app.state.search_providers = search_providers
+
+    # Extract camofox_client from search providers (if any)
+    _camofox_client = None
+    for provider in search_providers:
+        provider_client = getattr(provider, "client", None)
+        if provider_client is not None and getattr(provider, "name", None) == "camofox":
+            _camofox_client = provider_client
+            break
+    if _camofox_client is None:
+        _camofox_client = build_camofox_client(settings)
+    app.state.camofox_client = _camofox_client
+    if _camofox_client is not None:
+        logger.info("Camofox client ready (external service client; no browser launched here)")
+    else:
+        logger.info("Camofox client disabled")
+
+    # Load plugins AFTER search providers so we can pass camofox_client
+    _shared_http = httpx.AsyncClient(
+        timeout=httpx.Timeout(30.0),
+        follow_redirects=False,
+    )
+    app.state.http_client = _shared_http
+    _plugin_result = load_plugins(
+        settings, camofox_client=_camofox_client, http_client=_shared_http
+    )
+    app.state.extractor_registry = _plugin_result.extractor_registry
+    logger.info(
+        "Plugin loading complete: loaded=%s, skipped=%d",
+        _plugin_result.loaded,
+        len(_plugin_result.skipped),
+    )
+    if _plugin_result.skipped:
+        for entry in _plugin_result.skipped:
+            logger.warning("Plugin '%s' skipped: %s", entry["name"], entry["reason"])
     if search_providers:
         order = ", ".join(search_router.config.provider_order) or "registration"
         logger.info(
@@ -154,7 +186,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # resolved above; with none enabled the router reports
     # no_transcript_provider_available.
     transcript_router = build_transcript_router(
-        settings, metrics=metrics, camofox_client=_camofox_client
+        settings,
+        metrics=metrics,
+        camofox_client=_camofox_client,
+        extra_providers=_plugin_result.transcript_providers,
     )
     app.state.transcript_router = transcript_router
     transcript_providers = transcript_router.registry.all()
@@ -252,6 +287,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await close()
     if _camofox_client is not None:
         await _camofox_client.close()
+    # Close the shared http client used by plugins
+    if hasattr(app.state, "http_client"):
+        await app.state.http_client.aclose()
     try:
         _cache.close()
     except Exception:

@@ -95,7 +95,45 @@ def process_scrape_response(
     *,
     normalize_config: dict[str, Any] | None = None,
     extract_config: ExtractConfig | dict[str, Any] | None = None,
+    extractor_registry: Any | None = None,
+    url: str | None = None,
 ) -> dict[str, Any]:
-    """Run all response-time transformations in API order."""
+    """Run all response-time transformations in API order.
+
+    If ``extractor_registry`` is provided and ``extract_config`` is disabled
+    or empty, consult the registry for extractors matching the URL's domain
+    and apply them (unless the per-request config explicitly requests
+    extraction).
+    """
     result = apply_normalization(result, normalize_config)
-    return apply_extraction(result, extract_config)
+    result = apply_extraction(result, extract_config)
+
+    # If no per-request extraction is configured, try plugin extractors
+    if extractor_registry is not None and url is not None:
+        if extract_config is None or not extract_config.enabled:
+            extractors = extractor_registry.get_for_domain(url)
+            if extractors:
+                # Run the first extractor that matches
+                extractor = extractors[0]
+                if extractor.extractor_type == "css":
+                    html = result.get("html", "")
+                    try:
+                        fields = extractor.fields
+                        base_url = result.get("final_url") or result.get("url", "")
+                        extracted_data = run_extraction(html, fields, base_url=base_url)
+                        result["extracted"] = extracted_data
+                        result.setdefault("metadata", {})["extractor"] = extractor.name
+                    except ExtractionError as exc:
+                        result["extracted"] = None
+                        result.setdefault("metadata", {})["extraction_error"] = exc.to_dict()
+                elif extractor.extractor_type == "custom" and extractor.extractor is not None:
+                    html = result.get("html", "")
+                    try:
+                        extracted_data = extractor.extractor(html, url)
+                        result["extracted"] = extracted_data
+                        result.setdefault("metadata", {})["extractor"] = extractor.name
+                    except Exception as exc:
+                        result["extracted"] = None
+                        result.setdefault("metadata", {})["extraction_error"] = str(exc)
+
+    return result

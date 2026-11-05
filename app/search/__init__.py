@@ -73,6 +73,7 @@ __all__ = [
 def build_search_router(
     settings: Settings,
     metrics: MetricsCollector | None = None,
+    extra_providers: list[SearchProvider] | None = None,
 ) -> SearchRouter:
     """Build the search router from application settings.
 
@@ -84,11 +85,18 @@ def build_search_router(
     ``metrics`` overrides the global metrics collector (used by tests); the
     router records per-provider attempt/success/error counters on it.
 
+    ``extra_providers`` is a list of additional providers to register after
+    the built-in ones. These are typically provided by plugins. Duplicate
+    names raise :class:`ValueError` (registration fails fast).
+
     Raises:
         ValueError: on configuration errors (duplicate provider names, a
             ``default_provider`` that is not registered, ...).
     """
     registry = SearchProviderRegistry(build_search_providers(settings))
+    if extra_providers:
+        for provider in extra_providers:
+            registry.register(provider)
     return SearchRouter(registry, SearchRouterConfig.from_settings(settings), metrics=metrics)
 
 
