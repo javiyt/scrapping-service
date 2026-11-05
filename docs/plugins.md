@@ -28,6 +28,7 @@ A plugin must implement:
 ```python
 from app.plugin_api import Plugin, PluginContext, PluginRegistry
 
+
 class MyPlugin(Plugin):
     name = "my-plugin"
     version = "1.2.3"
