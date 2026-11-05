@@ -95,7 +95,7 @@ CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--log-le
 FROM deps AS mcp
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install mcp>=1.9.0,<2
+    pip install 'mcp>=1.9.0,<2'
 
 COPY --chown=scraper:scraper app/ ./app/
 
