@@ -765,7 +765,9 @@ class TestExtractionEndpoint:
 
         # Verify metric was incremented
         final_metrics = get_metrics()
-        assert final_metrics._counters.get("extraction_success_total", 0) == initial_success_count + 1
+        assert (
+            final_metrics._counters.get("extraction_success_total", 0) == initial_success_count + 1
+        )
 
 
 # ============================================================= ScraperError handler
