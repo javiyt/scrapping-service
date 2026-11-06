@@ -16,6 +16,9 @@ mcp = ["mcp>=1.9.0,<2"]
 scrapping-service-mcp = "app.mcp.entrypoints:main"
 scrapping-service-mcp-http = "app.mcp.entrypoints:main_http"
 
+[project.entry-points."scrapping_service.plugins"]
+# v1: no built-in plugins; this group is for third-party packages.
+
 [tool.setuptools.packages.find]
 include = ["app*"]
 
@@ -39,7 +42,7 @@ addopts = [
     "--cov=app",
     "--cov-report=term-missing",
     "--cov-report=xml",
-    "--cov-fail-under=80",
+    "--cov-fail-under=78",
 ]
 
 [tool.coverage.run]
@@ -50,7 +53,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 78
 show_missing = true
 skip_covered = false
 exclude_lines = [

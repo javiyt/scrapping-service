@@ -216,6 +216,13 @@ class Settings(BaseSettings):
         alias="_raw_yaml_agent_browser",
     )
 
+    # Raw plugin YAML block — parsed by app.plugins.  Same convention.
+    raw_yaml_plugin: dict[str, Any] | None = Field(
+        default=None,
+        exclude=True,
+        alias="_raw_yaml_plugin",
+    )
+
     # ------------------------------------------------------------------ validators
 
     @field_validator("server_port")
@@ -383,6 +390,10 @@ class Settings(BaseSettings):
             result["_raw_yaml_agent_browser"] = data["agent_browser"]
             for key, value in data["agent_browser"].items():
                 result[f"agent_browser_{key}"] = value
+
+        # Plugin block — stored raw for app.plugins to parse.
+        if "plugin" in data and isinstance(data["plugin"], dict):
+            result["_raw_yaml_plugin"] = data["plugin"]
 
         return result
 

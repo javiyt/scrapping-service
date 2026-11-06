@@ -79,6 +79,9 @@ router = APIRouter(dependencies=[Depends(verify_api_key)])
 # Public endpoints (no auth) — see also the auth dependency exception for /health.
 health_router = APIRouter()
 
+# Plugin management endpoints
+plugins_router = APIRouter(dependencies=[Depends(verify_api_key)])
+
 
 # ================================================================ /health
 
@@ -392,10 +395,16 @@ async def scrape_url(
 
         # Apply response-time transforms after cache/fetch. Normalisation never
         # modifies the cached raw HTML.
+        app_state = getattr(request, "app", None)
+        extractor_registry = (
+            getattr(app_state.state, "extractor_registry", None) if app_state else None
+        )
         result = process_scrape_response(
             result,
             normalize_config=request.normalize.model_dump(),
             extract_config=request.extract,
+            extractor_registry=extractor_registry,
+            url=request.url,
         )
         if request.extract.enabled and request.extract.fields:
             if result.get("extraction_error"):
@@ -469,10 +478,18 @@ async def scrape_url_v2(
         if request.extract.enabled and request.extract.fields:
             metrics_collector.inc("extraction_requests_total")
 
+        # Extract extractor_registry safely for the v2 response
+        app_state = getattr(request, "app", None)
+        extractor_registry = (
+            getattr(app_state.state, "extractor_registry", None) if app_state else None
+        )
+
         result = process_scrape_response(
             result,
             normalize_config=request.normalize.model_dump(),
             extract_config=request.extract,
+            extractor_registry=extractor_registry,
+            url=request.url,
         )
         if request.extract.enabled and request.extract.fields:
             if result.get("extraction_error"):
@@ -686,6 +703,10 @@ async def scrape_batch(
     """Scrape multiple URLs with controlled concurrency."""
     start = time.monotonic()
 
+    # Extract extractor_registry safely for use in nested functions
+    app_state = getattr(request, "app", None)
+    extractor_registry = getattr(app_state.state, "extractor_registry", None) if app_state else None
+
     effective_concurrency = min(request.max_concurrency, effective_settings.scraper_max_concurrency)
     semaphore = asyncio.Semaphore(effective_concurrency)
     succeeded = 0
@@ -717,6 +738,8 @@ async def scrape_batch(
                     result,
                     normalize_config=item.normalize.model_dump(),
                     extract_config=item.extract,
+                    extractor_registry=extractor_registry,
+                    url=item.url,
                 )
                 if item.extract.enabled and item.extract.fields:
                     if result.get("extraction_error"):
@@ -1087,6 +1110,54 @@ async def delete_job(
             },
         )
     return {"message": f"Job {job_id} deleted"}
+
+
+# ============================================================ /v1/plugins/status
+
+
+@plugins_router.get("/v1/plugins/status", tags=["Plugins"])
+async def plugins_status(request: Request):
+    """Return plugin loading status and metadata.
+
+    Reports which plugins were successfully loaded and which were skipped
+    (with reasons). This endpoint helps operators diagnose plugin loading
+    issues and verify that expected plugins are active.
+
+    Response includes:
+    - loaded: list of successfully loaded plugin names
+    - skipped: list of dicts with 'name', 'reason' for plugins that failed
+    - allowlist_enabled: whether allowlist filtering is active
+    - allowlist: the configured allowlist (or null if disabled)
+    """
+    # Retrieve plugin load result from app.state
+    plugin_load_result = getattr(request.app.state, "plugin_load_result", None)
+
+    if plugin_load_result is None:
+        # Plugins may not have been loaded yet (e.g., during startup)
+        return {
+            "loaded": [],
+            "skipped": [],
+            "allowlist_enabled": False,
+            "allowlist": None,
+            "status": "not_loaded",
+            "message": "Plugins have not been loaded yet",
+        }
+
+    plugins_config = getattr(request.app.state.settings, "raw_yaml_plugin", None) or {}
+    allowlist_enabled = plugins_config.get("enabled", True)
+    allowlist = plugins_config.get("allowlist", []) if allowlist_enabled else None
+
+    return {
+        "loaded": plugin_load_result.loaded,
+        "skipped": plugin_load_result.skipped,
+        "allowlist_enabled": allowlist_enabled,
+        "allowlist": allowlist,
+        "status": "loaded" if plugin_load_result.loaded else "skipped_all",
+        "message": (
+            f"{len(plugin_load_result.loaded)} plugins loaded, "
+            f"{len(plugin_load_result.skipped)} skipped"
+        ),
+    }
 
 
 @router.post("/v2/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])

@@ -481,6 +481,7 @@ def build_transcript_router(
     settings: Settings,
     metrics: MetricsCollector | None = None,
     camofox_client: Any | None = None,
+    extra_providers: list[Any] | None = None,
 ) -> TranscriptRouter:
     """Build the transcript router from application settings.
 
@@ -496,6 +497,10 @@ def build_transcript_router(
     (Camofox disabled/unconfigured) yields a registered-but-unavailable
     provider.
 
+    ``extra_providers`` is a list of additional providers to register after
+    the built-in ones. These are typically provided by plugins. Duplicate
+    names raise :class:`ValueError` (registration fails fast).
+
     ``metrics`` overrides the global metrics collector (used by tests); the
     router records per-provider attempt/success/error counters on it.
 
@@ -508,6 +513,9 @@ def build_transcript_router(
     registry = TranscriptProviderRegistry(
         build_transcript_providers(settings, client=camofox_client)
     )
+    if extra_providers:
+        for provider in extra_providers:
+            registry.register(provider)
     return TranscriptRouter(
         registry, TranscriptRouterConfig.from_settings(settings), metrics=metrics
     )
