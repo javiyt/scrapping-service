@@ -99,7 +99,7 @@ jobs:
 
       - name: Smoke test — plugin is active at startup
         run: |
-          docker run --rm -e LOG_LEVEL=info scrapping-service-plugin-example python -c "
+          docker run --rm --user root -e LOG_LEVEL=info scrapping-service-plugin-example python -c "
           import sys
           sys.path.insert(0, '/app')
           from importlib.metadata import entry_points
