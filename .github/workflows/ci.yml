@@ -73,7 +73,7 @@ jobs:
 
       - name: Run example plugin contract tests
         run: |
-          python -m pytest tests/test_plugin_testing.py tests/test_example_plugin_v2.py -v
+          python -m pytest tests/test_plugin_testing.py tests/test_example_plugin_v2.py -v --no-cov
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v7
