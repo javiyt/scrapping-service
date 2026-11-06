@@ -62,12 +62,14 @@ class _WrappedSearchProvider(SearchProvider):
         except TimeoutError:
             # Map timeout to broadcast-friendly error
             raise SearchProviderTimeoutError(
-                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' timed out during capabilities"
+                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' "
+                f"timed out during capabilities"
             )
         except Exception as exc:
             # Map any exception to unavailable (router can fall back)
             raise SearchProviderUnavailableError(
-                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' capabilities failed: {exc}"
+                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' "
+                f"capabilities failed: {exc}"
             ) from exc
 
     async def search(self, request: Any) -> Any:
@@ -78,11 +80,13 @@ class _WrappedSearchProvider(SearchProvider):
             )
         except TimeoutError:
             raise SearchProviderTimeoutError(
-                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' timed out during search"
+                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' "
+                f"timed out during search"
             )
         except Exception as exc:
             raise SearchProviderUnavailableError(
-                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' search failed: {exc}"
+                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' "
+                f"search failed: {exc}"
             ) from exc
 
     async def health(self) -> Any:
@@ -93,11 +97,13 @@ class _WrappedSearchProvider(SearchProvider):
             )
         except TimeoutError:
             raise SearchProviderTimeoutError(
-                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' timed out during health"
+                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' "
+                f"timed out during health"
             )
         except Exception as exc:
             raise SearchProviderUnavailableError(
-                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' health failed: {exc}"
+                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' "
+                f"health failed: {exc}"
             ) from exc
 
 
@@ -121,11 +127,13 @@ class _WrappedTranscriptProvider(TranscriptProvider):
             )
         except TimeoutError:
             raise TranscriptProviderTimeoutError(
-                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' timed out during health"
+                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' "
+                f"timed out during health"
             )
         except Exception as exc:
             raise TranscriptProviderUnavailableError(
-                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' health failed: {exc}"
+                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' "
+                f"health failed: {exc}"
             ) from exc
 
     async def fetch(self, video_id: str, languages: list[str]) -> Any:
@@ -136,7 +144,8 @@ class _WrappedTranscriptProvider(TranscriptProvider):
             )
         except TimeoutError:
             raise TranscriptProviderTimeoutError(
-                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' timed out during fetch"
+                f"Plugin '{self._plugin_name}' provider '{self._provider_name}' "
+                f"timed out during fetch"
             )
         except Exception as exc:
             raise TranscriptProviderUnavailableError(
