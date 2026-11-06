@@ -159,14 +159,78 @@ restarts; unchanged requirements will skip re-installation on next startup.
 
 ### 2. Derived image (static)
 
-Create a custom Dockerfile:
+Create a custom Dockerfile that builds on the official image:
 
 ```dockerfile
 FROM ghcr.io/javiyt/scrapping-service:latest
-RUN pip install my-custom-search>=1.0.0 another-plugin==2.1.0
+USER root
+RUN pip install --no-cache-dir scrapping-plugin-foo==1.2.0
+USER scraper
+ENV SCRAPER_PLUGIN_ALLOWLIST=foo
 ```
 
-Recommended for production (reproducible builds, no runtime pip).
+#### When to choose derived image vs dynamic install
+
+| Requirement | Derived image | Dynamic (`SCRAPER_PLUGINS`) |
+|-------------|---------------|----------------------------|
+| Reproducible builds | ✅ Built once, same hash | ❌ Depends on network at start |
+| Offline-capable | ✅ All deps baked in | ❌ Needs network (or wheelhouse) |
+| Fast startup | ✅ No pip install | ⚠️ 5–30 seconds on first start |
+| easy plugin updates | ⚠️ Rebuild image | ✅ Restart container |
+| Multi-arch support | ✅ Reuse official image | ✅ Same base |
+
+For production, prefer the derived-image approach (reproducible, deterministic).
+For development or frequent plugin changes, use `SCRAPER_PLUGINS`.
+
+#### Example Dockerfile
+
+See `docs/examples/plugins/Dockerfile` for a complete example with a test
+plugin. The key steps:
+
+1. `FROM ghcr.io/javiyt/scrapping-service:latest` — use the official image
+2. `USER root` — needed for pip install into site-packages
+3. `COPY` and `pip install` your plugin package
+4. `USER scraper` — return to the unprivileged user
+5. (Optional) Set `SCRAPER_PLUGIN_ALLOWLIST` to restrict loaded plugins
+
+#### Multi-stage / wheelhouse variants
+
+For reproducible builds without network at runtime:
+
+```dockerfile
+# Build stage: download wheels
+FROM python:3.15-slim AS builder
+WORKDIR /wheels
+RUN pip wheel --no-deps --no-binary=:all: \
+    --wheel-dir /wheels \
+    my-plugin==1.0.0
+
+# Runtime image
+FROM ghcr.io/javiyt/scrapping-service:latest
+COPY --from=builder /wheels /wheels
+RUN pip install --no-index --find-links=/wheels /wheels/*.whl
+```
+
+Pin dependencies with hashes (PEP 440):
+
+```bash
+pip hash my-plugin==1.0.0
+# Add hash to requirements.txt or pyproject.toml constraints
+```
+
+Keep the derived image rebuilt when the base image updates (e.g., scan for
+`org.scrapping-service.plugin-api-version` label in the base).
+
+#### Interaction with dynamic install
+
+You can combine both approaches: bake in one set of plugins and allow
+runtime overrides. If a plugin appears in both places:
+
+- The runtime `SCRAPER_PLUGINS` directory (`/app/plugins`) takes precedence
+  because `app/run.py` prepends it to `PYTHONPATH`.
+- Baked-in plugins (installed into site-packages) serve as the baseline.
+
+For most cases, pick one strategy and stick to it to avoid confusion.
 
 ## Security considerations
 

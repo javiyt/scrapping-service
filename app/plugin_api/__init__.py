@@ -44,12 +44,12 @@ from __future__ import annotations
 from app.scraper.extractor import ExtractionError
 from app.scraper.extractor_registry import ExtractionResult, ExtractorRegistry
 from app.search.contract import SearchProvider
-from app.transcript.contract import TranscriptHealth, TranscriptProvider
+from app.transcript.contract import TranscriptHealth, TranscriptProvider  # noqa: F401
 
 from .base import Plugin
-from .context import PluginContext, SettingsView
+from .context import PluginContext, SettingsView  # noqa: F401
 from .errors import PluginLoadError
-from .registry import PluginRegistry
+from .registry import PluginRegistry  # noqa: F401
 
 __all__ = [
     "ExtractionError",
