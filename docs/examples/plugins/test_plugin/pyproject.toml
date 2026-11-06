@@ -19,7 +19,7 @@ classifiers = [
   "Programming Language :: Python :: 3 :: Only",
   "Programming Language :: Python :: 3.12",
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
   "scrapping-service>=1.0.0",
 ]
@@ -27,6 +27,10 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/javiyt/scrapping-service"
 Issues = "https://github.com/javiyt/scrapping-service/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["test_plugin*"]
 
 [project.entry-points."scrapping_service.plugins"]
 test-plugin = "test_plugin.plugin:TestPlugin"

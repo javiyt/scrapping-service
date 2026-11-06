@@ -11,6 +11,8 @@ Published image:
 ghcr.io/javiyt/scrapping-service
 ```
 
+For derived images, pin the base image tag (e.g., `:v3.0.0` or `@sha256:...`) to avoid unexpected updates, and use the `org.scrapping-service.plugin-api-version` label to verify compatibility.
+
 ## Plugin Support
 
 The service supports automatic plugin installation at container start via

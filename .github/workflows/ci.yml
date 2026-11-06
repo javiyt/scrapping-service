@@ -71,3 +71,50 @@ jobs:
         with:
           name: coverage-xml
           path: coverage.xml
+
+  derived-image:
+    name: Derived image smoke test
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull base image
+        run: docker pull ghcr.io/javiyt/scrapping-service:latest
+
+      - name: Build derived example image
+        working-directory: docs/examples/plugins
+        run: docker buildx build --load -t scrapping-service-plugin-example .
+
+      - name: Smoke test — plugin is active at startup
+        run: |
+          docker run --rm -e LOG_LEVEL=info scrapping-service-plugin-example python -c "
+import sys
+sys.path.insert(0, '/app')
+from importlib.metadata import entry_points
+eps = [e.name for e in entry_points(group='scrapping_service.plugins')]
+assert 'test-plugin' in eps, f'Entry points: {eps}'
+print('Entry point discovered:', eps)
+from app.plugin_api import PLUGIN_API_VERSION, Plugin
+from app.plugins.loader import load_plugins
+from app.core.config import Settings
+import httpx
+result = load_plugins(Settings(), http_client=httpx.AsyncClient())
+assert 'test-plugin' in result.loaded, f'Loaded: {result.loaded}, skipped: {result.skipped}'
+print('Plugin loaded successfully:', result.loaded)
+"
+
+      - name: Verify image labels
+        run: |
+          docker inspect ghcr.io/javiyt/scrapping-service:latest --format='{{index .Config.Labels "org.scrapping-service.plugin-api-version"}}'
+          docker inspect ghcr.io/javiyt/scrapping-service:latest --format='{{index .Config.Labels "org.opencontainers.image.source"}}'
