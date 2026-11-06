@@ -341,3 +341,25 @@ agent_browser:
 
 # ---------------------------------------------------------------- Logging
 log_level: INFO
+
+# ---------------------------------------------------------------- Plugins
+# Automatic plugin installation at container start via SCRAPER_PLUGINS.
+# See docs/plugins.md for full documentation.
+#
+# plugin:
+#   enabled: true                     # Load plugins on startup
+#   allowlist: []                     # If non-empty, only allowlisted plugins are loaded
+#
+# Environment variables:
+#   SCRAPER_PLUGINS_PLUGINS           Comma/space-separated pip specifiers
+#   SCRAPER_PLUGINS_DIR               Plugin installation directory (default: /app/plugins)
+#   SCRAPER_PLUGINS_CONSTRAINTS       Constraints file (default: /app/requirements.txt)
+#   SCRAPER_PLUGINS_INDEX_URL         Primary PyPI index URL
+#   SCRAPER_PLUGINS_EXTRA_INDEX_URL   Extra PyPI index URL
+#   SCRAPER_PLUGINS_REQUIREMENTS_FILE Requirements file (supports --hash)
+#   SCRAPER_PLUGINS_OFFLINE           Install from wheelhouse only
+#   SCRAPER_PLUGINS_WHEELHOUSE      Local wheelhouse directory
+#   SCRAPER_PLUGINS_ON_ERROR          Fail policy: fail|warn (default: fail)
+plugin:
+  enabled: true
+  allowlist: []

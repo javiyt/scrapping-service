@@ -11,6 +11,19 @@ Published image:
 ghcr.io/javiyt/scrapping-service
 ```
 
+## Plugin Support
+
+The service supports automatic plugin installation at container start via
+the `SCRAPER_PLUGINS` environment variable. See [Plugins](plugins.md) for
+detailed documentation on:
+
+- Supported environment variables (`SCRAPER_PLUGINS`, `SCRAPER_PLUGINS_INDEX_URL`, etc.)
+- Offline wheelhouse installation
+- Fail/warn error policies
+- Docker run and docker-compose examples
+- Network requirements and cold-start cost
+- Security considerations
+
 ## Raspberry Pi Deploy
 
 The deploy script can pull a pre-built image from GHCR and update the remote
