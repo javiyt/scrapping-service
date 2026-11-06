@@ -33,34 +33,40 @@ def test_example_plugin_has_required_attributes():
     except ImportError as exc:
         raise AssertionError(f"Failed to import test_plugin.plugin: {exc}") from exc
 
-    # Mock external dependencies
+    # Mock external dependencies (save original to restore)
+    _original_plugin_api = sys.modules.get("app.plugin_api")
     sys.modules["app.plugin_api"] = MagicMock()
     sys.modules["app.plugin_api"].Plugin = object
     sys.modules["app.plugin_api"].PluginContext = MagicMock
     sys.modules["app.plugin_api"].PluginRegistry = MagicMock
 
-    # Reload to pick up mocks
-    if "test_plugin.plugin" in sys.modules:
-        del sys.modules["test_plugin.plugin"]
-    if "test_plugin" in sys.modules:
-        del sys.modules["test_plugin"]
+    try:
+        # Reload to pick up mocks
+        if "test_plugin.plugin" in sys.modules:
+            del sys.modules["test_plugin.plugin"]
+        if "test_plugin" in sys.modules:
+            del sys.modules["test_plugin"]
 
-    # Reimport with mocks
-    import test_plugin.plugin
+        # Reimport with mocks
+        import test_plugin.plugin
 
-    plugin = test_plugin.plugin.TestPlugin()
+        plugin = test_plugin.plugin.TestPlugin()
 
-    assert hasattr(plugin, "name")
-    assert isinstance(plugin.name, str)
-    assert plugin.name == "test-plugin"
+        assert hasattr(plugin, "name")
+        assert isinstance(plugin.name, str)
+        assert plugin.name == "test-plugin"
 
-    assert hasattr(plugin, "version")
-    assert isinstance(plugin.version, str)
-    assert plugin.version == "0.1.0"
+        assert hasattr(plugin, "version")
+        assert isinstance(plugin.version, str)
+        assert plugin.version == "0.1.0"
 
-    assert hasattr(plugin, "api_version")
-    assert isinstance(plugin.api_version, str)
-    assert plugin.api_version == "1.0.0"
+        assert hasattr(plugin, "api_version")
+        assert isinstance(plugin.api_version, str)
+        assert plugin.api_version == "1.0.0"
+    finally:
+        # Restore the original module to avoid poisoning other tests
+        if _original_plugin_api is not None:
+            sys.modules["app.plugin_api"] = _original_plugin_api
 
 
 def test_example_plugin_registers_search_provider():

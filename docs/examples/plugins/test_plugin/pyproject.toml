@@ -20,9 +20,7 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
 ]
 requires-python = ">=3.11"
-dependencies = [
-  "scrapping-service>=1.0.0",
-]
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/javiyt/scrapping-service"
