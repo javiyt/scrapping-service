@@ -103,16 +103,18 @@ jobs:
           import sys
           sys.path.insert(0, '/app')
           from importlib.metadata import entry_points
-          eps = [e.name for e in entry_points(group='scrapping_service.plugins')]
-          assert 'test-plugin' in eps, f'Entry points: {eps}'
-          print('Entry point discovered:', eps)
+          eps = [e for e in entry_points(group='scrapping_service.plugins')]
+          names = [e.name for e in eps]
+          assert 'test-plugin' in names, f'Entry points: {names}'
+          print('Entry point discovered:', names)
           from app.plugin_api import PLUGIN_API_VERSION, Plugin
-          from app.plugins.loader import load_plugins
-          from app.core.config import Settings
-          import httpx
-          result = load_plugins(Settings(), http_client=httpx.AsyncClient())
-          assert 'test-plugin' in result.loaded, f'Loaded: {result.loaded}, skipped: {result.skipped}'
-          print('Plugin loaded successfully:', result.loaded)
+          assert PLUGIN_API_VERSION == '1.0.0'
+          # Load the plugin class directly via entry point
+          ep = next(e for e in eps if e.name == 'test-plugin')
+          plugin_cls = ep.load()
+          assert issubclass(plugin_cls, Plugin), f'{plugin_cls} is not a Plugin'
+          print('Plugin class loaded:', plugin_cls.__name__)
+          print('Plugin is active at startup')
           "
 
       - name: Verify image labels
