@@ -699,6 +699,74 @@ class TestExtractionEndpoint:
         assert data["extraction_error"] is not None
         assert data["extraction_error"]["field"] == "missing"
 
+    def test_scrape_extraction_error_increments_counter(self):
+        """Verify extraction_error_total metric is incremented on extraction failure."""
+        from app.metrics.prometheus import get_metrics
+
+        mock = _mock_scraper(return_value=self.SAMPLE_WITH_TITLE)
+        client = self._patch_scraper(mock)
+
+        # Get initial metric value
+        initial_metrics = get_metrics()
+        initial_error_count = initial_metrics._counters.get("extraction_error_total", 0)
+
+        # Trigger extraction error
+        response = client.post(
+            "/v1/scrape",
+            json={
+                "url": "https://example.com",
+                "extract": {
+                    "enabled": True,
+                    "fields": {
+                        "missing": {
+                            "selector": ".nonexistent",
+                            "type": "text",
+                            "required": True,
+                        },
+                    },
+                },
+            },
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["extraction_error"] is not None
+
+        # Verify metric was incremented
+        final_metrics = get_metrics()
+        assert final_metrics._counters.get("extraction_error_total", 0) == initial_error_count + 1
+
+    def test_scrape_extraction_success_increments_counter(self):
+        """Verify extraction_success_total metric is incremented on extraction success."""
+        from app.metrics.prometheus import get_metrics
+
+        mock = _mock_scraper(return_value=self.SAMPLE_WITH_TITLE)
+        client = self._patch_scraper(mock)
+
+        # Get initial metric value
+        initial_metrics = get_metrics()
+        initial_success_count = initial_metrics._counters.get("extraction_success_total", 0)
+
+        # Trigger successful extraction
+        response = client.post(
+            "/v1/scrape",
+            json={
+                "url": "https://example.com",
+                "extract": {
+                    "enabled": True,
+                    "fields": {
+                        "title": {"selector": "title", "type": "text"},
+                    },
+                },
+            },
+            headers=AUTH_HEADER,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["extracted"] == {"title": "Test Title"}
+
+        # Verify metric was incremented
+        final_metrics = get_metrics()
+        assert final_metrics._counters.get("extraction_success_total", 0) == initial_success_count + 1
+
 
 # ============================================================= ScraperError handler
 
