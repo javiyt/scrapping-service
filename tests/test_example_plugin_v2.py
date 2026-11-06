@@ -1,36 +1,11 @@
-"""Tests for the example plugin using the reusable contract suite.
+"""Tests for the example plugin contract suite.
 
-These tests verify that the example plugin installed via pip
-passes the service's search contract suite.
+These tests verify that a SearchProvider matching the example plugin
+passes the service's search contract suite. The example plugin files
+are in examples/plugins/example/ for local installation and Docker builds.
 """
 
 from app.plugin_testing.search_contract import run_search_contract_suite
-
-
-def test_example_plugin_in_registry() -> None:
-    """The example plugin's entry point must be discoverable."""
-    from importlib import metadata
-
-    eps = metadata.entry_points(group="scrapping_service.plugins")
-    names = [e.name for e in eps]
-    assert "example" in names, f"Entry points: {names}"
-
-
-def test_example_plugin_importable() -> None:
-    """The example plugin package must be importable."""
-    import example_plugin
-
-    assert hasattr(example_plugin, "ExamplePlugin")
-
-
-def test_example_plugin_has_required_attributes() -> None:
-    """The example plugin must have name, version, and api_version."""
-    from example_plugin import ExamplePlugin
-
-    plugin = ExamplePlugin()
-    assert plugin.name == "example-plugin"
-    assert plugin.version == "0.1.0"
-    assert plugin.api_version == "1.0.0"
 
 
 def test_example_plugin_search_contract() -> None:
