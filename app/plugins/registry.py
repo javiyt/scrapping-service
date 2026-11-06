@@ -92,7 +92,28 @@ class PluginRegistryImpl:
         self._browser_slot[0] = provider
 
     def register_extractor(self, extractor: ExtractionResult) -> None:
-        """Register an ExtractorResult with collision detection."""
+        """Register an ExtractorResult with collision detection and validation."""
+        # Validate required fields before registration
+        if not hasattr(extractor, "domain") or not extractor.domain:
+            raise PluginLoadError(
+                plugin_name="<unknown>",
+                reason="Extractor missing required field 'domain'",
+            )
+        if not hasattr(extractor, "name") or not extractor.name:
+            raise PluginLoadError(
+                plugin_name="<unknown>",
+                reason="Extractor missing required field 'name'",
+            )
+        extractor_type_value = getattr(extractor, "extractor_type", None)
+        if not hasattr(extractor, "extractor_type") or extractor_type_value not in (
+            "css",
+            "custom",
+        ):
+            raise PluginLoadError(
+                plugin_name="<unknown>",
+                reason=(f"Extractor has invalid 'extractor_type': {extractor_type_value}"),
+            )
+
         key = (extractor.domain, extractor.name)
         if key in self._extractor:
             raise PluginLoadError(

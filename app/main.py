@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from app.api.browser_routes import browser_router, get_agent_browser_service  # noqa: F401
 from app.api.dependencies import get_settings
-from app.api.routes import health_router, router
+from app.api.routes import health_router, plugins_router, router
 from app.auth.resolver import init_profile_resolver
 from app.cache.maintenance import CacheMaintenanceService
 from app.cache.sqlite_cache import SqliteCache
@@ -120,6 +120,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _plugin_result = load_plugins(
         settings, camofox_client=_camofox_client, http_client=_shared_http
     )
+    # Store plugin load result for /v1/plugins/status endpoint
+    app.state.plugin_load_result = _plugin_result
     app.state.extractor_registry = _plugin_result.extractor_registry
     logger.info(
         "Plugin loading complete: loaded=%s, skipped=%d",
@@ -318,6 +320,7 @@ app.add_middleware(
 # --------------------------------------------------------------- routers
 app.include_router(health_router, tags=["Health"])
 app.include_router(router)
+app.include_router(plugins_router, tags=["Plugins"])
 app.include_router(browser_router)
 
 # Register custom OpenAPI schema for /docs and /redoc

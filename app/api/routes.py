@@ -79,6 +79,9 @@ router = APIRouter(dependencies=[Depends(verify_api_key)])
 # Public endpoints (no auth) — see also the auth dependency exception for /health.
 health_router = APIRouter()
 
+# Plugin management endpoints
+plugins_router = APIRouter(dependencies=[Depends(verify_api_key)])
+
 
 # ================================================================ /health
 
@@ -1094,6 +1097,54 @@ async def delete_job(
             },
         )
     return {"message": f"Job {job_id} deleted"}
+
+
+# ============================================================ /v1/plugins/status
+
+
+@plugins_router.get("/v1/plugins/status", tags=["Plugins"])
+async def plugins_status(request: Request):
+    """Return plugin loading status and metadata.
+
+    Reports which plugins were successfully loaded and which were skipped
+    (with reasons). This endpoint helps operators diagnose plugin loading
+    issues and verify that expected plugins are active.
+
+    Response includes:
+    - loaded: list of successfully loaded plugin names
+    - skipped: list of dicts with 'name', 'reason' for plugins that failed
+    - allowlist_enabled: whether allowlist filtering is active
+    - allowlist: the configured allowlist (or null if disabled)
+    """
+    # Retrieve plugin load result from app.state
+    plugin_load_result = getattr(request.app.state, "plugin_load_result", None)
+
+    if plugin_load_result is None:
+        # Plugins may not have been loaded yet (e.g., during startup)
+        return {
+            "loaded": [],
+            "skipped": [],
+            "allowlist_enabled": False,
+            "allowlist": None,
+            "status": "not_loaded",
+            "message": "Plugins have not been loaded yet",
+        }
+
+    plugins_config = getattr(request.app.state.settings, "raw_yaml_plugin", None) or {}
+    allowlist_enabled = plugins_config.get("enabled", True)
+    allowlist = plugins_config.get("allowlist", []) if allowlist_enabled else None
+
+    return {
+        "loaded": plugin_load_result.loaded,
+        "skipped": plugin_load_result.skipped,
+        "allowlist_enabled": allowlist_enabled,
+        "allowlist": allowlist,
+        "status": "loaded" if plugin_load_result.loaded else "skipped_all",
+        "message": (
+            f"{len(plugin_load_result.loaded)} plugins loaded, "
+            f"{len(plugin_load_result.skipped)} skipped"
+        ),
+    }
 
 
 @router.post("/v2/jobs/{job_id}/cancel", response_model=JobResponse, tags=["Jobs"])

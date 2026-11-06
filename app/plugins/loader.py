@@ -160,6 +160,26 @@ def load_plugins(
         eps = metadata.entry_points().get(PLUGIN_ENTRY_POINT_GROUP, [])
     entry_points = list(eps)
 
+    # Validate that the entry point group exists (not just empty)
+    try:
+        all_eps = metadata.entry_points()
+        has_group = PLUGIN_ENTRY_POINT_GROUP in all_eps
+    except TypeError:
+        all_eps = metadata.entry_points()
+        has_group = PLUGIN_ENTRY_POINT_GROUP in all_eps
+
+    if not has_group:
+        logger.debug(
+            "Entry point group '%s' not found; skipping plugin loading",
+            PLUGIN_ENTRY_POINT_GROUP,
+        )
+    else:
+        logger.info(
+            "Discovered %d entry points in group '%s'",
+            len(entry_points),
+            PLUGIN_ENTRY_POINT_GROUP,
+        )
+
     search_registry = SearchProviderRegistry()
     transcript_registry = TranscriptProviderRegistry()
     browser_slot: list[Any] = [None]  # mutable slot
