@@ -58,9 +58,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libgtk-3-0
 
 RUN groupadd -r scraper && useradd -r -g scraper -d /app -s /usr/sbin/nologin scraper \
-    && mkdir -p /data /debug /logs /config \
+    && mkdir -p /data /debug /logs /config /app/plugins \
     && chown -R scraper:scraper /data /debug /logs /config \
-    && chmod 755 / /usr /usr/local /usr/local/bin
+    && chmod 755 / /usr /usr/local /usr/local/bin /app/plugins
+
+VOLUME ["/app/plugins"]
 
 COPY --chown=scraper:scraper app/ ./app/
 COPY --chown=scraper:scraper openapi.yaml .
@@ -72,7 +74,7 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--log-level", "info", "--timeout-keep-alive", "30", "--limit-max-requests", "5000"]
+CMD ["python", "app/run.py"]
 
 # ============================================================ mcp (adapter)
 # A small companion image that runs *only* the MCP adapter (``app.mcp``).

@@ -4,11 +4,18 @@
 Reads environment variables and command-line arguments, normalizing them
 before passing to uvicorn. Allows case-insensitive values like LOG_LEVEL=INFO
 to work correctly. Command-line arguments override environment variables.
+
+Plugin installation: if SCRAPER_PLUGINS is set, install plugins before
+evaluating other configuration. Plugin installation uses pip install --target
+to an isolated directory, respecting constraints and index options from env.
 """
 
 import argparse
 import os
 import sys
+
+# Import install engine early so its logging is available
+from app.plugins.install import install_plugins
 
 
 def normalize_log_level(log_level: str) -> str:
@@ -24,6 +31,23 @@ def normalize_log_level(log_level: str) -> str:
 
 def main():
     """Start uvicorn with normalized environment variables and CLI arguments."""
+    # ---- Plugin installation step (before config parsing) ----
+    # Install plugins if SCRAPER_PLUGINS is set, respecting fail/warn policy.
+    # This runs BEFORE config parsing so the install step uses raw env vars.
+    install_result = install_plugins()
+    if install_result.failed:
+        # Fail-fast: exit with clear message
+        print(f"ERROR: Plugin installation failed: {install_result.error}", file=sys.stderr)
+        sys.exit(1)
+    if install_result.warnings:
+        for w in install_result.warnings:
+            print(f"WARNING: {w}", file=sys.stderr)
+    if install_result.skipped:
+        # No-op case: log at INFO level
+        print(f"Plugin installation skipped: {install_result.skip_reason}", file=sys.stderr)
+    if install_result.installed:
+        print(f"Installed plugins: {', '.join(install_result.installed)}", file=sys.stderr)
+
     parser = argparse.ArgumentParser(
         description="Start Scraper API with normalized configuration",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -99,6 +123,14 @@ Examples:
 
     if reload:
         cmd.insert(cmd.index("--host"), "--reload")
+
+    # Append plugins dir to PYTHONPATH before exec so entry points are discoverable
+    plugins_dir = os.environ.get("SCRAPER_PLUGINS_DIR", "/app/plugins")
+    existing = os.environ.get("PYTHONPATH", "")
+    if existing:
+        os.environ["PYTHONPATH"] = f"{plugins_dir}:{existing}"
+    else:
+        os.environ["PYTHONPATH"] = plugins_dir
 
     os.execvp(sys.executable, cmd)
 
