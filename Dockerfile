@@ -71,6 +71,14 @@ USER scraper
 
 EXPOSE 8080
 
+# Plugin API version label for derived images
+LABEL org.opencontainers.image.title="scrapping-service" \
+      org.opencontainers.image.description="Scraper API with search, transcripts, and browser automation" \
+      org.opencontainers.image.url="https://github.com/javiyt/scrapping-service" \
+      org.opencontainers.image.source="https://github.com/javiyt/scrapping-service" \
+      org.opencontainers.image.licenses="MIT" \
+      org.scrapping-service.plugin-api-version="1.0.0"
+
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
 

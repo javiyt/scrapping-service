@@ -7,6 +7,9 @@ The public surface includes:
 
 - :const:`PLUGIN_API_VERSION` — declared major.minor.patch for
   compatibility checking; plugins must match the major version.
+- :const:`PLUGIN_API_LABEL` — the OCI image label key for the plugin
+  API version embedded in the base image (used by derived images to
+  pin compatible base images).
 - :class:`Plugin` — base protocol every plugin must implement.
 - :class:`PluginContext` — read-only context passed to plugins during
   registration (narrow view of settings, logger, and HTTP client).
@@ -41,12 +44,12 @@ from __future__ import annotations
 from app.scraper.extractor import ExtractionError
 from app.scraper.extractor_registry import ExtractionResult, ExtractorRegistry
 from app.search.contract import SearchProvider
-from app.transcript.contract import TranscriptHealth, TranscriptProvider
+from app.transcript.contract import TranscriptHealth, TranscriptProvider  # noqa: F401
 
 from .base import Plugin
-from .context import PluginContext, SettingsView
+from .context import PluginContext, SettingsView  # noqa: F401
 from .errors import PluginLoadError
-from .registry import PluginRegistry
+from .registry import PluginRegistry  # noqa: F401
 
 __all__ = [
     "ExtractionError",
@@ -56,13 +59,13 @@ __all__ = [
     "PluginContext",
     "PluginLoadError",
     "PluginRegistry",
+    "PLUGIN_API_LABEL",
     "PLUGIN_API_VERSION",
     "SearchProvider",
-    "SettingsView",
-    "TranscriptHealth",
-    "TranscriptProvider",
 ]
 
-
-#: The declared plugin API version. Plugins must match the major version.
+#: The plugin API version that plugins must match (major).
 PLUGIN_API_VERSION = "1.0.0"
+
+#: The OCI image label key for the plugin API version in the base image.
+PLUGIN_API_LABEL = "org.scrapping-service.plugin-api-version"
