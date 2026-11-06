@@ -112,7 +112,8 @@ jobs:
           # Load the plugin class directly via entry point
           ep = next(e for e in eps if e.name == 'test-plugin')
           plugin_cls = ep.load()
-          assert issubclass(plugin_cls, Plugin), f'{plugin_cls} is not a Plugin'
+          instance = plugin_cls()
+          assert isinstance(instance, Plugin), f'{plugin_cls} is not a Plugin'
           print('Plugin class loaded:', plugin_cls.__name__)
           print('Plugin is active at startup')
           "
