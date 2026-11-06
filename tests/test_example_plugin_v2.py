@@ -19,6 +19,7 @@ def test_example_plugin_in_registry() -> None:
 def test_example_plugin_importable() -> None:
     """The example plugin package must be importable."""
     import example_plugin
+
     assert hasattr(example_plugin, "ExamplePlugin")
 
 
