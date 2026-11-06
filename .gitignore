@@ -224,3 +224,8 @@ __marimo__/
 /logs/
 configs/config.yaml
 *.db
+
+# Cookiecutter templates excluded from linting
+examples/templates/scrapping-plugin-cookiecutter/**/pyproject.toml
+examples/templates/scrapping-plugin-cookiecutter/**/README.md
+examples/templates/scrapping-plugin-cookiecutter/**/tests/**/*.py

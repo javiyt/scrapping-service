@@ -1,21 +1,34 @@
-# Example derived image for scrapping-service with plugins baked in
+# Example derived images for scrapping-service with plugins baked in
 
-This example shows how to build a custom image on top of the official
-scrapping-service image with plugins installed at build time.
+This directory contains example Docker images with plugins installed at build time.
+
+## Example plugins
+
+| Plugin | Location | Description |
+|--------|----------|-------------|
+| `scrapping-plugin-example` | `../examples/plugins/example/` | Full example demonstrating SearchProvider and per-domain extractors |
+| `scrapping-test-plugin` | `scrapping-test-plugin/` | Minimal smoke-test fixture |
 
 ## Build and run
 
 ```bash
 cd docs/examples/plugins
+# Build the test-plugin image
 docker build -t scrapping-service-plugin-example .
-docker run -p 8080:8080 scrapping-service-plugin-example
+# Or build the example-plugin image
+cd ../examples/plugins/example && docker build -t scrapping-service-example-plugin .
 ```
 
-The `scrapping-service-plugin-example` image includes:
+The images include:
 
 - The official scrapping-service base image
-- A test plugin installed via pip
+- One or more plugins installed via pip
 - All the original features (search, transcripts, browser, MCP)
+
+See also:
+
+- [Plugin Authoring Guide](https://github.com/javiyt/scrapping-service/blob/main/docs/plugins-authoring.md)
+- [examples/templates/scrapping-plugin-cookiecutter](https://github.com/javiyt/scrapping-service/tree/main/examples/templates/scrapping-plugin-cookiecutter) for a cookiecutter template
 
 ## Using SCRAPER_PLUGINS instead
 
@@ -26,7 +39,7 @@ services:
   scraper:
     image: ghcr.io/javiyt/scrapping-service:latest
     environment:
-      SCRAPER_PLUGINS: "scrapping-test-plugin @ file:///path/to/test_plugin"
+      SCRAPER_PLUGINS: "scrapping-plugin-example @ file:///path/to/example"
     volumes:
       - plugin-data:/app/plugins
 volumes:

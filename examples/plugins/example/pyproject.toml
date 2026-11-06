@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scrapping-plugin-example"
+version = "0.1.0"
+description = "Example plugin for scrapping-service demonstrating the plugin API"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+  {name = "Scrapping Service", email = "none@example.com"}
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+]
+requires-python = ">=3.11"
+# Scraper-API is the local package providing the plugin protocol and models.
+# For development/testing against the local repo, install the repo first
+# (pip install -e .) so app.* imports work. In production, the base image
+# already includes the service, so no dependency on PyPI is needed.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/javiyt/scrapping-service"
+Issues = "https://github.com/javiyt/scrapping-service/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["example_plugin*"]
+
+[project.entry-points."scrapping_service.plugins"]
+example = "example_plugin.plugin:ExamplePlugin"

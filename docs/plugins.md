@@ -361,4 +361,4 @@ Or via environment:
 - Extractors run only for scrape responses without an explicit `extract`
   block (per-request `extract` takes precedence).
 
-For full authoring guide and examples, see ticket #175.
+For full authoring guide and examples, see [Plugin Authoring](plugins-authoring.md) and [examples/plugins/example](https://github.com/javiyt/scrapping-service/tree/main/examples/plugins/example).
