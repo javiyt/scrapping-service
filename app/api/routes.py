@@ -395,7 +395,8 @@ async def scrape_url(
 
         # Apply response-time transforms after cache/fetch. Normalisation never
         # modifies the cached raw HTML.
-        extractor_registry = getattr(request.app.state, "extractor_registry", None)
+        app_state = getattr(request, "app", None)
+        extractor_registry = getattr(app_state.state, "extractor_registry", None) if app_state else None
         result = process_scrape_response(
             result,
             normalize_config=request.normalize.model_dump(),
@@ -475,11 +476,15 @@ async def scrape_url_v2(
         if request.extract.enabled and request.extract.fields:
             metrics_collector.inc("extraction_requests_total")
 
+        # Extract extractor_registry safely for the v2 response
+        app_state = getattr(request, "app", None)
+        extractor_registry = getattr(app_state.state, "extractor_registry", None) if app_state else None
+
         result = process_scrape_response(
             result,
             normalize_config=request.normalize.model_dump(),
             extract_config=request.extract,
-            extractor_registry=getattr(request.app.state, "extractor_registry", None),
+            extractor_registry=extractor_registry,
             url=request.url,
         )
         if request.extract.enabled and request.extract.fields:
@@ -694,6 +699,10 @@ async def scrape_batch(
     """Scrape multiple URLs with controlled concurrency."""
     start = time.monotonic()
 
+    # Extract extractor_registry safely for use in nested functions
+    app_state = getattr(request, "app", None)
+    extractor_registry = getattr(app_state.state, "extractor_registry", None) if app_state else None
+
     effective_concurrency = min(request.max_concurrency, effective_settings.scraper_max_concurrency)
     semaphore = asyncio.Semaphore(effective_concurrency)
     succeeded = 0
@@ -725,7 +734,7 @@ async def scrape_batch(
                     result,
                     normalize_config=item.normalize.model_dump(),
                     extract_config=item.extract,
-                    extractor_registry=getattr(request.app.state, "extractor_registry", None),
+                    extractor_registry=extractor_registry,
                     url=item.url,
                 )
                 if item.extract.enabled and item.extract.fields:
