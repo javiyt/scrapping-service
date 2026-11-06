@@ -100,20 +100,20 @@ jobs:
       - name: Smoke test — plugin is active at startup
         run: |
           docker run --rm -e LOG_LEVEL=info scrapping-service-plugin-example python -c "
-import sys
-sys.path.insert(0, '/app')
-from importlib.metadata import entry_points
-eps = [e.name for e in entry_points(group='scrapping_service.plugins')]
-assert 'test-plugin' in eps, f'Entry points: {eps}'
-print('Entry point discovered:', eps)
-from app.plugin_api import PLUGIN_API_VERSION, Plugin
-from app.plugins.loader import load_plugins
-from app.core.config import Settings
-import httpx
-result = load_plugins(Settings(), http_client=httpx.AsyncClient())
-assert 'test-plugin' in result.loaded, f'Loaded: {result.loaded}, skipped: {result.skipped}'
-print('Plugin loaded successfully:', result.loaded)
-"
+          import sys
+          sys.path.insert(0, '/app')
+          from importlib.metadata import entry_points
+          eps = [e.name for e in entry_points(group='scrapping_service.plugins')]
+          assert 'test-plugin' in eps, f'Entry points: {eps}'
+          print('Entry point discovered:', eps)
+          from app.plugin_api import PLUGIN_API_VERSION, Plugin
+          from app.plugins.loader import load_plugins
+          from app.core.config import Settings
+          import httpx
+          result = load_plugins(Settings(), http_client=httpx.AsyncClient())
+          assert 'test-plugin' in result.loaded, f'Loaded: {result.loaded}, skipped: {result.skipped}'
+          print('Plugin loaded successfully:', result.loaded)
+          "
 
       - name: Verify image labels
         run: |
