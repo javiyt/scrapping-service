@@ -1,0 +1,22 @@
+services:
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scrapping-service-plugin-example
+    ports:
+      - "8080:8080"
+    # Uncomment to use dynamic plugin installation instead:
+    # environment:
+    #   - SCRAPER_PLUGINS=scrapping-test-plugin @ file:///path/to/test_plugin
+    # volumes:
+    #   - plugin-data:/app/plugins
+    # volumes:
+    #   plugin-data:
+
+# Notes:
+# - The builder step copies test_plugin into the image and installs it.
+# - The run step starts the service; the loader discovers the plugin via
+#   entry points in the same Python environment (no extra config needed).
+# - To switch to dynamic installation, comment out build+COPY+RUN and
+#   uncomment the environment+volumes blocks above.

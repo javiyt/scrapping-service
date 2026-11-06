@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scrapping-test-plugin"
+version = "0.1.0"
+description = "Minimal test plugin for scrapping-service derived Docker image"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+  {name = "Scrapping Service", email = "none@example.com"}
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.12",
+]
+requires-python = ">=3.12"
+dependencies = [
+  "scrapping-service>=1.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/javiyt/scrapping-service"
+Issues = "https://github.com/javiyt/scrapping-service/issues"
+
+[project.entry-points."scrapping_service.plugins"]
+test-plugin = "test_plugin.plugin:TestPlugin"
