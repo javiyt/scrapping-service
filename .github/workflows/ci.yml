@@ -127,7 +127,7 @@ jobs:
           plugin_cls = ep.load()
           instance = plugin_cls()
           assert isinstance(instance, Plugin), f'{plugin_cls} is not a Plugin'
-          print('Plugin class loaded:', plugin_cls.__name')
+          print('Plugin class loaded:', plugin_cls.__name__)
           print('Plugin is active at startup')
           "
 
