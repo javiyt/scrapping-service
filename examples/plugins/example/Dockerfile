@@ -7,8 +7,8 @@ FROM ghcr.io/javiyt/scrapping-service:latest
 
 # Install the example plugin at build time (baked-in, reproducible).
 USER root
-COPY example /tmp/example
-RUN pip install --no-cache-dir /tmp/example
+COPY ../.. /tmp/example
+RUN pip install --no-cache-dir /tmp/example/examples/plugins/example
 USER scraper
 
 # Optional: allowlist plugins (empty = load all; plugin is already discovered
