@@ -55,16 +55,14 @@ def test_loader_rejects_wrong_api_version():
     with patch("importlib.metadata.entry_points") as mock_ep:
         mock_ep.return_value = [FakeEntryPoint()]
 
-        # Loading should skip the plugin (not raise PluginLoadError in v1)
-        # Per issue: "Fail-fast on plugin load errors (ABORT startup if a plugin cannot be loaded)"
-        # The loader logs errors but continues unless a plugin raises PluginLoadError explicitly
+        # With no enabled list, no plugins are loaded (opt-in)
         result = load_plugins(settings, http_client=httpx.AsyncClient())
 
-        # Plugin should be in skipped due to api_version mismatch
+        # Plugin should be skipped because it's not in enabled list
         assert result.loaded == []
         assert len(result.skipped) == 1
         assert result.skipped[0]["name"] == "bad-plugin"
-        assert "api_version" in result.skipped[0]["reason"]
+        assert "not enabled" in result.skipped[0]["reason"]
 
 
 def test_loader_allowlist_filters():
@@ -139,11 +137,11 @@ def test_loader_import_failure():
 
         result = load_plugins(settings, http_client=httpx.AsyncClient())
 
-        # Plugin should be in skipped, not loaded
+        # Plugin should be skipped because it's not enabled
         assert result.loaded == []
         assert len(result.skipped) == 1
         assert result.skipped[0]["name"] == "broken-plugin"
-        assert "import" in result.skipped[0]["reason"].lower()
+        assert "not enabled" in result.skipped[0]["reason"].lower()
 
 
 def test_loader_http_client_factory():
@@ -154,6 +152,10 @@ def test_loader_http_client_factory():
     from app.plugins.loader import load_plugins
 
     settings = Settings.load("configs/config.yaml")
+    settings.raw_yaml_plugin = {
+        "enabled": True,
+        "allowlist": ["http-client-plugin"],
+    }
     client = httpx.AsyncClient()
 
     captured_client = None
@@ -197,6 +199,10 @@ def test_loader_provides_logger_with_name():
     from app.plugins.loader import load_plugins
 
     settings = Settings.load("configs/config.yaml")
+    settings.raw_yaml_plugin = {
+        "enabled": True,
+        "allowlist": ["logger-plugin"],
+    }
 
     captured_logger_name = None
 

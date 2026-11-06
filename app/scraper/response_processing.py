@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from app.plugins.isolation import guarded_extract
 from app.schemas.scrape import ExtractConfig
 from app.scraper.extractor import ExtractionError
 from app.scraper.extractor import extract as run_extraction
@@ -129,9 +130,22 @@ def process_scrape_response(
                 elif extractor.extractor_type == "custom" and extractor.extractor is not None:
                     html = result.get("html", "")
                     try:
-                        extracted_data = extractor.extractor(html, url)
-                        result["extracted"] = extracted_data
-                        result.setdefault("metadata", {})["extractor"] = extractor.name
+                        extracted_data = guarded_extract(extractor.extractor, html, url)
+                        # guarded_extract returns None on timeout/error or the result on success
+                        if extracted_data is not None and not isinstance(extracted_data, str):
+                            result["extracted"] = extracted_data
+                            result.setdefault("metadata", {})["extractor"] = extractor.name
+                        else:
+                            # Extractor returned None or error string
+                            result["extracted"] = None
+                            if isinstance(extracted_data, str):
+                                result.setdefault("metadata", {})["extraction_error"] = (
+                                    extracted_data
+                                )
+                            else:
+                                result.setdefault("metadata", {})["extraction_error"] = (
+                                    "Custom extractor timed out or failed"
+                                )
                     except Exception as exc:
                         result["extracted"] = None
                         result.setdefault("metadata", {})["extraction_error"] = str(exc)

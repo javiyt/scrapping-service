@@ -117,6 +117,21 @@ haven't changed.
 | `SCRAPER_PLUGINS_OFFLINE` | Install from wheelhouse only (`true`/`false`) | `false` |
 | `SCRAPER_PLUGINS_WHEELHOUSE` | Local wheelhouse directory for offline mode | `/plugins/wheels` |
 | `SCRAPER_PLUGINS_ON_ERROR` | Failure policy (`fail` or `warn`) | `fail` |
+| `SCRAPER_PLUGIN_TIMEOUT_SECONDS` | Per-call timeout for plugin providers (seconds) | `60` |
+
+### Per-plugin environment variables
+
+Each plugin can have its own environment variables via `SCRAPER_PLUGIN_<NAME>_KEY`
+format, where `<NAME>` is the plugin name (normalized per PEP503). For example,
+to set a config value for plugin `my-custom-search`:
+
+```bash
+SCRAPER_PLUGIN_MY_CUSTOM_SEARCH_CONFIG={"key": "value"}
+```
+
+The loader exposes per-plugin env vars in the plugin context for access during
+registration. The loader normalizes keys by converting underscores to hyphens
+and lowercasing.
 
 #### Examples
 
@@ -240,6 +255,73 @@ privileges. Only install trusted packages from verified sources.
 The plugin installation uses constraints from `requirements.txt` to prevent
 plugins from overriding core dependencies, but plugins can still affect the
 service behavior through their registered providers.
+
+### Allowlist and denylist
+
+Plugins are **opt-in by default**: when the `allowlist` is empty or absent,
+no plugins are loaded. This prevents accidental plugin loading from stray
+entry points.
+
+- **Allowlist**: If defined and non-empty, only plugins in the allowlist
+  are enabled. Plugins not in the allowlist are skipped with reason
+  `not enabled (opt-in allowlist)`.
+- **Denylist**: Plugins in the denylist are explicitly blocked, even if
+  they appear in the allowlist. Denylist takes precedence over allowlist.
+  Blocked plugins are skipped with reason `explicitly denied via denylist`.
+
+Security recommendation: Use a denylist to block known-malicious or
+untrusted plugins, even when using a permissive allowlist.
+
+### Runtime isolation
+
+Plugin-provided providers are wrapped with runtime isolation:
+
+- **Timeout**: All plugin provider calls are wrapped with a configurable
+  timeout (`PLUGIN_CALL_TIMEOUT_SECONDS`, default 60 seconds).
+- **Error mapping**: Timeout and other exceptions are mapped to
+  `SearchProviderTimeoutError`, `SearchProviderUnavailableError`,
+  `TranscriptProviderTimeoutError`, or `TranscriptProviderUnavailableError`.
+  This allows routers to gracefully fall back to other providers.
+
+Runtime isolation ensures a single misbehaving plugin cannot hang the
+entire service.
+
+### Secret hygiene
+
+The plugin context never exposes secrets:
+
+- `api_key`, `api_keys`, and raw YAML configuration blocks are excluded
+  from `SettingsView`.
+- If a plugin attempts to log secrets, they are redacted.
+- HTTP client factory uses the shared `httpx.AsyncClient` configured by
+  the core service.
+
+Never configure plugins to use sensitive environment variables beyond
+those managed by the core service.
+
+### Failure isolation
+
+The `SCRAPER_PLUGINS_ON_ERROR` environment variable controls startup
+behavior when plugin loading fails:
+
+| Value | Behavior |
+|-------|----------|
+| `fail` (default) | Startup aborts if any plugin fails to load |
+| `warn` | Startup continues; failed plugins are logged but skipped |
+
+The default (`fail`) ensures operators are immediately aware of plugin
+issues. Use `warn` in development or when plugins are non-critical.
+
+### Recommended practices
+
+1. **Pin versions**: Use `package==1.2.3` to prevent unexpected changes.
+2. **Hash pins**: Add SHA256 hashes to `requirements.txt` for verified
+   reproducibility.
+3. **Denylist unknowns**: Maintain a denylist of untrusted packages to
+   block even accidental installation.
+4. **Test plugins**: Run plugins in a staging environment before
+   production use.
+5. **Monitor logs**: Watch for plugin failure messages during startup.
 
 ## Cold-start cost
 
