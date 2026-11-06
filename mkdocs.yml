@@ -25,6 +25,7 @@ nav:
   - Search Providers: search-providers.md
   - Transcripts: transcripts.md
   - Plugins: plugins.md
+  - Plugin Authoring: plugins-authoring.md
   - MCP Adapter: mcp.md
   - Architecture Decision Records: adr/0001-plugin-model.md
   - API Reference: api.md

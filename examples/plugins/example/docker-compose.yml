@@ -1,0 +1,17 @@
+services:
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: scrapping-service-example-plugin
+    ports:
+      - "8080:8080"
+
+# Notes:
+# - The builder step copies the example plugin into the image and installs it.
+# - The loader discovers the plugin via entry points in the same Python environment.
+# - Switch to SCRAPER_PLUGINS for dynamic installation (no rebuild needed):
+#   environment:
+#     - SCRAPER_PLUGINS=scrapping-plugin-example @ file:///path/to/example
+#   volumes:
+#     - plugin-data:/app/plugins
