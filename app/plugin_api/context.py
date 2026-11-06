@@ -198,3 +198,5 @@ class PluginContext:
     settings: SettingsView
     logger: Any  # logging.Logger
     http_client_factory: Callable[[], httpx.AsyncClient]
+    per_plugin_env: dict[str, str] | None = None
+    """Per-plugin environment variables (SCRAPER_PLUGIN_<NAME>_*)"""

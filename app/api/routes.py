@@ -1119,15 +1119,20 @@ async def delete_job(
 async def plugins_status(request: Request):
     """Return plugin loading status and metadata.
 
-    Reports which plugins were successfully loaded and which were skipped
-    (with reasons). This endpoint helps operators diagnose plugin loading
-    issues and verify that expected plugins are active.
+    Reports which plugins were successfully loaded, skipped, or failed,
+    along with allowlist/denylist configuration and failure isolation mode.
+    This endpoint helps operators diagnose plugin loading issues and verify
+    that expected plugins are active.
 
     Response includes:
     - loaded: list of successfully loaded plugin names
-    - skipped: list of dicts with 'name', 'reason' for plugins that failed
+    - skipped: list of dicts with 'name', 'reason' for plugins that were skipped
+    - failed: list of dicts with 'name', 'reason' for plugins that failed to load
+    - enabled: list of plugin names that were enabled via allowlist/denylist
+    - on_error: failure isolation mode ("fail" or "warn")
     - allowlist_enabled: whether allowlist filtering is active
     - allowlist: the configured allowlist (or null if disabled)
+    - denylist: the configured denylist (or null if disabled)
     """
     # Retrieve plugin load result from app.state
     plugin_load_result = getattr(request.app.state, "plugin_load_result", None)
@@ -1137,8 +1142,12 @@ async def plugins_status(request: Request):
         return {
             "loaded": [],
             "skipped": [],
+            "failed": [],
+            "enabled": [],
+            "on_error": "fail",
             "allowlist_enabled": False,
             "allowlist": None,
+            "denylist": None,
             "status": "not_loaded",
             "message": "Plugins have not been loaded yet",
         }
@@ -1146,16 +1155,28 @@ async def plugins_status(request: Request):
     plugins_config = getattr(request.app.state.settings, "raw_yaml_plugin", None) or {}
     allowlist_enabled = plugins_config.get("enabled", True)
     allowlist = plugins_config.get("allowlist", []) if allowlist_enabled else None
+    denylist = plugins_config.get("denylist", [])
 
     return {
         "loaded": plugin_load_result.loaded,
         "skipped": plugin_load_result.skipped,
+        "failed": plugin_load_result.failed,
+        "enabled": plugin_load_result.enabled,
+        "on_error": plugin_load_result.on_error,
         "allowlist_enabled": allowlist_enabled,
         "allowlist": allowlist,
-        "status": "loaded" if plugin_load_result.loaded else "skipped_all",
+        "denylist": denylist,
+        "status": (
+            "loaded"
+            if plugin_load_result.loaded
+            else "skipped_all"
+            if plugin_load_result.skipped
+            else "no_plugins"
+        ),
         "message": (
             f"{len(plugin_load_result.loaded)} plugins loaded, "
-            f"{len(plugin_load_result.skipped)} skipped"
+            f"{len(plugin_load_result.skipped)} skipped, "
+            f"{len(plugin_load_result.failed)} failed"
         ),
     }
 
