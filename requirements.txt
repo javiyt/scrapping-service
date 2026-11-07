@@ -1,3 +1,5 @@
+# Dependencies for Docker image (copied from pyproject.toml dependencies)
+# Keep in sync with pyproject.toml [project.dependencies]
 fastapi>=0.162.0
 uvicorn[standard]>=0.54.0
 pydantic>=2.14.2

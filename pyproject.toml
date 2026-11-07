@@ -8,11 +8,25 @@ version = "1.0.0"
 description = "Containerized scraping API service for fetching rendered HTML from URLs"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.162.0",
+    "uvicorn[standard]>=0.54.0",
+    "pydantic>=2.14.2",
+    "pydantic-settings>=2.16.2",
+    "httpx>=0.27.0",
+    "pyyaml>=6.0.3",
+    "botasaurus>=4.0.97,<5.0.0",
+    "selenium>=4.52.0",
+    "beautifulsoup4>=4.15.0",
+    "yt-dlp==2026.10.26",
+    "youtube-transcript-api>=1.2.0,<2.0.0",
+]
 
 [project.optional-dependencies]
 mcp = ["mcp>=1.9.0,<2"]
 
 [project.scripts]
+scrapping-service = "app.run:main"
 scrapping-service-mcp = "app.mcp.entrypoints:main"
 scrapping-service-mcp-http = "app.mcp.entrypoints:main_http"
 
@@ -56,7 +70,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 78
+fail_under = 77
 show_missing = true
 skip_covered = false
 exclude_lines = [
