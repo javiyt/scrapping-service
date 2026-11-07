@@ -8,6 +8,9 @@ to work correctly. Command-line arguments override environment variables.
 Plugin installation: if SCRAPER_PLUGINS is set, install plugins before
 evaluating other configuration. Plugin installation uses pip install --target
 to an isolated directory, respecting constraints and index options from env.
+
+CLI dispatch: if first positional arg is "plugins", delegates to the plugin
+CLI for install/uninstall/list/check commands.
 """
 
 import argparse
@@ -15,6 +18,7 @@ import os
 import sys
 
 # Import install engine early so its logging is available
+from app.plugins.cli import run_plugins_command
 from app.plugins.install import install_plugins
 
 
@@ -30,7 +34,14 @@ def normalize_log_level(log_level: str) -> str:
 
 
 def main():
-    """Start uvicorn with normalized environment variables and CLI arguments."""
+    """Start uvicorn with normalized configuration or dispatch to plugin CLI."""
+    # Check for plugin CLI dispatch first
+    args = sys.argv[1:]
+    if args and args[0] == "plugins":
+        # Remove "plugins" from args and dispatch to plugin CLI
+        sys.argv = [sys.argv[0]] + args[1:]
+        return run_plugins_command(args[1:])
+
     # ---- Plugin installation step (before config parsing) ----
     # Install plugins if SCRAPER_PLUGINS is set, respecting fail/warn policy.
     # This runs BEFORE config parsing so the install step uses raw env vars.
@@ -57,6 +68,8 @@ Examples:
   python app/run.py --port 9090
   python app/run.py --port 9090 --log-level debug
   python app/run.py --log-level warning --limit-max-requests 1000
+  scrapping-service plugins install my-plugin==1.0.0
+  scrapping-service plugins list
         """,
     )
     parser.add_argument(

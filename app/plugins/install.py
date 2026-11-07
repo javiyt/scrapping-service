@@ -32,6 +32,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -47,6 +48,59 @@ FINGERPRINT_FILE = ".install-fingerprint"
 ENV_PREFIX = "SCRAPER_PLUGINS_"
 
 logger = logging.getLogger("scraper-api.plugins.install")
+
+
+def default_constraints_file() -> str | None:
+    """Return a constraints file containing core dependencies.
+
+    This function generates a temporary constraints file listing the
+    current installed versions of the core dependencies (from the
+    installed package metadata). This ensures plugins cannot override
+    core dependencies when installed via `pip install <plugin>`.
+
+    Returns:
+        Path to a temporary constraints file, or None if the package
+        metadata cannot be read.
+    """
+    try:
+        from importlib import metadata as importlib_metadata
+
+        dist = importlib_metadata.distribution("scraper-api")
+    except importlib_metadata.PackageNotFoundError:
+        return None
+
+    # Get requires from metadata
+    requires = dist.metadata.get_all("Requires-Dist") or []
+    # Filter out extra requirements (keep non-extra deps)
+    runtime_deps: list[str] = []
+    for req in requires:
+        # Exclude entries like "fastapi; extra == 'mcp'"
+        if "extra ==" in req:
+            continue
+        # Strip leading/trailing whitespace
+        req = req.strip()
+        if req:
+            runtime_deps.append(req)
+
+    if not runtime_deps:
+        return None
+
+    # Write to temp file
+    tmp_file = tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".txt",
+        delete=False,
+        prefix="scraper-",
+    )
+    try:
+        for dep in runtime_deps:
+            tmp_file.write(f"{dep}\n")
+        tmp_file.flush()
+        return tmp_file.name
+    except Exception:
+        tmp_file.close()
+        os.unlink(tmp_file.name)
+        return None
 
 
 class InstallResult:
@@ -67,6 +121,11 @@ class InstallResult:
         self.installed = installed if installed is not None else []
         self.warnings = warnings if warnings is not None else []
         self.error = error
+
+    @property
+    def failed(self) -> bool:
+        """Return True if installation failed."""
+        return not self.success
 
     def __repr__(self) -> str:
         return (
@@ -166,7 +225,7 @@ def compute_fingerprint(specs: list[str], requirements_file: str | None) -> str:
 
 def build_pip_command(
     *,
-    target_dir: str,
+    target_dir: str | None,
     constraints_file: str,
     specs: list[str],
     requirements_file: str | None,
@@ -178,7 +237,8 @@ def build_pip_command(
     """Build the pip install command list.
 
     Args:
-        target_dir: Plugin installation directory (required).
+        target_dir: Plugin installation directory. If None, no --target flag
+          is added (install into current environment/site-packages).
         constraints_file: Constraints file path (default DEFAULT_CONSTRAINTS_FILE).
         specs: List of requirement specifiers.
         requirements_file: Optional requirements file path.
@@ -195,9 +255,11 @@ def build_pip_command(
         "-m",
         "pip",
         "install",
-        "--target",
-        target_dir,
     ]
+
+    # Add --target only if target_dir is provided (Docker-style isolated install)
+    if target_dir is not None:
+        cmd.extend(["--target", target_dir])
 
     # Constraints
     if constraints_file:
