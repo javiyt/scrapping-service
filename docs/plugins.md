@@ -118,6 +118,9 @@ haven't changed.
 | `SCRAPER_PLUGINS_WHEELHOUSE` | Local wheelhouse directory for offline mode | `/plugins/wheels` |
 | `SCRAPER_PLUGINS_ON_ERROR` | Failure policy (`fail` or `warn`) | `fail` |
 | `SCRAPER_PLUGIN_TIMEOUT_SECONDS` | Per-call timeout for plugin providers (seconds) | `60` |
+| `SCRAPER_PLUGIN_ENABLED` | Enable plugin loading on startup (`true`/`false`) | `true` |
+| `SCRAPER_PLUGIN_ALLOWLIST` | Only load plugins in this comma/space-separated list (opt-in) | (empty, opt-in) |
+| `SCRAPER_PLUGIN_DENY` | Block these plugins even if in allowlist (comma/space-separated) | (empty) |
 
 ### Per-plugin environment variables
 
@@ -312,6 +315,18 @@ behavior when plugin loading fails:
 The default (`fail`) ensures operators are immediately aware of plugin
 issues. Use `warn` in development or when plugins are non-critical.
 
+### Status vocabulary
+
+Plugins go through three possible states:
+
+| Status | Description |
+|--------|-------------|
+| `loaded` | Plugin loaded and registered successfully |
+| `disabled` | Plugin skipped because it is not in the allowlist or was explicitly denied |
+| `failed` | Plugin failed to load due to import error, version mismatch, or register exception |
+
+Reasons for `failed` plugins are sanitized before being exposed via API endpoints to avoid leaking paths or credentials.
+
 ### Recommended practices
 
 1. **Pin versions**: Use `package==1.2.3` to prevent unexpected changes.
@@ -352,6 +367,20 @@ Or via environment:
 - `SCRAPER_PLUGIN_ENABLED=true`
 - `SCRAPER_PLUGIN_ALLOWLIST=my-custom-search,trusted-analytics`
 
+## Metrics
+
+The `/metrics` endpoint exposes plugin gauges:
+
+- `plugins_loaded`: total number of plugins currently loaded
+- `plugins_failed`: total number of plugins that failed to load
+- `plugins_disabled`: total number of plugins that are disabled (not enabled)
+
+Per-plugin observability is also available through:
+- `plugin_provider_attempts_total{provider="..."}`: plugin provider calls
+- `plugin_provider_success_total{provider="..."}`: successful calls
+- `plugin_provider_errors_total{provider="..."}`: failed calls
+- `plugin_provider_duration_ms_sum_{search|transcript}`: latency sums
+
 ## Known limitations
 
 - Plugin-provided providers receive the **global** settings (not per-profile
@@ -389,7 +418,7 @@ Example response:
       }
     }
   ],
-  "summary": { "loaded": 1, "failed": 0, "skipped": 0 }
+  "summary": { "loaded": 1, "failed": 0, "disabled": 0 }
 }
 ```
 
@@ -404,7 +433,7 @@ The `/health/deep` endpoint includes a `checks.plugins` object with:
 - `status`: `ok` (no failures) or `degraded` (some plugins failed)
 - `loaded`: count of successfully loaded plugins
 - `failed`: count of failed plugins
-- `skipped`: count of skipped plugins
+- `disabled`: count of disabled plugins
 - `plugins`: detailed per-plugin status
 
 ## CLI
@@ -420,8 +449,8 @@ python -m app.plugins check
 ```
 
 Exit codes:
-- `0`: All plugins loaded successfully (list) or no failures (check)
-- `1`: Error or plugin failures (check lists failures)
+- `0`: All plugins loaded successfully (list) or no failures/disabled (check)
+- `1`: Error or plugin failures/disabled (check lists failures and disabled plugins)
 
 ## Troubleshooting
 

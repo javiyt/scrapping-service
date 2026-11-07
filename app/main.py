@@ -132,6 +132,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     metrics.register_plugin_metadata(
         loaded_count=len(_plugin_result.loaded),
         failed_count=len(_plugin_result.failed),
+        disabled_count=len(_plugin_result.skipped),
         entries=_plugin_result.metadata,
     )
 

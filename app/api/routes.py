@@ -29,6 +29,7 @@ from app.core.errors import ScraperError
 from app.jobs.models import Job, JobListResponse, JobResponse
 from app.jobs.service import JobService
 from app.metrics.prometheus import MetricsCollector, get_metrics
+from app.plugins.loader import sanitize_plugin_reason
 from app.schemas.health import HealthResponse, ReadinessResponse
 from app.schemas.scrape import (
     BatchItem,
@@ -243,7 +244,7 @@ async def _plugins_health_report(request: Request) -> dict[str, Any]:
                 {
                     "name": getattr(entry, "name", "unknown"),
                     "status": "failed",
-                    "reason": getattr(entry, "reason", "unknown failure"),
+                    "reason": sanitize_plugin_reason(getattr(entry, "reason", "unknown failure")),
                 }
             )
         else:
@@ -252,7 +253,9 @@ async def _plugins_health_report(request: Request) -> dict[str, Any]:
                     "name": metadata.get("name", "unknown"),
                     "version": metadata.get("version", "unknown"),
                     "status": "failed",
-                    "reason": metadata.get("reason", getattr(entry, "reason", "unknown failure")),
+                    "reason": sanitize_plugin_reason(
+                        metadata.get("reason", getattr(entry, "reason", "unknown failure"))
+                    ),
                 }
             )
 
@@ -260,8 +263,8 @@ async def _plugins_health_report(request: Request) -> dict[str, Any]:
         plugins_info.append(
             {
                 "name": entry.get("name", "unknown"),
-                "status": "skipped",
-                "reason": entry.get("reason", "unknown"),
+                "status": "disabled",  # Map skipped to disabled
+                "reason": sanitize_plugin_reason(entry.get("reason", "unknown")),
             }
         )
 
@@ -269,7 +272,7 @@ async def _plugins_health_report(request: Request) -> dict[str, Any]:
         "status": "ok" if not failed else "degraded",
         "loaded": len(loaded),
         "failed": len(failed),
-        "skipped": len(skipped),
+        "disabled": len(skipped),
         "plugins": plugins_info,
     }
 
@@ -1234,13 +1237,13 @@ async def plugins_status(request: Request):
         "status": (
             "loaded"
             if plugin_load_result.loaded
-            else "skipped_all"
+            else "disabled_all"
             if plugin_load_result.skipped
             else "no_plugins"
         ),
         "message": (
             f"{len(plugin_load_result.loaded)} plugins loaded, "
-            f"{len(plugin_load_result.skipped)} skipped, "
+            f"{len(plugin_load_result.skipped)} disabled, "
             f"{len(plugin_load_result.failed)} failed"
         ),
     }
@@ -1347,8 +1350,8 @@ async def plugins_list(request: Request):
                 "version": metadata.get("version", "unknown"),
                 "api_version": metadata.get("api_version"),
                 "service_api_version": metadata.get("service_api_version"),
-                "status": "skipped",
-                "reason": entry.get("reason", "unknown"),
+                "status": "disabled",  # Map skipped to disabled
+                "reason": sanitize_plugin_reason(entry.get("reason", "unknown")),
                 "extensions": metadata.get("extensions"),
             }
         )
@@ -1358,11 +1361,15 @@ async def plugins_list(request: Request):
         "summary": {
             "loaded": len(getattr(plugin_load_result, "loaded", []) or []),
             "failed": len(getattr(plugin_load_result, "failed", []) or []),
-            "skipped": len(getattr(plugin_load_result, "skipped", []) or []),
+            "disabled": len(
+                getattr(plugin_load_result, "skipped", []) or []
+            ),  # renamed for consistency
         },
         "loaded_count": len(getattr(plugin_load_result, "loaded", []) or []),
         "failed_count": len(getattr(plugin_load_result, "failed", []) or []),
-        "skipped_count": len(getattr(plugin_load_result, "skipped", []) or []),
+        "disabled_count": len(
+            getattr(plugin_load_result, "skipped", []) or []
+        ),  # renamed for consistency
         "status": (
             "loaded"
             if plugin_load_result.loaded
