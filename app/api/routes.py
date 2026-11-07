@@ -1279,74 +1279,64 @@ async def plugins_list(request: Request):
 
     # Build rich plugin metadata
     plugins: list[dict[str, Any]] = []
+    
+    # Build metadata lookup by plugin name
+    metadata_by_name: dict[str, dict[str, Any]] = {}
+    for entry in getattr(plugin_load_result, "metadata", []) or []:
+        name = entry.get("name")
+        if name:
+            metadata_by_name[name] = entry
 
     # Loaded plugins
     for entry in getattr(plugin_load_result, "loaded", []) or []:
-        metadata = getattr(entry, "metadata", None)
-        if metadata:
-            plugins.append(
-                {
-                    "name": metadata.get("name"),
-                    "version": metadata.get("version"),
-                    "api_version": metadata.get("api_version"),
-                    "service_api_version": metadata.get("service_api_version"),
-                    "status": metadata.get("status", "loaded"),
-                    "reason": metadata.get("reason"),
-                    "extensions": metadata.get("extensions"),
-                }
-            )
+        if isinstance(entry, str):
+            name = entry
+        elif hasattr(entry, "metadata"):
+            name = entry.metadata.get("name", "unknown")
         else:
-            plugins.append(
-                {
-                    "name": getattr(entry, "name", "unknown"),
-                    "version": "unknown",
-                    "api_version": None,
-                    "service_api_version": None,
-                    "status": "loaded",
-                    "reason": None,
-                    "extensions": None,
-                }
-            )
+            name = getattr(entry, "name", "unknown")
+        metadata = metadata_by_name.get(name, {})
+        plugins.append(
+            {
+                "name": name,
+                "version": metadata.get("version", "unknown"),
+                "api_version": metadata.get("api_version"),
+                "service_api_version": metadata.get("service_api_version"),
+                "status": metadata.get("status", "loaded"),
+                "reason": metadata.get("reason"),
+                "extensions": metadata.get("extensions"),
+            }
+        )
 
     # Failed plugins
     for entry in getattr(plugin_load_result, "failed", []) or []:
-        metadata = getattr(entry, "metadata", None)
-        if metadata:
-            plugins.append(
-                {
-                    "name": metadata.get("name"),
-                    "version": metadata.get("version"),
-                    "api_version": metadata.get("api_version"),
-                    "service_api_version": metadata.get("service_api_version"),
-                    "status": metadata.get("status", "failed"),
-                    "reason": metadata.get("reason", getattr(entry, "reason", "unknown failure")),
-                    "extensions": metadata.get("extensions"),
-                }
-            )
-        else:
-            plugins.append(
-                {
-                    "name": getattr(entry, "name", "unknown"),
-                    "version": "unknown",
-                    "api_version": None,
-                    "service_api_version": None,
-                    "status": "failed",
-                    "reason": getattr(entry, "reason", "unknown failure"),
-                    "extensions": None,
-                }
-            )
+        name = entry.get("name", "unknown") if isinstance(entry, dict) else getattr(entry, "name", "unknown")
+        metadata = metadata_by_name.get(name, {})
+        plugins.append(
+            {
+                "name": name,
+                "version": metadata.get("version", "unknown"),
+                "api_version": metadata.get("api_version"),
+                "service_api_version": metadata.get("service_api_version"),
+                "status": metadata.get("status", "failed"),
+                "reason": metadata.get("reason", entry.get("reason", getattr(entry, "reason", "unknown failure")) if isinstance(entry, dict) else getattr(entry, "reason", "unknown failure")),
+                "extensions": metadata.get("extensions"),
+            }
+        )
 
     # Skipped plugins
     for entry in getattr(plugin_load_result, "skipped", []) or []:
+        name = entry.get("name", "unknown") if isinstance(entry, dict) else getattr(entry, "name", "unknown")
+        metadata = metadata_by_name.get(name, {})
         plugins.append(
             {
-                "name": entry.get("name", "unknown"),
-                "version": entry.get("version", "unknown"),
-                "api_version": entry.get("api_version"),
-                "service_api_version": None,
+                "name": name,
+                "version": metadata.get("version", "unknown"),
+                "api_version": metadata.get("api_version"),
+                "service_api_version": metadata.get("service_api_version"),
                 "status": "skipped",
                 "reason": entry.get("reason", "unknown"),
-                "extensions": None,
+                "extensions": metadata.get("extensions"),
             }
         )
 

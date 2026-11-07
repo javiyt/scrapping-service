@@ -158,8 +158,14 @@ def load_plugins(
     allowlist = plugins_config.get("allowlist", [])
 
     # Determine on_error policy
-    on_error_env = os.environ.get("SCRAPER_PLUGINS_ON_ERROR", "fail").strip().lower()
-    on_error = on_error_env if on_error_env in ("fail", "warn") else "fail"
+    # Environment variable takes precedence over raw_yaml_plugin config
+    on_error_env = os.environ.get("SCRAPER_PLUGINS_ON_ERROR", "").strip().lower()
+    if on_error_env in ("fail", "warn"):
+        on_error = on_error_env
+    else:
+        # Fallback to raw_yaml_plugin config or default to "fail"
+        on_error_config = plugins_config.get("on_error", "fail")
+        on_error = on_error_config if on_error_config in ("fail", "warn") else "fail"
 
     # Build enabled list
     enabled_list: list[str] = []
@@ -344,7 +350,7 @@ def load_plugins(
             plugin_class = ep.load()
         except Exception as exc:
             logger.exception("Failed to import plugin '%s': %s", plugin_name, exc)
-            failure_reason = f"import error: {exc}"
+            failure_reason = f"ImportError: {exc}"
             skipped.append({"name": plugin_name, "reason": failure_reason})
             # Always record failures regardless of on_error mode
             failed.append({"name": plugin_name, "reason": failure_reason})
@@ -445,6 +451,12 @@ def load_plugins(
             plugin.register(registry, plugin_ctx)
             loaded.append(plugin_name)
             logger.info("Plugin '%s' registered successfully", plugin_name)
+            # Update metadata with actual plugin attributes
+            for entry in plugin_metadata:
+                if entry["name"] == plugin_name:
+                    entry["version"] = getattr(plugin, "version", "<unknown>")
+                    entry["api_version"] = getattr(plugin, "api_version", "<unknown>")
+                    break
         except PluginLoadError:
             # Re-raise to abort startup on plugin load error
             raise
@@ -494,7 +506,7 @@ def load_plugins(
                 break
     # Also check for extractor providers if any
     if extractor_registry:
-        for ext in extractor_registry.all():
+        for ext in extractor_registry.get_all():
             plugin_name = getattr(ext, "_plugin_name", None)
             if plugin_name:
                 for entry in plugin_metadata:
@@ -510,13 +522,13 @@ def load_plugins(
         if name in loaded:
             entry["status"] = "loaded"
             entry["reason"] = None
-        elif any(s.get("name") == name for s in skipped):
-            entry["status"] = "disabled"
-            reason = next(s["reason"] for s in skipped if s.get("name") == name)
-            entry["reason"] = reason
         elif any(f.get("name") == name for f in failed):
             entry["status"] = "failed"
             reason = next(f["reason"] for f in failed if f.get("name") == name)
+            entry["reason"] = reason
+        elif any(s.get("name") == name for s in skipped):
+            entry["status"] = "skipped"
+            reason = next(s["reason"] for s in skipped if s.get("name") == name)
             entry["reason"] = reason
         else:
             # Not loaded but also not skipped/failed: e.g., import failed early

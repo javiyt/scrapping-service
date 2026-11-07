@@ -24,7 +24,7 @@ class MetricsCollector:
     """
 
     def __init__(self) -> None:
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._counters: dict[str, int] = {
             "scrape_requests_total": 0,
             "scrape_success_total": 0,
