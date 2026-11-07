@@ -231,3 +231,67 @@ def test_loader_provides_logger_with_name():
         assert result.loaded == ["logger-plugin"]
         # Logger should have the plugin name in its path
         assert "logger-plugin" in captured_logger_name
+
+
+def test_loader_metadata_populated_for_all_outcomes():
+    """Loader must populate metadata for loaded, skipped, and failed plugins."""
+    from app.core.config import Settings
+    from app.plugins.loader import load_plugins
+
+    settings = Settings.load("configs/config.yaml")
+    settings.raw_yaml_plugin = {
+        "enabled": True,
+        "allowlist": ["loaded-plugin", "failed-plugin"],
+        "on_error": "warn",
+    }
+
+    class LoadedPlugin:
+        name = "loaded-plugin"
+        version = "1.0.0"
+        api_version = "1.0.0"
+
+        def register(self, registry, ctx):
+            pass
+
+    class FakeEntryPoint:
+        def __init__(self, name, value, should_fail=False):
+            self.name = name
+            self.value = value
+            self.should_fail = should_fail
+
+        def load(self):
+            if self.should_fail:
+                raise ImportError("load failure")
+            return LoadedPlugin
+
+    with patch("importlib.metadata.entry_points") as mock_ep:
+        mock_ep.return_value = [
+            FakeEntryPoint("loaded-plugin", "loaded", False),
+            FakeEntryPoint("failed-plugin", "failed", True),
+        ]
+
+        result = load_plugins(settings, http_client=httpx.AsyncClient())
+
+        # Debug
+        print("loaded:", result.loaded)
+        print("skipped:", result.skipped)
+        print("failed:", result.failed)
+        print("metadata:", result.metadata)
+
+        # loaded-plugin should be in loaded
+        assert result.loaded == ["loaded-plugin"]
+        # failed-plugin should be in skipped (on_error=warn)
+        assert len(result.skipped) == 1
+        assert result.skipped[0]["name"] == "failed-plugin"
+
+        # metadata should contain entries for both
+        assert len(result.metadata) == 2
+
+        loaded_meta = next(m for m in result.metadata if m["name"] == "loaded-plugin")
+        assert loaded_meta["status"] == "loaded"
+        assert loaded_meta["version"] == "1.0.0"
+        assert loaded_meta["api_version"] == "1.0.0"
+
+        failed_meta = next(m for m in result.metadata if m["name"] == "failed-plugin")
+        assert failed_meta["status"] == "failed"
+        assert "ImportError" in failed_meta["reason"]

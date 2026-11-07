@@ -212,6 +212,68 @@ async def health():
     return HealthResponse()
 
 
+async def _plugins_health_report(request: Request) -> dict[str, Any]:
+    """Report plugin subsystem health from load result."""
+    load_result = getattr(request.app.state, "plugin_load_result", None)
+    if load_result is None:
+        return {"status": "not_loaded", "message": "Plugin loading skipped or not yet completed"}
+
+    plugins_info: list[dict[str, Any]] = []
+    loaded = getattr(load_result, "loaded", []) or []
+    failed = getattr(load_result, "failed", []) or []
+    skipped = getattr(load_result, "skipped", []) or []
+
+    for entry in loaded:
+        metadata = getattr(entry, "metadata", None)
+        if metadata is None:
+            plugins_info.append({"name": getattr(entry, "name", "unknown"), "status": "loaded"})
+        else:
+            plugins_info.append(
+                {
+                    "name": metadata.get("name", "unknown"),
+                    "version": metadata.get("version", "unknown"),
+                    "status": metadata.get("status", "loaded"),
+                }
+            )
+
+    for entry in failed:
+        metadata = getattr(entry, "metadata", None)
+        if metadata is None:
+            plugins_info.append(
+                {
+                    "name": getattr(entry, "name", "unknown"),
+                    "status": "failed",
+                    "reason": getattr(entry, "reason", "unknown failure"),
+                }
+            )
+        else:
+            plugins_info.append(
+                {
+                    "name": metadata.get("name", "unknown"),
+                    "version": metadata.get("version", "unknown"),
+                    "status": "failed",
+                    "reason": metadata.get("reason", getattr(entry, "reason", "unknown failure")),
+                }
+            )
+
+    for entry in skipped:
+        plugins_info.append(
+            {
+                "name": entry.get("name", "unknown"),
+                "status": "skipped",
+                "reason": entry.get("reason", "unknown"),
+            }
+        )
+
+    return {
+        "status": "ok" if not failed else "degraded",
+        "loaded": len(loaded),
+        "failed": len(failed),
+        "skipped": len(skipped),
+        "plugins": plugins_info,
+    }
+
+
 @health_router.get("/health/deep", response_model=ReadinessResponse, tags=["Health"])
 async def deep_health(request: Request):
     """Deep health check for container restart policy.
@@ -294,6 +356,9 @@ async def deep_health(request: Request):
         checks["transcript"] = "unavailable"
     else:
         checks["transcript"] = await _transcript_health_report(request)
+
+    # Plugin subsystem — reported, non-fatal.
+    checks["plugins"] = await _plugins_health_report(request)
 
     response = ReadinessResponse(status="ok" if ok else "degraded", checks=checks)
     if ok:
@@ -1166,6 +1231,138 @@ async def plugins_status(request: Request):
         "allowlist_enabled": allowlist_enabled,
         "allowlist": allowlist,
         "denylist": denylist,
+        "status": (
+            "loaded"
+            if plugin_load_result.loaded
+            else "skipped_all"
+            if plugin_load_result.skipped
+            else "no_plugins"
+        ),
+        "message": (
+            f"{len(plugin_load_result.loaded)} plugins loaded, "
+            f"{len(plugin_load_result.skipped)} skipped, "
+            f"{len(plugin_load_result.failed)} failed"
+        ),
+    }
+
+
+# ============================================================ /v1/plugins
+
+
+@plugins_router.get("/v1/plugins", tags=["Plugins"], dependencies=[Depends(verify_api_key)])
+async def plugins_list(request: Request):
+    """Return detailed plugin metadata and registration info.
+
+    This endpoint provides richer information than /v1/plugins/status,
+    including API versions, registered providers, and per-plugin status.
+
+    Response includes:
+    - plugins: list of plugin metadata objects with name, version, api_version,
+      service_api_version, status, reason, and extensions (registered providers)
+    - summary: total counts for loaded, failed, and skipped plugins
+    - loaded_count: number of successfully loaded plugins
+    - failed_count: number of plugins that failed to load
+    - skipped_count: number of plugins that were skipped
+    """
+    plugin_load_result = getattr(request.app.state, "plugin_load_result", None)
+
+    if plugin_load_result is None:
+        return {
+            "plugins": [],
+            "summary": {"loaded": 0, "failed": 0, "skipped": 0},
+            "loaded_count": 0,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "status": "not_loaded",
+            "message": "Plugins have not been loaded yet",
+        }
+
+    # Build rich plugin metadata
+    plugins: list[dict[str, Any]] = []
+
+    # Build metadata lookup by plugin name
+    metadata_by_name: dict[str, dict[str, Any]] = {}
+    for entry in getattr(plugin_load_result, "metadata", []) or []:
+        name = entry.get("name")
+        if name:
+            metadata_by_name[name] = entry
+
+    # Loaded plugins
+    for entry in getattr(plugin_load_result, "loaded", []) or []:
+        if isinstance(entry, str):
+            name = entry
+        elif hasattr(entry, "metadata"):
+            name = entry.metadata.get("name", "unknown")
+        else:
+            name = getattr(entry, "name", "unknown")
+        metadata = metadata_by_name.get(name, {})
+        plugins.append(
+            {
+                "name": name,
+                "version": metadata.get("version", "unknown"),
+                "api_version": metadata.get("api_version"),
+                "service_api_version": metadata.get("service_api_version"),
+                "status": metadata.get("status", "loaded"),
+                "reason": metadata.get("reason"),
+                "extensions": metadata.get("extensions"),
+            }
+        )
+
+    # Failed plugins
+    for entry in getattr(plugin_load_result, "failed", []) or []:
+        name = (
+            entry.get("name", "unknown")
+            if isinstance(entry, dict)
+            else getattr(entry, "name", "unknown")
+        )
+        metadata = metadata_by_name.get(name, {})
+        plugins.append(
+            {
+                "name": name,
+                "version": metadata.get("version", "unknown"),
+                "api_version": metadata.get("api_version"),
+                "service_api_version": metadata.get("service_api_version"),
+                "status": metadata.get("status", "failed"),
+                "reason": metadata.get(
+                    "reason",
+                    entry.get("reason", getattr(entry, "reason", "unknown failure"))
+                    if isinstance(entry, dict)
+                    else getattr(entry, "reason", "unknown failure"),
+                ),
+                "extensions": metadata.get("extensions"),
+            }
+        )
+
+    # Skipped plugins
+    for entry in getattr(plugin_load_result, "skipped", []) or []:
+        name = (
+            entry.get("name", "unknown")
+            if isinstance(entry, dict)
+            else getattr(entry, "name", "unknown")
+        )
+        metadata = metadata_by_name.get(name, {})
+        plugins.append(
+            {
+                "name": name,
+                "version": metadata.get("version", "unknown"),
+                "api_version": metadata.get("api_version"),
+                "service_api_version": metadata.get("service_api_version"),
+                "status": "skipped",
+                "reason": entry.get("reason", "unknown"),
+                "extensions": metadata.get("extensions"),
+            }
+        )
+
+    return {
+        "plugins": plugins,
+        "summary": {
+            "loaded": len(getattr(plugin_load_result, "loaded", []) or []),
+            "failed": len(getattr(plugin_load_result, "failed", []) or []),
+            "skipped": len(getattr(plugin_load_result, "skipped", []) or []),
+        },
+        "loaded_count": len(getattr(plugin_load_result, "loaded", []) or []),
+        "failed_count": len(getattr(plugin_load_result, "failed", []) or []),
+        "skipped_count": len(getattr(plugin_load_result, "skipped", []) or []),
         "status": (
             "loaded"
             if plugin_load_result.loaded

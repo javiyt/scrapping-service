@@ -350,11 +350,18 @@ class SearchRouter:
         # falls back silently.
         self._metrics.inc("search_provider_attempts_total", provider=name)
         try:
+            search_start = time.monotonic()
             response = await provider.search(request)
         except Exception:
             self._metrics.inc("search_provider_error_total", provider=name)
+            if hasattr(provider, "_plugin_name"):
+                elapsed_ms = (time.monotonic() - search_start) * 1000
+                self._metrics.observe_plugin_call("search", provider.name, elapsed_ms, ok=False)
             raise
         self._metrics.inc("search_provider_success_total", provider=name)
+        if hasattr(provider, "_plugin_name"):
+            elapsed_ms = (time.monotonic() - search_start) * 1000
+            self._metrics.observe_plugin_call("search", provider.name, elapsed_ms, ok=True)
 
         response.metadata.providers_attempted = [name]
         response.metadata.fallback_occurred = False
@@ -412,9 +419,13 @@ class SearchRouter:
             attempts.append(provider.name)
             self._metrics.inc("search_provider_attempts_total", provider=provider.name)
             try:
+                search_start = time.monotonic()
                 response = await provider.search(request)
             except Exception as exc:
                 self._metrics.inc("search_provider_error_total", provider=provider.name)
+                if hasattr(provider, "_plugin_name"):
+                    elapsed_ms = (time.monotonic() - search_start) * 1000
+                    self._metrics.observe_plugin_call("search", provider.name, elapsed_ms, ok=False)
                 if not isinstance(exc, FALLBACK_ELIGIBLE_ERRORS):
                     # Non-transient failures are terminal; they never fall back.
                     raise
@@ -438,6 +449,9 @@ class SearchRouter:
                 warnings.append(summary)
                 continue
             self._metrics.inc("search_provider_success_total", provider=provider.name)
+            if hasattr(provider, "_plugin_name"):
+                elapsed_ms = (time.monotonic() - search_start) * 1000
+                self._metrics.observe_plugin_call("search", provider.name, elapsed_ms, ok=True)
             selected_caps = caps
             break
 

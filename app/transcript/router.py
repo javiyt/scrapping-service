@@ -331,11 +331,18 @@ class TranscriptRouter:
         # back silently (definitive video errors included).
         self._metrics.inc("transcript_provider_attempts_total", provider=name)
         try:
+            fetch_start = time.monotonic()
             response = await provider.fetch(request.video_id, request.languages)
         except Exception:
             self._metrics.inc("transcript_provider_error_total", provider=name)
+            if hasattr(provider, "_plugin_name"):
+                elapsed_ms = (time.monotonic() - fetch_start) * 1000
+                self._metrics.observe_plugin_call("transcript", provider.name, elapsed_ms, ok=False)
             raise
         self._metrics.inc("transcript_provider_success_total", provider=name)
+        if hasattr(provider, "_plugin_name"):
+            elapsed_ms = (time.monotonic() - fetch_start) * 1000
+            self._metrics.observe_plugin_call("transcript", provider.name, elapsed_ms, ok=True)
 
         # Providers may cache their response object and hand back the very
         # same instance on every call; stamp a clone so in-place metadata
@@ -388,9 +395,15 @@ class TranscriptRouter:
             attempts.append(provider.name)
             self._metrics.inc("transcript_provider_attempts_total", provider=provider.name)
             try:
+                fetch_start = time.monotonic()
                 response = await provider.fetch(request.video_id, request.languages)
             except Exception as exc:
                 self._metrics.inc("transcript_provider_error_total", provider=provider.name)
+                if hasattr(provider, "_plugin_name"):
+                    elapsed_ms = (time.monotonic() - fetch_start) * 1000
+                    self._metrics.observe_plugin_call(
+                        "transcript", provider.name, elapsed_ms, ok=False
+                    )
                 if not isinstance(exc, FALLBACK_ELIGIBLE_ERRORS):
                     # Definitive (video-side) or unknown failures are
                     # terminal; they never fall back.
@@ -415,6 +428,9 @@ class TranscriptRouter:
                 warnings.append(summary)
                 continue
             self._metrics.inc("transcript_provider_success_total", provider=provider.name)
+            if hasattr(provider, "_plugin_name"):
+                elapsed_ms = (time.monotonic() - fetch_start) * 1000
+                self._metrics.observe_plugin_call("transcript", provider.name, elapsed_ms, ok=True)
             # Stamp a clone (providers may return their cached instance).
             response = response.clone()
             break
