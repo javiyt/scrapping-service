@@ -283,15 +283,15 @@ def test_loader_metadata_populated_for_all_outcomes():
         # failed-plugin should be in skipped (on_error=warn)
         assert len(result.skipped) == 1
         assert result.skipped[0]["name"] == "failed-plugin"
-        
+
         # metadata should contain entries for both
         assert len(result.metadata) == 2
-        
+
         loaded_meta = next(m for m in result.metadata if m["name"] == "loaded-plugin")
         assert loaded_meta["status"] == "loaded"
         assert loaded_meta["version"] == "1.0.0"
         assert loaded_meta["api_version"] == "1.0.0"
-        
+
         failed_meta = next(m for m in result.metadata if m["name"] == "failed-plugin")
         assert failed_meta["status"] == "failed"
         assert "ImportError" in failed_meta["reason"]

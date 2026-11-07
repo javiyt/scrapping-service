@@ -100,10 +100,10 @@ def test_loader_collects_metadata_for_skipped_plugin():
         assert result.skipped[0]["name"] == "disallowed"
         # skipped plugins should appear in metadata with status=skipped
         assert len(result.metadata) == 2
-        
+
         allowed_meta = next(m for m in result.metadata if m["name"] == "allowed")
         assert allowed_meta["status"] == "loaded"
-        
+
         skipped_meta = next(m for m in result.metadata if m["name"] == "disallowed")
         assert skipped_meta["status"] == "skipped"
         assert "allowlist" in skipped_meta["reason"]

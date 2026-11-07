@@ -20,7 +20,7 @@ def _set_clean_app_state():
     for attr in ["plugin_load_result", "settings"]:
         if hasattr(app.state, attr):
             delattr(app.state, attr)
-    
+
     # Set required attributes
     app.state.settings = Settings(api_key=VALID_API_KEY)
 
@@ -36,7 +36,7 @@ def test_plugins_endpoint_without_auth():
 def test_plugins_endpoint_with_auth():
     """GET /v1/plugins with auth should return plugin metadata."""
     _set_clean_app_state()
-    
+
     # Simulate what load_plugins returns: loaded is a list of metadata dicts
     # The endpoint iterates over loaded and reads metadata from entries
     mock_metadata = {
@@ -53,12 +53,12 @@ def test_plugins_endpoint_with_auth():
             "extractors": [],
         },
     }
-    
+
     # Create a mock result where loaded contains dicts with metadata attribute
     class MockPluginEntry:
         def __init__(self, metadata):
             self.metadata = metadata
-    
+
     app.state.plugin_load_result = PluginLoadResult(
         search_providers=[],
         transcript_providers=[],
@@ -72,7 +72,7 @@ def test_plugins_endpoint_with_auth():
         metadata=[mock_metadata],
     )
     client = TestClient(app)
-    
+
     response = client.get("/v1/plugins", headers=AUTH_HEADER)
     assert response.status_code == 200
     data = response.json()
@@ -85,7 +85,7 @@ def test_plugins_endpoint_with_auth():
 def test_plugins_endpoint_with_no_plugins():
     """GET /v1/plugins with no plugins loaded should return empty list."""
     _set_clean_app_state()
-    
+
     app.state.plugin_load_result = PluginLoadResult(
         search_providers=[],
         transcript_providers=[],
@@ -99,7 +99,7 @@ def test_plugins_endpoint_with_no_plugins():
         metadata=[],
     )
     client = TestClient(app)
-    
+
     response = client.get("/v1/plugins", headers=AUTH_HEADER)
     assert response.status_code == 200
     data = response.json()
@@ -118,7 +118,7 @@ def test_plugins_status_endpoint_without_auth():
 def test_plugins_status_endpoint_with_auth():
     """GET /v1/plugins/status with auth should return status."""
     _set_clean_app_state()
-    
+
     app.state.plugin_load_result = PluginLoadResult(
         search_providers=[],
         transcript_providers=[],
@@ -132,7 +132,7 @@ def test_plugins_status_endpoint_with_auth():
         metadata=[],
     )
     client = TestClient(app)
-    
+
     response = client.get("/v1/plugins/status", headers=AUTH_HEADER)
     assert response.status_code == 200
     data = response.json()
@@ -145,7 +145,7 @@ def test_plugins_status_endpoint_with_auth():
 def test_plugins_status_endpoint_with_failed_plugin():
     """GET /v1/plugins/status with failed plugin should report error."""
     _set_clean_app_state()
-    
+
     app.state.plugin_load_result = PluginLoadResult(
         search_providers=[],
         transcript_providers=[],
@@ -159,7 +159,7 @@ def test_plugins_status_endpoint_with_failed_plugin():
         metadata=[],
     )
     client = TestClient(app)
-    
+
     response = client.get("/v1/plugins/status", headers=AUTH_HEADER)
     assert response.status_code == 200
     data = response.json()

@@ -1279,7 +1279,7 @@ async def plugins_list(request: Request):
 
     # Build rich plugin metadata
     plugins: list[dict[str, Any]] = []
-    
+
     # Build metadata lookup by plugin name
     metadata_by_name: dict[str, dict[str, Any]] = {}
     for entry in getattr(plugin_load_result, "metadata", []) or []:
@@ -1310,7 +1310,11 @@ async def plugins_list(request: Request):
 
     # Failed plugins
     for entry in getattr(plugin_load_result, "failed", []) or []:
-        name = entry.get("name", "unknown") if isinstance(entry, dict) else getattr(entry, "name", "unknown")
+        name = (
+            entry.get("name", "unknown")
+            if isinstance(entry, dict)
+            else getattr(entry, "name", "unknown")
+        )
         metadata = metadata_by_name.get(name, {})
         plugins.append(
             {
@@ -1319,14 +1323,23 @@ async def plugins_list(request: Request):
                 "api_version": metadata.get("api_version"),
                 "service_api_version": metadata.get("service_api_version"),
                 "status": metadata.get("status", "failed"),
-                "reason": metadata.get("reason", entry.get("reason", getattr(entry, "reason", "unknown failure")) if isinstance(entry, dict) else getattr(entry, "reason", "unknown failure")),
+                "reason": metadata.get(
+                    "reason",
+                    entry.get("reason", getattr(entry, "reason", "unknown failure"))
+                    if isinstance(entry, dict)
+                    else getattr(entry, "reason", "unknown failure"),
+                ),
                 "extensions": metadata.get("extensions"),
             }
         )
 
     # Skipped plugins
     for entry in getattr(plugin_load_result, "skipped", []) or []:
-        name = entry.get("name", "unknown") if isinstance(entry, dict) else getattr(entry, "name", "unknown")
+        name = (
+            entry.get("name", "unknown")
+            if isinstance(entry, dict)
+            else getattr(entry, "name", "unknown")
+        )
         metadata = metadata_by_name.get(name, {})
         plugins.append(
             {

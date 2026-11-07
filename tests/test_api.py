@@ -853,8 +853,9 @@ class TestPluginsRoutes:
 
     def test_plugins_endpoint_without_auth(self):
         """GET /v1/plugins without auth should return 401."""
-        from app.main import app
         from fastapi.testclient import TestClient
+
+        from app.main import app
 
         client = TestClient(app)
         response = client.get("/v1/plugins")
@@ -862,8 +863,9 @@ class TestPluginsRoutes:
 
     def test_plugins_endpoint_with_auth(self):
         """GET /v1/plugins with auth should return plugin metadata."""
-        from app.main import app
         from fastapi.testclient import TestClient
+
+        from app.main import app
         from app.plugins.loader import PluginLoadResult
 
         client = TestClient(app)
@@ -908,8 +910,9 @@ class TestPluginsRoutes:
 
     def test_plugins_endpoint_with_no_plugins(self):
         """GET /v1/plugins with no plugins should return empty list."""
-        from app.main import app
         from fastapi.testclient import TestClient
+
+        from app.main import app
         from app.plugins.loader import PluginLoadResult
 
         client = TestClient(app)
@@ -935,8 +938,9 @@ class TestPluginsRoutes:
 
     def test_plugins_status_endpoint_without_auth(self):
         """GET /v1/plugins/status without auth should return 401."""
-        from app.main import app
         from fastapi.testclient import TestClient
+
+        from app.main import app
 
         client = TestClient(app)
         response = client.get("/v1/plugins/status")
@@ -944,10 +948,11 @@ class TestPluginsRoutes:
 
     def test_plugins_status_endpoint_with_auth(self):
         """GET /v1/plugins/status with auth should return status."""
-        from app.main import app
         from fastapi.testclient import TestClient
-        from app.plugins.loader import PluginLoadResult
+
         from app.core.config import Settings
+        from app.main import app
+        from app.plugins.loader import PluginLoadResult
 
         client = TestClient(app)
         result = PluginLoadResult(
