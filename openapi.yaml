@@ -210,11 +210,11 @@ components:
         remove_scripts:
           type: boolean
           default: false
-          description: Remove <script> elements
+          description: Remove &lt;script&gt; elements
         remove_styles:
           type: boolean
           default: false
-          description: Remove <style> elements and inline styles
+          description: Remove &lt;style&gt; elements and inline styles
         remove_comments:
           type: boolean
           default: false
