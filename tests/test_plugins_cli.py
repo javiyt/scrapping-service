@@ -191,3 +191,116 @@ def test_cli_help_command():
     """CLI help command should return 0 and print help."""
     ret = cli.cmd_help()
     assert ret == 0
+
+
+def test_cmd_install_with_constraints():
+    """CLI install with constraints should pass constraints to pip."""
+    with patch("app.plugins.cli._run_pip") as mock_run:
+        mock_run.return_value = type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        ret = cli.cmd_install(["pkg==1.0"], constraints_file="/app/requirements.txt")
+        assert ret == 0
+        # Verify constraints file is passed
+        cmd_args = mock_run.call_args[0][0]
+        assert "-c" in cmd_args
+        assert "/app/requirements.txt" in cmd_args
+
+
+def test_cmd_install_with_index_url():
+    """CLI install with index URL should redact credentials."""
+    with patch("app.plugins.cli._run_pip") as mock_run:
+        mock_run.return_value = type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        ret = cli.cmd_install(
+            ["pkg==1.0"],
+            constraints_file=None,
+            index_url="https://user:pass@example.com/simple",
+        )
+        assert ret == 0
+        cmd_args = mock_run.call_args[0][0]
+        assert "--index-url" in cmd_args
+        idx = cmd_args.index("--index-url")
+        assert "user:***@" in cmd_args[idx + 1]
+
+
+def test_cmd_install_offline():
+    """CLI install offline should use --no-index and --find-links."""
+    with patch("app.plugins.cli._run_pip") as mock_run:
+        mock_run.return_value = type("Result", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        ret = cli.cmd_install(
+            ["pkg==1.0"],
+            constraints_file=None,
+            offline=True,
+            wheelhouse_dir="/wheels",
+        )
+        assert ret == 0
+        cmd_args = mock_run.call_args[0][0]
+        assert "--no-index" in cmd_args
+        assert "--find-links" in cmd_args
+        idx = cmd_args.index("--find-links")
+        assert cmd_args[idx + 1] == "/wheels"
+
+
+def test_cmd_uninstall_without_yes_flag():
+    """CLI uninstall without --yes should prompt for confirmation."""
+    with patch("app.plugins.cli._run_pip") as mock_run:
+        mock_run.return_value = type(
+            "Result", (), {"returncode": 0, "stdout": "Would uninstall pkg", "stderr": ""}
+        )()
+        with patch("app.plugins.cli.input", return_value="n"):
+            ret = cli.cmd_uninstall(["mypackage"], assume_yes=False)
+            assert ret == 0  # Cancelled
+            # dry-run is called, but not the actual uninstall
+            calls = mock_run.call_args_list
+            assert any("--dry-run" in str(c) for c in calls)
+            assert not any("uninstall" in str(c) and "--dry-run" not in str(c) for c in calls)
+
+
+def test_cmd_check_disabled_plugin():
+    """CLI check with disabled plugin should print enable hint."""
+    with patch("app.plugins.cli.load_plugins") as mock_load:
+        mock_load.return_value = type(
+            "MockResult",
+            (),
+            {
+                "metadata": [
+                    {
+                        "name": "disabled-plugin",
+                        "version": "1.0.0",
+                        "api_version": "1.0.0",
+                        "service_api_version": "1.0.0",
+                        "status": "disabled",
+                        "reason": "not enabled (opt-in allowlist)",
+                        "extensions": {},
+                    }
+                ],
+                "loaded": [],
+                "skipped": [],
+                "failed": [],
+                "enabled": [],
+                "on_error": "fail",
+            },
+        )()
+        with patch("app.plugins.cli.print") as mock_print:
+            ret = cli.cmd_check()
+            assert ret == 1
+            calls = [str(call) for call in mock_print.call_args_list]
+            assert any("SCRAPER_PLUGINS_ENABLED" in str(c) for c in calls)
+
+
+def test_cmd_install_error():
+    """CLI install with pip failure should return non-zero."""
+    with patch("app.plugins.cli._run_pip") as mock_run:
+        mock_run.return_value = type(
+            "Result", (), {"returncode": 1, "stdout": "", "stderr": "Error installing pkg"}
+        )()
+        ret = cli.cmd_install(["broken-pkg==1.0"], constraints_file=None)
+        assert ret == 1
+
+
+def test_cmd_uninstall_error():
+    """CLI uninstall with pip failure should return non-zero."""
+    with patch("app.plugins.cli._run_pip") as mock_run:
+        mock_run.return_value = type(
+            "Result", (), {"returncode": 1, "stdout": "", "stderr": "Error uninstalling pkg"}
+        )()
+        ret = cli.cmd_uninstall(["broken-pkg"], assume_yes=True)
+        assert ret == 1

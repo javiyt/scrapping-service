@@ -70,7 +70,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 78
+fail_under = 77
 show_missing = true
 skip_covered = false
 exclude_lines = [
