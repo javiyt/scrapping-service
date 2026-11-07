@@ -105,7 +105,7 @@ def test_loader_collects_metadata_for_skipped_plugin():
         assert allowed_meta["status"] == "loaded"
 
         skipped_meta = next(m for m in result.metadata if m["name"] == "disallowed")
-        assert skipped_meta["status"] == "skipped"
+        assert skipped_meta["status"] == "disabled"
         assert "allowlist" in skipped_meta["reason"]
 
 

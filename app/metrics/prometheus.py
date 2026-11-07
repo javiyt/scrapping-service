@@ -77,6 +77,7 @@ class MetricsCollector:
         self._last_scrape_error_at: float | None = None
         self._last_scrape_success_at: float | None = None
         self._plugin_metadata: list[dict[str, Any]] = []
+        self._disabled_count = 0
 
     # --------------------------------------------------------------- counters
 
@@ -165,6 +166,7 @@ class MetricsCollector:
         loaded_count: int,
         failed_count: int,
         entries: list[dict[str, Any]],
+        disabled_count: int = 0,
     ) -> None:
         """Register plugin metadata for metrics.
 
@@ -183,6 +185,8 @@ class MetricsCollector:
         with self._lock:
             self._gauges["plugins_loaded"] = loaded_count
             self._gauges["plugins_failed"] = failed_count
+            self._gauges["plugins_disabled"] = disabled_count
+            self._disabled_count = disabled_count
             self._plugin_metadata = list(entries)
 
     def observe_plugin_call(
@@ -514,12 +518,15 @@ class MetricsCollector:
             for gauge_name in [
                 "plugins_loaded",
                 "plugins_failed",
+                "plugins_disabled",
             ]:
                 val = self._gauges.get(gauge_name, 0)
                 help_text = (
                     "Total number of plugins currently loaded"
                     if gauge_name == "plugins_loaded"
                     else "Total number of plugins that failed to load"
+                    if gauge_name == "plugins_failed"
+                    else "Total number of plugins that are disabled (not enabled)"
                 )
                 lines.append(f"# HELP {gauge_name} {help_text}")
                 lines.append(f"# TYPE {gauge_name} gauge")

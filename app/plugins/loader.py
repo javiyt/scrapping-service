@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from importlib import metadata
 from typing import Any
 
@@ -46,6 +47,44 @@ from app.transcript import TranscriptProviderRegistry
 
 #: The entry point group name where plugins register themselves.
 PLUGIN_ENTRY_POINT_GROUP = "scrapping_service.plugins"
+
+# Patterns to sanitize plugin failure reasons (strip paths, redact credentials)
+# Reuse patterns from app.transcript.router.redact_secrets to avoid cycles
+# If that import causes a cycle, move these patterns to app/core/security.py
+_URL_USERINFO_PATTERN = re.compile(r"(?i)\b(https?://)([^/@\s]+)@")
+_AUTHORIZATION_PATTERN = re.compile(r"(?i)\b(authorization)\s*[:=]\s*\S+(?:\s+\S+)?")
+_BEARER_PATTERN = re.compile(r"(?i)\b(bearer)\s+\S+")
+_CREDENTIAL_PATTERN = re.compile(
+    r"(?i)\b(password|passwd|pwd|secret|token|api[-_ ]?key|access[-_ ]?key)\b"
+    r"(\s*[:=]\s*)([^\s,;&'\"\\)]*)"
+)
+
+
+def sanitize_plugin_reason(reason: str) -> str:
+    """Sanitize a plugin failure reason for safe exposure.
+
+    Removes absolute file paths (replaces with <path>), redacts credential-like
+    material (URLs, Authorization headers, bearer tokens, common secret keys),
+    and truncates to a reasonable length to prevent information leakage.
+
+    This helper is idempotent — applying it twice yields the same result.
+    """
+    # Truncate extremely long strings to avoid DoS
+    if len(reason) > 1024:
+        reason = reason[:1000] + "..."
+
+    # Replace absolute paths (e.g., /Users/... or C:\...)
+    reason = re.sub(r"(?i)(?:^|[\/\\])(?:Users|home|var|tmp|app|root|c:)\S+", "<path>", reason)
+    # Catch relative paths starting with ./ or ../
+    reason = re.sub(r"(?i)[\./]+\w+[\./\w]*\.py[\w:\s]*", "<path>", reason)
+
+    # Credential redaction patterns
+    reason = _URL_USERINFO_PATTERN.sub(r"\1", reason)
+    reason = _AUTHORIZATION_PATTERN.sub(lambda m: f"{m.group(1).lower()} [REDACTED]", reason)
+    reason = _BEARER_PATTERN.sub(lambda m: f"{m.group(1).lower()} [REDACTED]", reason)
+    reason = _CREDENTIAL_PATTERN.sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", reason)
+
+    return reason.strip()
 
 
 class PluginLoadResult:
@@ -336,13 +375,15 @@ def load_plugins(
         # Check denylist FIRST (overrides allowlist)
         if plugin_name in denylist:
             logger.warning("Plugin '%s' skipped: explicitly denied via denylist", plugin_name)
-            skipped.append({"name": plugin_name, "reason": "explicitly denied via denylist"})
+            reason = sanitize_plugin_reason("explicitly denied via denylist")
+            skipped.append({"name": plugin_name, "reason": reason})
             continue
 
         # Check enabled list
         if plugin_name not in enabled_list:
             logger.info("Plugin '%s' skipped: not enabled (opt-in allowlist)", plugin_name)
-            skipped.append({"name": plugin_name, "reason": "not enabled (opt-in allowlist)"})
+            reason = sanitize_plugin_reason("not enabled (opt-in allowlist)")
+            skipped.append({"name": plugin_name, "reason": reason})
             continue
 
         # Load plugin class
@@ -350,7 +391,7 @@ def load_plugins(
             plugin_class = ep.load()
         except Exception as exc:
             logger.exception("Failed to import plugin '%s': %s", plugin_name, exc)
-            failure_reason = f"ImportError: {exc}"
+            failure_reason = sanitize_plugin_reason(f"ImportError: {exc}")
             skipped.append({"name": plugin_name, "reason": failure_reason})
             # Always record failures regardless of on_error mode
             failed.append({"name": plugin_name, "reason": failure_reason})
@@ -363,7 +404,7 @@ def load_plugins(
             plugin = plugin_class()
         except Exception as exc:
             logger.exception("Failed to instantiate plugin '%s': %s", plugin_name, exc)
-            failure_reason = f"instantiation error: {exc}"
+            failure_reason = sanitize_plugin_reason(f"instantiation error: {exc}")
             skipped.append({"name": plugin_name, "reason": failure_reason})
             # Always record failures regardless of on_error mode
             failed.append({"name": plugin_name, "reason": failure_reason})
@@ -374,7 +415,7 @@ def load_plugins(
         # Check protocol compliance
         if not hasattr(plugin, "name"):
             logger.error("Plugin '%s' has no 'name' attribute", plugin_name)
-            failure_reason = "missing 'name' attribute"
+            failure_reason = sanitize_plugin_reason("missing 'name' attribute")
             skipped.append({"name": plugin_name, "reason": failure_reason})
             # Always record failures regardless of on_error mode
             failed.append({"name": plugin_name, "reason": failure_reason})
@@ -383,7 +424,7 @@ def load_plugins(
             continue
         if not hasattr(plugin, "version"):
             logger.error("Plugin '%s' has no 'version' attribute", plugin_name)
-            failure_reason = "missing 'version' attribute"
+            failure_reason = sanitize_plugin_reason("missing 'version' attribute")
             skipped.append({"name": plugin_name, "reason": failure_reason})
             # Always record failures regardless of on_error mode
             failed.append({"name": plugin_name, "reason": failure_reason})
@@ -392,7 +433,7 @@ def load_plugins(
             continue
         if not hasattr(plugin, "api_version"):
             logger.error("Plugin '%s' has no 'api_version' attribute", plugin_name)
-            failure_reason = "missing 'api_version' attribute"
+            failure_reason = sanitize_plugin_reason("missing 'api_version' attribute")
             skipped.append({"name": plugin_name, "reason": failure_reason})
             # Always record failures regardless of on_error mode
             failed.append({"name": plugin_name, "reason": failure_reason})
@@ -414,7 +455,9 @@ def load_plugins(
                 api_version,
                 service_major,
             )
-            failure_reason = f"api_version '{api_version}' major does not match '{service_major}'"
+            failure_reason = sanitize_plugin_reason(
+                f"api_version '{api_version}' major does not match '{service_major}'"
+            )
             skipped.append({"name": plugin_name, "reason": failure_reason})
             # Always record failures regardless of on_error mode
             failed.append({"name": plugin_name, "reason": failure_reason})
@@ -527,13 +570,14 @@ def load_plugins(
             reason = next(f["reason"] for f in failed if f.get("name") == name)
             entry["reason"] = reason
         elif any(s.get("name") == name for s in skipped):
-            entry["status"] = "skipped"
+            # Map skipped plugins to 'disabled' status for API consistency
+            entry["status"] = "disabled"
             reason = next(s["reason"] for s in skipped if s.get("name") == name)
             entry["reason"] = reason
         else:
             # Not loaded but also not skipped/failed: e.g., import failed early
             entry["status"] = "failed"
-            entry["reason"] = "plugin not loaded"
+            entry["reason"] = sanitize_plugin_reason("plugin not loaded")
 
     # Raise if any failures and on_error=fail
     if failed and on_error == "fail":

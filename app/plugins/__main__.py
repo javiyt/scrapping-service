@@ -68,7 +68,7 @@ def cmd_check(settings: Settings) -> int:
         for entry in result.metadata
         if entry.get("status") == "failed"
     ]
-    skipped = [
+    disabled = [
         (entry.get("name", "unknown"), entry.get("reason") or "unknown")
         for entry in result.metadata
         if entry.get("status") == "disabled"
@@ -80,14 +80,14 @@ def cmd_check(settings: Settings) -> int:
             print(f"  - {name}: {reason}")
         print()
 
-    if skipped:
-        print("SKIPPED plugins:")
-        for name, reason in skipped:
+    if disabled:
+        print("DISABLED plugins:")
+        for name, reason in disabled:
             print(f"  - {name}: {reason}")
         print()
 
-    if failures:
-        print(f"Summary: {len(failures)} failed, {len(skipped)} skipped")
+    if failures or disabled:
+        print(f"Summary: {len(failures)} failed, {len(disabled)} disabled")
         return 1
     print("All plugins loaded successfully")
     return 0
