@@ -16,5 +16,5 @@ class HealthResponse(BaseModel):
 class ReadinessResponse(BaseModel):
     """Response for the ``/ready`` endpoint."""
 
-    status: str = Field(default="ok", pattern=r"^(ok|degraded|unavailable)$")
+    status: str = Field(default="ok", pattern=r"^(ok|degraded|unavailable|not_loaded)$")
     checks: dict[str, Any] = Field(default_factory=dict)

@@ -843,3 +843,132 @@ class TestBatchError:
         assert data["total"] == 2
         assert data["succeeded"] == 1
         assert data["failed"] == 1
+
+
+# ============================================================= Plugins routes
+
+
+class TestPluginsRoutes:
+    """Tests for the /v1/plugins and /v1/plugins/status endpoints."""
+
+    def test_plugins_endpoint_without_auth(self):
+        """GET /v1/plugins without auth should return 401."""
+        from app.main import app
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app)
+        response = client.get("/v1/plugins")
+        assert response.status_code == 401
+
+    def test_plugins_endpoint_with_auth(self):
+        """GET /v1/plugins with auth should return plugin metadata."""
+        from app.main import app
+        from fastapi.testclient import TestClient
+        from app.plugins.loader import PluginLoadResult
+
+        client = TestClient(app)
+
+        result = PluginLoadResult(
+            search_providers=[],
+            transcript_providers=[],
+            browser_provider=None,
+            extractor_registry=MagicMock(),
+            loaded=["sample-plugin"],
+            skipped=[],
+            failed=[],
+            enabled=["sample-plugin"],
+            on_error="fail",
+            metadata=[
+                {
+                    "name": "sample-plugin",
+                    "version": "1.2.3",
+                    "api_version": "1.0.0",
+                    "service_api_version": "1.0.0",
+                    "status": "loaded",
+                    "reason": None,
+                    "extensions": {
+                        "search_providers": ["sample-search"],
+                        "transcript_providers": ["sample-transcript"],
+                        "browser_provider": None,
+                        "extractors": [],
+                    },
+                }
+            ],
+        )
+
+        app.state.plugin_load_result = result
+        client = TestClient(app)
+        response = client.get("/v1/plugins", headers=AUTH_HEADER)
+        assert response.status_code == 200
+        data = response.json()
+        assert "plugins" in data
+        assert len(data["plugins"]) == 1
+        assert data["plugins"][0]["name"] == "sample-plugin"
+        assert data["plugins"][0]["version"] == "1.2.3"
+
+    def test_plugins_endpoint_with_no_plugins(self):
+        """GET /v1/plugins with no plugins should return empty list."""
+        from app.main import app
+        from fastapi.testclient import TestClient
+        from app.plugins.loader import PluginLoadResult
+
+        client = TestClient(app)
+        result = PluginLoadResult(
+            search_providers=[],
+            transcript_providers=[],
+            browser_provider=None,
+            extractor_registry=MagicMock(),
+            loaded=[],
+            skipped=[],
+            failed=[],
+            enabled=[],
+            on_error="fail",
+            metadata=[],
+        )
+        app.state.plugin_load_result = result
+        client = TestClient(app)
+        response = client.get("/v1/plugins", headers=AUTH_HEADER)
+        assert response.status_code == 200
+        data = response.json()
+        assert "plugins" in data
+        assert data["plugins"] == []
+
+    def test_plugins_status_endpoint_without_auth(self):
+        """GET /v1/plugins/status without auth should return 401."""
+        from app.main import app
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app)
+        response = client.get("/v1/plugins/status")
+        assert response.status_code == 401
+
+    def test_plugins_status_endpoint_with_auth(self):
+        """GET /v1/plugins/status with auth should return status."""
+        from app.main import app
+        from fastapi.testclient import TestClient
+        from app.plugins.loader import PluginLoadResult
+        from app.core.config import Settings
+
+        client = TestClient(app)
+        result = PluginLoadResult(
+            search_providers=[],
+            transcript_providers=[],
+            browser_provider=None,
+            extractor_registry=MagicMock(),
+            loaded=["sample-plugin"],
+            skipped=[],
+            failed=[],
+            enabled=["sample-plugin"],
+            on_error="fail",
+            metadata=[],
+        )
+        app.state.plugin_load_result = result
+        app.state.settings = Settings(api_key=VALID_API_KEY)
+        client = TestClient(app)
+        response = client.get("/v1/plugins/status", headers=AUTH_HEADER)
+        assert response.status_code == 200
+        data = response.json()
+        assert "status" in data
+        assert data["loaded"] == ["sample-plugin"]
+        assert data["skipped"] == []
+        assert data["failed"] == []

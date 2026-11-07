@@ -57,12 +57,12 @@ class PluginRegistryImpl:
         if not name:
             raise PluginLoadError(
                 plugin_name="<unknown>",
-                reason="Provider has no 'name' attribute",
+                cause="Provider has no 'name' attribute",
             )
         if self._search.get(name) is not None:
             raise PluginLoadError(
                 plugin_name=getattr(provider, "name", "<unknown>"),
-                reason=f"Search provider '{name}' is already registered (builtin or plugin)",
+                cause=f"Search provider '{name}' is already registered (builtin or plugin)",
             )
         self._search.register(provider)
 
@@ -72,12 +72,12 @@ class PluginRegistryImpl:
         if not name:
             raise PluginLoadError(
                 plugin_name="<unknown>",
-                reason="Provider has no 'name' attribute",
+                cause="Provider has no 'name' attribute",
             )
         if self._transcript.get(name) is not None:
             raise PluginLoadError(
                 plugin_name=getattr(provider, "name", "<unknown>"),
-                reason=f"Transcript provider '{name}' is already registered (builtin or plugin)",
+                cause=f"Transcript provider '{name}' is already registered (builtin or plugin)",
             )
         self._transcript.register(provider)
 
@@ -87,7 +87,7 @@ class PluginRegistryImpl:
             existing = getattr(self._browser_slot[0], "name", "<unknown>")
             raise PluginLoadError(
                 plugin_name=getattr(provider, "name", "<unknown>"),
-                reason=f"Browser provider '{existing}' is already registered (builtin or plugin)",
+                cause=f"Browser provider '{existing}' is already registered (builtin or plugin)",
             )
         self._browser_slot[0] = provider
 
@@ -97,12 +97,12 @@ class PluginRegistryImpl:
         if not hasattr(extractor, "domain") or not extractor.domain:
             raise PluginLoadError(
                 plugin_name="<unknown>",
-                reason="Extractor missing required field 'domain'",
+                cause="Extractor missing required field 'domain'",
             )
         if not hasattr(extractor, "name") or not extractor.name:
             raise PluginLoadError(
                 plugin_name="<unknown>",
-                reason="Extractor missing required field 'name'",
+                cause="Extractor missing required field 'name'",
             )
         extractor_type_value = getattr(extractor, "extractor_type", None)
         if not hasattr(extractor, "extractor_type") or extractor_type_value not in (
@@ -111,13 +111,13 @@ class PluginRegistryImpl:
         ):
             raise PluginLoadError(
                 plugin_name="<unknown>",
-                reason=(f"Extractor has invalid 'extractor_type': {extractor_type_value}"),
+                cause=(f"Extractor has invalid 'extractor_type': {extractor_type_value}"),
             )
 
         key = (extractor.domain, extractor.name)
         if key in self._extractor:
             raise PluginLoadError(
                 plugin_name=getattr(extractor, "name", "<unknown>"),
-                reason="Extractor already registered",
+                cause="Extractor already registered",
             )
         self._extractor.register(extractor)
