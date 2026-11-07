@@ -1375,6 +1375,8 @@ paths:
              application/json:
                schema:
                  $ref: '#/components/schemas/HealthResponse'
+         '401':
+           description: Not authorized
 
    /health/deep:
      get:
@@ -1438,6 +1440,8 @@ paths:
                          version: null
                          browser_connected: null
                          pool_size: null
+         '401':
+           description: Not authorized
          '503':
            description: One or more internal checks are degraded
            content:
@@ -1470,6 +1474,8 @@ paths:
              application/json:
                schema:
                  $ref: '#/components/schemas/ReadinessResponse'
+         '401':
+           description: Not authorized
          '503':
            description: Service degraded
 
@@ -1504,6 +1510,8 @@ paths:
                  # HELP search_provider_attempts_total Search attempts made, by provider
                  # TYPE search_provider_attempts_total counter
                  search_provider_attempts_total{provider="searxng"} 39
+         '401':
+           description: Not authorized
 
    # ====================================================== Scrape Endpoints
    /v1/scrape:
@@ -1887,6 +1895,8 @@ paths:
              application/json:
                schema:
                  $ref: '#/components/schemas/CacheStats'
+         '401':
+           description: Not authorized
 
    /v1/cache/{url}:
      delete:
@@ -1987,14 +1997,7 @@ paths:
            content:
              application/json:
                schema:
-                 type: object
-                 properties:
-                   total_deleted:
-                     type: integer
-                   size_after_bytes:
-                     type: integer
-                   entries_after:
-                     type: integer
+                 $ref: '#/components/schemas/CacheCleanupResult'
          '400':
            description: Bad Request
            content:
@@ -2016,10 +2019,7 @@ paths:
            content:
              application/json:
                schema:
-                 type: object
-                 properties:
-                   size_after_bytes:
-                     type: integer
+                 $ref: '#/components/schemas/CacheVacuumResult'
          '400':
            description: Bad Request
            content:
@@ -2044,6 +2044,10 @@ paths:
        responses:
          '200':
            description: Plugin status report
+         '401':
+           description: Not authorized
+         '403':
+           description: Forbidden
            content:
              application/json:
                schema:
