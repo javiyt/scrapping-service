@@ -90,7 +90,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Background cache cleanup is disabled")
 
-    # Build search router first to get camofox_client from the provider
+    # Build search router first to get camofox_client from the provider.
+    # Plugin providers are attached below via ``extra_providers`` in the final
+    # router build (see after the plugin load).
     search_router = build_search_router(settings, metrics=metrics)
     app.state.search_router = search_router
     search_providers = search_router.registry.all()
@@ -111,7 +113,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     else:
         logger.info("Camofox client disabled")
 
-    # Load plugins AFTER search providers so we can pass camofox_client
+    # Load plugins AFTER search providers so we can pass camofox_client.
+    # The router and cache built below are the final build: plugin providers
+    # pass in via ``extra_providers``, so they already include every active
+    # provider (built-in and plugin-provided).
     _shared_http = httpx.AsyncClient(
         timeout=httpx.Timeout(30.0),
         follow_redirects=False,
@@ -120,9 +125,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _plugin_result = load_plugins(
         settings, camofox_client=_camofox_client, http_client=_shared_http
     )
-    # Store plugin load result for /v1/plugins/status endpoint
+    # Store plugin load result for the /v1/plugins* endpoints
     app.state.plugin_load_result = _plugin_result
-    app.state.extractor_registry = _plugin_result.extractor_registry
+
+    # Register plugin metadata for metrics
+    metrics.register_plugin_metadata(
+        loaded_count=len(_plugin_result.loaded),
+        failed_count=len(_plugin_result.failed),
+        entries=_plugin_result.metadata,
+    )
+
     logger.info(
         "Plugin loading complete: loaded=%s, skipped=%d",
         _plugin_result.loaded,
@@ -144,9 +156,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     # ---- Search result cache
     # Provider-agnostic cache for normalized search responses, sitting above
-    # the router (all providers share it).  Entries live in the shared
-    # SQLite database, in their own table, maintained by the same loop as
-    # every other cache entry.  The search API routes depend on it.
+    # the router (all providers share it).  Final build of the search stack:
+    # plugin-provided search providers pass in via ``extra_providers``, so
+    # this router and its cache already include every active provider.  The
+    # search API routes depend on it.
+    search_router = build_search_router(
+        settings,
+        metrics=metrics,
+        extra_providers=_plugin_result.search_providers,
+    )
+    app.state.search_router = search_router
+    search_providers = search_router.registry.all()
+    app.state.search_providers = search_providers
+
     search_cache = build_search_cache(settings, search_router, _cache)
     app.state.search_cache = search_cache
     if search_cache.config.enabled:

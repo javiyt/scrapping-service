@@ -39,12 +39,17 @@ tags:
      description: Provider-agnostic web search endpoints
    - name: Transcript
      description: Provider-agnostic YouTube transcript (captions) endpoints
+   - name: Plugins
+     description: Plugin discovery, metadata and observability endpoints
    - name: Cache
      description: Cache management operations
    - name: Jobs
      description: Async job queue management
    - name: Browser
      description: Interactive agent browser API (stateful sessions, tabs, snapshot, actions)
+
+security:
+  - bearerAuth: []
 
 components:
   securitySchemes:
@@ -74,11 +79,71 @@ components:
       properties:
         status:
           type: string
-          enum: [ok, degraded, unavailable]
+          enum: [ok, degraded, unavailable, not_loaded]
           default: ok
         checks:
           type: object
           additionalProperties: true
+
+    # Plugin endpoints
+    PluginInfo:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Plugin name
+        version:
+          type: string
+          description: Plugin version
+        api_version:
+          type: string
+          nullable: true
+          description: Plugin API version
+        service_api_version:
+          type: string
+          nullable: true
+          description: Service plugin API version
+        status:
+          type: string
+          enum: [loaded, failed, skipped, disabled]
+          description: Plugin status
+        reason:
+          type: string
+          nullable: true
+          description: Failure or skip reason
+        extensions:
+          type: object
+          nullable: true
+          description: Registered providers by kind
+
+    PluginListResponse:
+      type: object
+      properties:
+        plugins:
+          type: array
+          items:
+            $ref: '#/components/schemas/PluginInfo'
+          description: List of plugin metadata
+        summary:
+          type: object
+          properties:
+            loaded:
+              type: integer
+            failed:
+              type: integer
+            skipped:
+              type: integer
+        loaded_count:
+          type: integer
+        failed_count:
+          type: integer
+        skipped_count:
+          type: integer
+        status:
+          type: string
+          enum: [loaded, skipped_all, no_plugins]
+        message:
+          type: string
 
     # Scrape endpoints
     ExtractField:
@@ -1015,6 +1080,13 @@ components:
               type: string
             details:
               type: object
+
+    AuthErrorResponse:
+      type: object
+      properties:
+        detail:
+          type: string
+          description: Error detail message
 
     # Interactive agent browser endpoints
     BrowserProviderMetadata:
@@ -1956,6 +2028,90 @@ paths:
                  $ref: '#/components/schemas/ErrorResponse'
 
    # ======================================================= Job Endpoints
+# ============================================================ /v1/plugins/status
+   /v1/plugins/status:
+     get:
+       operationId: pluginsStatus
+       summary: Plugin loading status
+       description: |
+         Return plugin loading status and metadata.
+
+         Reports which plugins were successfully loaded, skipped, or failed,
+         along with allowlist/denylist configuration and failure isolation mode.
+         This endpoint helps operators diagnose plugin loading issues and verify
+         that expected plugins are active.
+       tags: [Plugins]
+       responses:
+         '200':
+           description: Plugin status report
+           content:
+             application/json:
+               schema:
+                 type: object
+                 properties:
+                   loaded:
+                     type: array
+                     items:
+                       type: string
+                   skipped:
+                     type: array
+                     items:
+                       type: object
+                   failed:
+                     type: array
+                     items:
+                       type: object
+                   enabled:
+                     type: array
+                     items:
+                       type: string
+                   on_error:
+                     type: string
+                     enum: [fail, warn]
+                   allowlist_enabled:
+                     type: boolean
+                   allowlist:
+                     type: array
+                     nullable: true
+                     items:
+                       type: string
+                   denylist:
+                     type: array
+                     items:
+                       type: string
+                   status:
+                     type: string
+                     enum: [loaded, skipped_all, no_plugins, not_loaded]
+                   message:
+                     type: string
+
+# ============================================================ /v1/plugins
+   /v1/plugins:
+     get:
+       operationId: pluginsList
+       summary: Plugin metadata list
+       description: |
+         Return detailed plugin metadata and registration info.
+
+         This endpoint provides richer information than /v1/plugins/status,
+         including API versions, registered providers, and per-plugin status.
+       tags: [Plugins]
+       security:
+         - bearerAuth: []
+       responses:
+         '200':
+           description: Plugin metadata list
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/PluginListResponse'
+         '401':
+           description: Unauthorized
+           content:
+             application/json:
+               schema:
+                 $ref: '#/components/schemas/AuthErrorResponse'
+
    /v1/jobs:
      post:
        operationId: createJob

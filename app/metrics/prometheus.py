@@ -59,11 +59,14 @@ class MetricsCollector:
             "proxy_errors_total": 0,
             "auth_requests_total": 0,
             "auth_failures_total": 0,
+            "plugin_provider_calls_total": 0,
         }
         self._latencies: dict[str, float] = {
             "scrape_duration_ms_sum": 0.0,
             "search_duration_ms_sum": 0.0,
             "transcript_duration_ms_sum": 0.0,
+            "plugin_provider_duration_ms_sum_search": 0.0,
+            "plugin_provider_duration_ms_sum_transcript": 0.0,
         }
         # Labelled counters: metric name -> {((label, value), ...) -> count}.
         # Label keys are sorted so series render deterministically.
@@ -73,6 +76,7 @@ class MetricsCollector:
         self._consecutive_scrape_errors = 0
         self._last_scrape_error_at: float | None = None
         self._last_scrape_success_at: float | None = None
+        self._plugin_metadata: list[dict[str, Any]] = []
 
     # --------------------------------------------------------------- counters
 
@@ -155,6 +159,55 @@ class MetricsCollector:
     def observe_transcript_latency(self, ms: float) -> None:
         with self._lock:
             self._latencies["transcript_duration_ms_sum"] += ms
+
+    def register_plugin_metadata(
+        self,
+        loaded_count: int,
+        failed_count: int,
+        entries: list[dict[str, Any]],
+    ) -> None:
+        """Register plugin metadata for metrics.
+
+        Records gauges for total loaded/failed plugins and a snapshot of
+        per-plugin metadata (name, version, status) for reporting.
+
+        The ``entries`` list contains dicts with keys:
+        - ``name``: plugin name
+        - ``version``: plugin version string
+        - ``api_version``: plugin API version string
+        - ``service_api_version``: service plugin API version
+        - ``status``: 'loaded', 'disabled', or 'failed'
+        - ``reason``: optional failure reason
+        - ``extensions``: optional dict of registered providers.
+        """
+        with self._lock:
+            self._gauges["plugins_loaded"] = loaded_count
+            self._gauges["plugins_failed"] = failed_count
+            self._plugin_metadata = list(entries)
+
+    def observe_plugin_call(
+        self,
+        kind: str,
+        provider: str,
+        ms: float,
+        ok: bool = True,
+    ) -> None:
+        """Record a plugin provider call (search or transcript).
+
+        Increments per-provider attempt/error counters and accumulates
+        duration for the given provider. Only plugin providers (identified
+        by having a ``_plugin_name`` attribute) are tracked here; built-in
+        providers are counted by the routers' own per-provider counters.
+        """
+        with self._lock:
+            key = f"plugin_provider_duration_ms_sum_{kind}"
+            self._latencies[key] = self._latencies.get(key, 0.0) + ms
+            # Per-provider counters (labelled); errors are a subset of attempts.
+            self.inc("plugin_provider_attempts_total", 1, provider=provider)
+            if ok:
+                self.inc("plugin_provider_success_total", 1, provider=provider)
+            else:
+                self.inc("plugin_provider_errors_total", 1, provider=provider)
 
     @staticmethod
     def _escape_label(value: str) -> str:
@@ -455,6 +508,70 @@ class MetricsCollector:
                 lines.append(f"# HELP {counter_name} {help_text}")
                 lines.append(f"# TYPE {counter_name} counter")
                 lines.append(f"{counter_name} {val}")
+                lines.append("")
+
+            # Plugin gauges
+            for gauge_name in [
+                "plugins_loaded",
+                "plugins_failed",
+            ]:
+                val = self._gauges.get(gauge_name, 0)
+                help_text = (
+                    "Total number of plugins currently loaded"
+                    if gauge_name == "plugins_loaded"
+                    else "Total number of plugins that failed to load"
+                )
+                lines.append(f"# HELP {gauge_name} {help_text}")
+                lines.append(f"# TYPE {gauge_name} gauge")
+                lines.append(f"{gauge_name} {val}")
+                lines.append("")
+
+            # Plugin provider call counter
+            val = self._counters.get("plugin_provider_calls_total", 0)
+            lines.append("# HELP plugin_provider_calls_total Total plugin provider calls")
+            lines.append("# TYPE plugin_provider_calls_total counter")
+            lines.append(f"plugin_provider_calls_total {val}")
+            lines.append("")
+
+            # Plugin provider duration sums
+            for counter_name, help_text in [
+                (
+                    "plugin_provider_duration_ms_sum_search",
+                    "Total milliseconds spent in plugin search provider calls",
+                ),
+                (
+                    "plugin_provider_duration_ms_sum_transcript",
+                    "Total milliseconds spent in plugin transcript provider calls",
+                ),
+            ]:
+                val = self._latencies.get(counter_name, 0.0)
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                lines.append(f"{counter_name} {val}")
+                lines.append("")
+
+            # Plugin provider-labelled counters (same format as search_provider)
+            for counter_name, help_text in [
+                (
+                    "plugin_provider_attempts_total",
+                    "Plugin provider attempts, by provider",
+                ),
+                (
+                    "plugin_provider_success_total",
+                    "Plugin provider successes, by provider",
+                ),
+                (
+                    "plugin_provider_errors_total",
+                    "Plugin provider errors, by provider",
+                ),
+            ]:
+                lines.append(f"# HELP {counter_name} {help_text}")
+                lines.append(f"# TYPE {counter_name} counter")
+                for labels, val in sorted(self._labeled_counters.get(counter_name, {}).items()):
+                    label_part = ",".join(
+                        f'"{key}"="{self._escape_label(value)}"' for key, value in labels
+                    )
+                    lines.append(f"{counter_name}{{{label_part}}} {val}")
                 lines.append("")
 
             # Gauges

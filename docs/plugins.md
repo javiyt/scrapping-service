@@ -361,4 +361,94 @@ Or via environment:
 - Extractors run only for scrape responses without an explicit `extract`
   block (per-request `extract` takes precedence).
 
+## Observability
+
+Plugin loading status and metadata are exposed through several endpoints:
+
+### `/v1/plugins`
+
+Returns detailed plugin metadata including API versions, registered providers,
+and per-plugin status. Requires API key authentication.
+
+Example response:
+
+```json
+{
+  "plugins": [
+    {
+      "name": "my-plugin",
+      "version": "1.0.0",
+      "api_version": "1.0.0",
+      "service_api_version": "1.0.0",
+      "status": "loaded",
+      "extensions": {
+        "search_providers": ["my_search"],
+        "transcript_providers": ["my_transcript"],
+        "browser_provider": null,
+        "extractors": []
+      }
+    }
+  ],
+  "summary": { "loaded": 1, "failed": 0, "skipped": 0 }
+}
+```
+
+### `/v1/plugins/status`
+
+Returns basic plugin loading status with allowlist/denylist configuration.
+No authentication required.
+### Health check
+
+The `/health/deep` endpoint includes a `checks.plugins` object with:
+
+- `status`: `ok` (no failures) or `degraded` (some plugins failed)
+- `loaded`: count of successfully loaded plugins
+- `failed`: count of failed plugins
+- `skipped`: count of skipped plugins
+- `plugins`: detailed per-plugin status
+
+## CLI
+
+The `app.plugins` module provides a CLI for inspecting plugins:
+
+```bash
+# List all loaded plugins with metadata
+python -m app.plugins list
+
+# Check plugin status and report failures
+python -m app.plugins check
+```
+
+Exit codes:
+- `0`: All plugins loaded successfully (list) or no failures (check)
+- `1`: Error or plugin failures (check lists failures)
+
+## Troubleshooting
+
+### Plugin loading fails silently
+
+Set `SCRAPER_PLUGINS_ON_ERROR=fail` to see the error message instead of
+skipping the plugin.
+
+### Plugin version mismatch
+
+The loader enforces `api_version.major == 1`. If a plugin fails with
+"incompatible API version", update the plugin to match
+`PLUGIN_API_VERSION = "1.0.0"`.
+
+### Plugin provides unexpected providers
+
+Check `extensions` in `/v1/plugins` to see which providers each plugin
+registered. Plugins must explicitly call `registry.register_search_provider`
+or `registry.register_transcript_provider` to make providers available.
+
+### Provider not found in registry
+
+Plugin-provided providers appear in the registry after successful plugin
+loading. If a provider is missing:
+
+1. Check `/v1/plugins` for the plugin's status
+2. Verify the plugin's `register()` method calls the correct registry methods
+3. Look for startup logs containing plugin error messages
+
 For full authoring guide and examples, see [Plugin Authoring](plugins-authoring.md) and [examples/plugins/example](https://github.com/javiyt/scrapping-service/tree/main/examples/plugins/example).

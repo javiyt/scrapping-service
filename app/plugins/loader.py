@@ -68,6 +68,7 @@ class PluginLoadResult:
         failed: list[dict[str, str]] | None = None,
         enabled: list[str] | None = None,
         on_error: str = "fail",
+        metadata: list[dict[str, Any]] | None = None,
     ) -> None:
         """Initialize the result.
 
@@ -84,6 +85,9 @@ class PluginLoadResult:
               that failed to load and triggered on_error=fail.
             enabled: List of plugin names that were enabled (allowlist/denylist).
             on_error: The on_error policy ("fail" or "warn").
+            metadata: List of dicts describing each discovered entry point
+              with keys: name, version, api_version, service_api_version,
+              status, reason (optional), extensions (optional dict of lists).
         """
         self.search_providers = search_providers
         self.transcript_providers = transcript_providers
@@ -94,6 +98,7 @@ class PluginLoadResult:
         self.failed = failed or []
         self.enabled = enabled or []
         self.on_error = on_error
+        self.metadata = metadata or []
 
 
 def load_plugins(
@@ -292,6 +297,28 @@ def load_plugins(
         extractor_registry=extractor_registry,
     )
 
+    # Collect metadata for each entry point (before processing)
+    from app.plugin_api import PLUGIN_API_VERSION
+
+    plugin_metadata: list[dict[str, Any]] = []
+    for ep in entry_points:
+        plugin_name = ep.name
+        entry_point_metadata = {
+            "name": plugin_name,
+            "version": "<unknown>",
+            "api_version": "<unknown>",
+            "service_api_version": PLUGIN_API_VERSION,
+            "status": "loaded",
+            "reason": None,
+            "extensions": {
+                "search_providers": [],
+                "transcript_providers": [],
+                "browser_provider": None,
+                "extractors": [],
+            },
+        }
+        plugin_metadata.append(entry_point_metadata)
+
     loaded: list[str] = []
     skipped: list[dict[str, str]] = []
     failed: list[dict[str, str]] = []
@@ -435,18 +462,66 @@ def load_plugins(
     search_providers = []
     for p in search_registry.all():
         if hasattr(p, "_plugin_name") and p._plugin_name:
-            search_providers.append(wrap_search_provider(p, p._plugin_name, p.name))
+            wrapped = wrap_search_provider(p, p._plugin_name, p.name)
+            search_providers.append(wrapped)
+            # Update metadata for this plugin's search provider
+            for entry in plugin_metadata:
+                if entry["name"] == p._plugin_name:
+                    entry["extensions"]["search_providers"].append(p.name)
+                    break
         else:
             search_providers.append(p)
 
     transcript_providers = []
     for p in transcript_registry.all():
         if hasattr(p, "_plugin_name") and p._plugin_name:
-            transcript_providers.append(wrap_transcript_provider(p, p._plugin_name, p.name))
+            wrapped = wrap_transcript_provider(p, p._plugin_name, p.name)
+            transcript_providers.append(wrapped)
+            # Update metadata for this plugin's transcript provider
+            for entry in plugin_metadata:
+                if entry["name"] == p._plugin_name:
+                    entry["extensions"]["transcript_providers"].append(p.name)
+                    break
         else:
             transcript_providers.append(p)
 
     browser_provider = browser_slot[0]
+    # Update metadata for browser provider
+    if browser_provider and hasattr(browser_provider, "_plugin_name"):
+        for entry in plugin_metadata:
+            if entry["name"] == browser_provider._plugin_name:
+                entry["extensions"]["browser_provider"] = browser_provider.name
+                break
+    # Also check for extractor providers if any
+    if extractor_registry:
+        for ext in extractor_registry.all():
+            plugin_name = getattr(ext, "_plugin_name", None)
+            if plugin_name:
+                for entry in plugin_metadata:
+                    if entry["name"] == plugin_name:
+                        entry["extensions"].setdefault("extractors", []).append(
+                            ext.name if hasattr(ext, "name") else "unknown"
+                        )
+                        break
+
+    # Update skipped/failed metadata with final status
+    for entry in plugin_metadata:
+        name = entry["name"]
+        if name in loaded:
+            entry["status"] = "loaded"
+            entry["reason"] = None
+        elif any(s.get("name") == name for s in skipped):
+            entry["status"] = "disabled"
+            reason = next(s["reason"] for s in skipped if s.get("name") == name)
+            entry["reason"] = reason
+        elif any(f.get("name") == name for f in failed):
+            entry["status"] = "failed"
+            reason = next(f["reason"] for f in failed if f.get("name") == name)
+            entry["reason"] = reason
+        else:
+            # Not loaded but also not skipped/failed: e.g., import failed early
+            entry["status"] = "failed"
+            entry["reason"] = "plugin not loaded"
 
     # Raise if any failures and on_error=fail
     if failed and on_error == "fail":
@@ -466,6 +541,7 @@ def load_plugins(
         failed=failed,
         enabled=enabled_list,
         on_error=on_error,
+        metadata=plugin_metadata,
     )
 
 
