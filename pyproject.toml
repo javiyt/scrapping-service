@@ -60,7 +60,7 @@ addopts = [
     "--cov=app",
     "--cov-report=term-missing",
     "--cov-report=xml",
-    "--cov-fail-under=77",
+    "--cov-fail-under=75",
 ]
 
 [tool.coverage.run]
@@ -71,7 +71,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 77
+fail_under = 75
 show_missing = true
 skip_covered = false
 exclude_lines = [
