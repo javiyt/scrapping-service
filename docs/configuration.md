@@ -24,6 +24,8 @@ overrides can further specialize scrape behavior.
 | `SCRAPER_CACHE_DEFAULT_TTL_SECONDS` | Default cache TTL. |
 | `SCRAPER_SCRAPER_MAX_CONCURRENCY` | Server-side scrape concurrency cap. |
 | `SCRAPER_BROWSER_IDLE_TIMEOUT_SECONDS` | Browser idle release timeout. |
+| `SCRAPER_HTTP_IMPERSONATE` | Default impersonation profile for HTTP mode (e.g. 'chrome', 'firefox', 'safari'). |
+| `SCRAPER_AUTO_IMPERSONATE_ESCALATION` | When true, 'auto' mode tries http -> impersonate -> browser. |
 | `LOG_LEVEL` | Application log level. |
 | `CONFIG_PATH` | Alternative YAML config path. |
 | `SCRAPER_SEARCH_SEARXNG_ENABLED` | Enable the SearXNG search provider. |

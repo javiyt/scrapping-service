@@ -50,6 +50,7 @@ def make_cache_key(
     url: str,
     cookies: list[dict] | None = None,
     extra_headers: dict[str, str] | None = None,
+    impersonate: str | None = None,
 ) -> str:
     """Return a stable SHA-256 hash for *url* to use as the cache primary key.
 
@@ -71,6 +72,9 @@ def make_cache_key(
     if extra_headers:
         header_pairs = sorted(extra_headers.items())
         parts.append("headers:" + json.dumps(header_pairs, sort_keys=True))
+
+    if impersonate:
+        parts.append(f"impersonate:{impersonate}")
 
     key_material = "\n".join(parts)
     return hashlib.sha256(key_material.encode("utf-8")).hexdigest()

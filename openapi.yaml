@@ -529,6 +529,10 @@ components:
           $ref: '#/components/schemas/CookieConfig'
         headers:
           $ref: '#/components/schemas/HeaderConfig'
+        impersonate:
+          type: string
+          maxLength: 64
+          description: Impersonation profile for HTTP mode fetches (e.g. 'chrome', 'firefox', 'safari'). When unset, plain httpx is used. If curl_cffi is unavailable, the fetch falls back to plain httpx regardless of this setting.
         scroll:
           $ref: '#/components/schemas/ScrollConfig'
         debug:

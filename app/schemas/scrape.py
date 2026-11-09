@@ -340,6 +340,16 @@ class ScrapeRequest(BaseModel):
         ),
     )
 
+    impersonate: str | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "Impersonation profile for HTTP mode fetches (e.g. 'chrome', 'firefox', 'safari'). "
+            "When unset, plain httpx is used. If curl_cffi is unavailable, the fetch falls back "
+            "to plain httpx regardless of this setting."
+        ),
+    )
+
     scroll: ScrollConfig = Field(default_factory=ScrollConfig)
 
     debug: DebugConfig = Field(default_factory=DebugConfig)
@@ -385,6 +395,15 @@ class BatchItem(BaseModel):
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
     cookies: CookieConfig = Field(default_factory=CookieConfig)
     headers: HeaderConfig = Field(default_factory=HeaderConfig)
+    impersonate: str | None = Field(
+        default=None,
+        max_length=64,
+        description=(
+            "Impersonation profile for HTTP mode fetches (e.g. 'chrome', 'firefox', 'safari'). "
+            "When unset, plain httpx is used. If curl_cffi is unavailable, the fetch falls back "
+            "to plain httpx regardless of this setting."
+        ),
+    )
     scroll: ScrollConfig = Field(default_factory=ScrollConfig)
     debug: DebugConfig = Field(default_factory=DebugConfig)
     normalize: NormalizeConfig = Field(default_factory=NormalizeConfig)

@@ -89,6 +89,21 @@ class Settings(BaseSettings):
     scraper_timeout_seconds: int = 90
     scraper_max_concurrency: int = Field(default=1, ge=1)
     scraper_user_agent_profile: str = "desktop_es"
+    scraper_http_impersonate: str | None = Field(
+        default=None,
+        description=(
+            "Default impersonation profile for HTTP mode "
+            "(e.g. 'chrome', 'firefox', 'safari'). "
+            "When unset, plain httpx is used (no impersonation). "
+            "Use 'SCRAPER_HTTP_IMPERSONATE' environment variable to set."
+        ),
+    )
+    scraper_auto_impersonate_escalation: bool = Field(
+        default=False,
+        description="When true, 'auto' mode tries http -> impersonate -> browser. "
+        "Default is false (http -> browser only). "
+        "Use 'SCRAPER_AUTO_IMPERSONATE_ESCALATION' environment variable to set.",
+    )
 
     # ------------------------------------------------------------- Browser
     browser_arguments: list[str] = Field(
