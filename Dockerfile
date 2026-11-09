@@ -105,7 +105,7 @@ CMD ["python", "app/run.py"]
 FROM deps AS mcp
 
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install 'mcp>=1.9.0,<2'
+    pip install 'mcp>=2.3.0,<3'
 
 COPY --chown=scraper:scraper app/ ./app/
 
