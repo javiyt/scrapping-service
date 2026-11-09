@@ -136,10 +136,10 @@ class MCPServer:
                 isError=is_error,
             )
 
-        # mcp 2.x registers handlers in request_handlers dict or via decorator
+        # mcp 2.x uses add_request_handler with method string and params_type
         # See: https://github.com/modelcontextprotocol/python-sdk/blob/main/src/mcp/server/lowlevel/server.py
-        server.request_handlers[types.ListToolsRequest] = _list_tools
-        server.request_handlers[types.CallToolRequest] = _call_tool
+        server.add_request_handler("tools/list", types.PaginatedRequestParams, _list_tools)
+        server.add_request_handler("tools/call", types.CallToolRequestParams, _call_tool)
 
     # -------------------------------------------------------------- running
     async def run_stdio(self) -> None:
