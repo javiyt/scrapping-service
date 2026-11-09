@@ -8,6 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth.models import AuthContext
 from app.auth.resolver import ProfileResolver, get_profile_resolver
+from app.cache.crawl_store import CrawlStore
 from app.cache.sqlite_cache import SqliteCache
 from app.core.config import Settings
 from app.jobs.service import JobService
@@ -217,6 +218,16 @@ def get_job_service(request: Request) -> JobService:
             },
         )
     return service
+
+
+def get_crawl_store(request: Request) -> CrawlStore:
+    """Return the CrawlStore singleton from app.state."""
+    cache = _get_cache(request)
+    crawl_store: CrawlStore | None = getattr(request.app.state, "crawl_store", None)
+    if crawl_store is None:
+        crawl_store = CrawlStore(cache)
+        request.app.state.crawl_store = crawl_store
+    return crawl_store
 
 
 # ------------------------------------------------------------- auth scheme

@@ -10,6 +10,7 @@ import asyncio
 import copy
 import logging
 import secrets
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -21,6 +22,7 @@ from app.core.errors import ScraperError
 from app.jobs.models import Job, JobStatus
 from app.metrics.prometheus import MetricsCollector
 from app.scraper.browser_pool import BrowserFetcherPool
+from app.scraper.crawler import Crawler
 from app.scraper.response_processing import format_scrape_content, process_scrape_response
 from app.scraper.service import ScraperService
 
@@ -301,59 +303,202 @@ class JobService:
             profile_tag = f" profile={job.profile_name}" if job.profile_name else ""
             logger.info("Job %s started (worker %d)%s", job_id, worker_index, profile_tag)
 
-            # Build a scraper with job-specific effective settings.
-            scraper = self._build_scraper_for_job(job)
+            # Dispatch based on job type
+            if job.kind == "crawl":
+                try:
+                    await self._run_crawl_job(job)
+                except asyncio.CancelledError:
+                    async with self._lock:
+                        job.status = JobStatus.CANCELLED
+                    self._metrics.inc("jobs_cancelled_total")
+                    self._queue.task_done()
+                    raise
+                except Exception as exc:
+                    async with self._lock:
+                        job.error = {
+                            "type": "internal_error",
+                            "message": str(exc),
+                            "details": {},
+                        }
+                        job.status = JobStatus.FAILED
+                    self._metrics.inc("jobs_failed_total")
+                    logger.exception("Job %s failed with unexpected error%s", job_id, profile_tag)
+            else:
+                # Standard scrape job
+                scraper = self._build_scraper_for_job(job)
 
-            try:
-                scrape_params = dict(job.config)
+                try:
+                    scrape_params = dict(job.config)
 
-                result = await scraper.scrape(**scrape_params)
-                result = process_scrape_response(
-                    result,
-                    normalize_config=job.normalize_config,
-                    extract_config=job.extract_config,
-                )
-                if job.response_format is not None:
-                    result = format_scrape_content(result, job.response_format)
+                    result = await scraper.scrape(**scrape_params)
+                    result = process_scrape_response(
+                        result,
+                        normalize_config=job.normalize_config,
+                        extract_config=job.extract_config,
+                    )
+                    if job.response_format is not None:
+                        result = format_scrape_content(result, job.response_format)
 
-                async with self._lock:
-                    job.result = result
-                    job.status = JobStatus.SUCCEEDED
-                self._metrics.inc("jobs_succeeded_total")
-                logger.info("Job %s succeeded%s", job_id, profile_tag)
+                    async with self._lock:
+                        job.result = result
+                        job.status = JobStatus.SUCCEEDED
+                    self._metrics.inc("jobs_succeeded_total")
+                    logger.info("Job %s succeeded%s", job_id, profile_tag)
 
-            except ScraperError as exc:
-                async with self._lock:
-                    job.error = exc.to_dict()
-                    job.status = JobStatus.FAILED
-                self._metrics.inc("jobs_failed_total")
-                logger.warning("Job %s failed: %s%s", job_id, exc.message, profile_tag)
+                except ScraperError as exc:
+                    async with self._lock:
+                        job.error = exc.to_dict()
+                        job.status = JobStatus.FAILED
+                    self._metrics.inc("jobs_failed_total")
+                    logger.warning("Job %s failed: %s%s", job_id, exc.message, profile_tag)
 
-            except asyncio.CancelledError:
-                async with self._lock:
-                    job.status = JobStatus.CANCELLED
-                self._metrics.inc("jobs_cancelled_total")
-                self._queue.task_done()
-                raise
+                except asyncio.CancelledError:
+                    async with self._lock:
+                        job.status = JobStatus.CANCELLED
+                    self._metrics.inc("jobs_cancelled_total")
+                    self._queue.task_done()
+                    raise
 
-            except Exception as exc:
-                async with self._lock:
-                    job.error = {
-                        "type": "internal_error",
-                        "message": str(exc),
-                        "details": {},
-                    }
-                    job.status = JobStatus.FAILED
-                self._metrics.inc("jobs_failed_total")
-                logger.exception("Job %s failed with unexpected error%s", job_id, profile_tag)
+                except Exception as exc:
+                    async with self._lock:
+                        job.error = {
+                            "type": "internal_error",
+                            "message": str(exc),
+                            "details": {},
+                        }
+                        job.status = JobStatus.FAILED
+                    self._metrics.inc("jobs_failed_total")
+                    logger.exception("Job %s failed with unexpected error%s", job_id, profile_tag)
 
-            finally:
-                async with self._lock:
-                    job.finished_at = datetime.now(UTC)
-                    job.updated_at = datetime.now(UTC)
-                self._running_count -= 1
-                self._metrics.set_gauge("jobs_running", self._running_count)
-                self._queue.task_done()
+            # Update job metadata after processing
+            async with self._lock:
+                job.finished_at = datetime.now(UTC)
+                job.updated_at = datetime.now(UTC)
+            self._running_count -= 1
+            self._metrics.set_gauge("jobs_running", self._running_count)
+            self._queue.task_done()
+
+    async def _run_crawl_job(self, job: Job) -> None:
+        """Run a crawl job using the Crawler class."""
+        logger.info("Running crawl job %s", job.job_id)
+
+        # Import here to avoid circular dependencies
+        from app.cache.crawl_store import CrawlStore
+        from app.scraper.crawler import CrawlConfig, CrawlState, CrawlSummary
+        from app.scraper.http_fetcher import HttpFetcher
+        from app.scraper.robots import RobotsCache
+
+        # Reconstruct crawl config from job config
+        crawl_config = job.config.get("crawl_config", {})
+        if not crawl_config:
+            # Fallback: extract from scrape config
+            crawl_config = {
+                "start_urls": [job.url],
+                "max_pages": job.config.get("max_pages", 100),
+                "max_depth": job.config.get("max_depth", 5),
+                "allow": job.config.get("allow", []),
+                "deny": job.config.get("deny", []),
+                "same_domain_only": job.config.get("same_domain_only", False),
+                "include_subdomains": job.config.get("include_subdomains", False),
+                "allowed_extensions": job.config.get("allowed_extensions", []),
+                "obey_robots_txt": job.config.get("obey_robots_txt", True),
+            }
+
+        # Initialize crawler
+        fetcher = HttpFetcher(timeout_seconds=self._settings.scraper_timeout_seconds)
+        robots_cache = RobotsCache(
+            default_ttl_seconds=self._settings.crawler_robots_cache_ttl_seconds
+        )
+
+        # Load state from crawl_store if available (resume)
+        crawl_store = CrawlStore(self._cache)
+        stored = crawl_store.load(job.job_id)
+        if stored and job.crawl_state is None:
+            job.crawl_state = stored["state"]
+            job.result = {"summary": stored["summary"]}
+
+        # Reconstruct state
+        if job.crawl_state:
+            state = CrawlState.from_dict(job.crawl_state)
+        else:
+            summary = CrawlSummary()
+            state = CrawlState(
+                frontier=list(crawl_config.get("start_urls", [])),
+                seen=set(crawl_config.get("start_urls", [])),
+                summary=summary,
+                start_time=time.monotonic(),
+            )
+
+        # Build config
+        config = CrawlConfig(
+            start_urls=crawl_config.get("start_urls", []),
+            max_pages=crawl_config.get("max_pages", 100),
+            max_depth=crawl_config.get("max_depth", 5),
+            allow=crawl_config.get("allow", []),
+            deny=crawl_config.get("deny", []),
+            same_domain_only=crawl_config.get("same_domain_only", False),
+            include_subdomains=crawl_config.get("include_subdomains", False),
+            allowed_extensions=crawl_config.get("allowed_extensions", []),
+            obey_robots_txt=crawl_config.get("obey_robots_txt", True),
+            timeout_seconds=self._settings.scraper_timeout_seconds,
+            global_concurrency=self._settings.crawler_global_concurrency,
+            per_domain_concurrency=self._settings.crawler_per_domain_concurrency,
+            max_duration_seconds=self._settings.crawler_max_duration_seconds,
+        )
+
+        crawler = Crawler(config, self._settings, fetcher, robots_cache)
+
+        # Check for cancel
+        if state.cancelled:
+            async with self._lock:
+                job.status = JobStatus.CANCELLED
+                job.updated_at = datetime.now(UTC)
+            self._metrics.inc("jobs_cancelled_total")
+            crawl_store.save(
+                job_id=job.job_id,
+                state_json=state.to_dict(),
+                summary_json=state.summary.model_dump(),
+            )
+            return
+
+        # Run the crawl
+        try:
+            state = await crawler.run()
+
+            # Save final state
+            crawl_store.save(
+                job_id=job.job_id,
+                state_json=state.to_dict(),
+                summary_json=state.summary.model_dump(),
+            )
+
+            # Update job result
+            async with self._lock:
+                job.result = {
+                    "summary": state.summary.model_dump(),
+                    "pages_count": len(state.results),
+                }
+                job.status = JobStatus.SUCCEEDED
+            self._metrics.inc("jobs_succeeded_total")
+            logger.info("Crawl job %s succeeded", job.job_id)
+
+        except Exception as exc:
+            # Save partial state on error
+            crawl_store.save(
+                job_id=job.job_id,
+                state_json=state.to_dict(),
+                summary_json=state.summary.model_dump(),
+            )
+
+            async with self._lock:
+                job.error = {
+                    "type": "crawl_error",
+                    "message": str(exc),
+                    "details": {},
+                }
+                job.status = JobStatus.FAILED
+            self._metrics.inc("jobs_failed_total")
+            logger.exception("Crawl job %s failed", job.job_id)
 
     # ------------------------------------------------------------------ retention
 
