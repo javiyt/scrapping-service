@@ -1,9 +1,14 @@
 """End-to-end MCP protocol tests (ticket #150).
 
-Drives a real MCP client session against the adapter server over in-memory
-streams — exercising the full JSON-RPC protocol: initialize, list tools,
-call tools, error paths, and output bounding.  The scrapping-service itself
-is a mock transport; the MCP stack is the real thing.
+Drives a real MCP client against the adapter server over in-memory streams —
+exercising the full JSON-RPC protocol: initialize, list tools, call tools,
+error paths, and output bounding.  The scrapping-service itself is a mock
+transport; the MCP stack is the real thing.
+
+In mcp 2.x the in-memory pair is ``mcp.client.Client`` in ``mode="legacy"``,
+which runs the lowlevel Server (the adapter's ``self._server``) over a pair of
+memory streams and performs the ``initialize`` handshake on entry — the same
+``Server.run`` / ``InMemoryTransport`` path production stdio uses.
 """
 
 from __future__ import annotations
@@ -14,7 +19,7 @@ from typing import Any
 
 import httpx
 import pytest
-from mcp.shared.memory import create_connected_server_and_client_session
+from mcp.client import Client
 
 from app.mcp.client import ScrapperClient
 from app.mcp.config import MCPAdapterConfig
@@ -30,7 +35,13 @@ SERVICE_HEALTH = {"status": "ok", "version": "1.0.0", "service": "scraper-api"}
 
 @pytest.fixture(scope="module")
 def session_factory() -> Any:
-    """Factory that yields an initialized MCP client session over memory streams."""
+    """Factory that returns an async context manager yielding a connected Client.
+
+    ``Client(..., mode="legacy")`` runs the adapter's real lowlevel Server over
+    a pair of in-memory streams and performs the ``initialize`` handshake on
+    entry; the body receives the connected client (``cs``), whose
+    ``list_tools`` / ``call_tool`` methods speak real JSON-RPC.
+    """
 
     def make(handler: Callable[[httpx.Request], httpx.Response]):
         client = ScrapperClient(
@@ -40,7 +51,7 @@ def session_factory() -> Any:
             max_output_chars=5_000,
         )
         server = MCPServer(MCPAdapterConfig(base_url="http://service.local:8080"), client)
-        return create_connected_server_and_client_session(server.run_fn())
+        return Client(server._server, mode="legacy")
 
     return make
 
@@ -142,7 +153,7 @@ def test_service_error_over_protocol(session_factory: Any) -> None:
     async def run() -> None:
         async with session_factory(handler) as cs:
             res = await cs.call_tool("search", {"query": "x"})
-            assert res.isError is True
+            assert res.is_error is True
             text = _text(res)
             data = json.loads(text)
             assert data["error"]["type"] == "search_error"  # the service's own error type
@@ -252,7 +263,7 @@ def test_browser_session_roundtrip(session_factory: Any) -> None:
             assert data["snapshot"]["elements"][0]["ref"] == "@e1"
 
             res = await cs.call_tool("browser_close_session", {"session_id": sid})
-            assert not res.isError  # the DELETE round-tripped cleanly
+            assert not res.is_error  # the DELETE round-tripped cleanly
 
     import asyncio
 
