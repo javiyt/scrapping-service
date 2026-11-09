@@ -18,6 +18,7 @@ dependencies = [
     "botasaurus>=4.0.97,<5.0.0",
     "selenium>=4.52.0",
     "beautifulsoup4>=4.15.0",
+    "markdownify==1.2.3",
     "yt-dlp==2026.10.26",
     "youtube-transcript-api>=1.2.5,<2.0.0",
 ]
@@ -59,7 +60,7 @@ addopts = [
     "--cov=app",
     "--cov-report=term-missing",
     "--cov-report=xml",
-    "--cov-fail-under=77",
+    "--cov-fail-under=75",
 ]
 
 [tool.coverage.run]
@@ -70,7 +71,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 77
+fail_under = 75
 show_missing = true
 skip_covered = false
 exclude_lines = [

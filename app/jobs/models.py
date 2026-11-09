@@ -44,6 +44,7 @@ class Job(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     extract_config: dict[str, Any] | None = None
     normalize_config: dict[str, Any] | None = None
+    output_format: str | None = None
     response_format: str | None = None
     profile_name: str | None = None
     # A safe snapshot of effective settings overrides (no API keys).

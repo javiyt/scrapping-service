@@ -6,7 +6,12 @@ from app.plugins.isolation import guarded_extract
 from app.schemas.scrape import ExtractConfig
 from app.scraper.extractor import ExtractionError
 from app.scraper.extractor import extract as run_extraction
-from app.scraper.html_normalizer import html_to_text, normalize_html
+from app.scraper.html_normalizer import (
+    extract_title,
+    html_to_markdown,
+    html_to_text,
+    normalize_html,
+)
 
 
 def apply_normalization(
@@ -75,10 +80,24 @@ def format_scrape_content(
     result: dict[str, Any],
     response_format: str = "html",
 ) -> dict[str, Any]:
-    """Return a v2 response dict with ``content`` instead of ``html``."""
+    """Return a v2 response dict with ``content`` instead of ``html``.
+
+    For markdown format, also sets title and word_count in metadata.
+    """
     metadata = dict(result.get("metadata", {}))
     if response_format == "html":
         content = result.get("html", "")
+    elif response_format == "markdown":
+        html = result.get("html", "")
+        base_url = result.get("final_url", "")
+        if html and base_url:
+            content, applied = html_to_markdown(
+                html, base_url, main_content=False, include_images=True
+            )
+        else:
+            content = ""
+        metadata["title"] = result.get("title")
+        metadata["word_count"] = result.get("word_count")
     else:
         content = html_to_text(result.get("html", ""))
 
@@ -98,6 +117,9 @@ def process_scrape_response(
     extract_config: ExtractConfig | dict[str, Any] | None = None,
     extractor_registry: Any | None = None,
     url: str | None = None,
+    output_format: str = "html",
+    include_images: bool = True,
+    main_content: bool = False,
 ) -> dict[str, Any]:
     """Run all response-time transformations in API order.
 
@@ -105,6 +127,8 @@ def process_scrape_response(
     or empty, consult the registry for extractors matching the URL's domain
     and apply them (unless the per-request config explicitly requests
     extraction).
+
+    For markdown output, applies html_to_markdown with title/word_count.
     """
     result = apply_normalization(result, normalize_config)
     result = apply_extraction(result, extract_config)
@@ -149,5 +173,24 @@ def process_scrape_response(
                     except Exception as exc:
                         result["extracted"] = None
                         result.setdefault("metadata", {})["extraction_error"] = str(exc)
+
+    # Apply markdown conversion if requested
+    if output_format == "markdown":
+        html = result.get("html", "")
+        base_url = result.get("final_url", "")
+        if html and base_url:
+            try:
+                markdown, applied = html_to_markdown(
+                    html, base_url, main_content=main_content, include_images=include_images
+                )
+                result["markdown"] = markdown
+                result["title"] = extract_title(html) if html else ""
+                result["word_count"] = len(markdown.split())
+                result.setdefault("metadata", {})["output_format"] = "markdown"
+                result.setdefault("metadata", {})["title"] = result["title"]
+                result.setdefault("metadata", {})["word_count"] = result["word_count"]
+                result.setdefault("metadata", {}).setdefault("normalization", {}).update(applied)
+            except Exception as exc:
+                result.setdefault("metadata", {}).setdefault("conversion_error", str(exc))
 
     return result

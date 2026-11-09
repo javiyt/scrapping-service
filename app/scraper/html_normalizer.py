@@ -186,19 +186,285 @@ def normalize_html(
     return normalized, applied
 
 
+def extract_title(html: str) -> str:
+    """Extract page title from HTML: <title> or first <h1>.
+
+    Returns stripped text; empty string if no title found.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    # Try <title> first
+    title_tag = soup.find("title")
+    if title_tag and title_tag.string:
+        return title_tag.string.strip()
+    # Fallback to first <h1>
+    h1_tag = soup.find("h1")
+    if h1_tag and h1_tag.string:
+        return h1_tag.string.strip()
+    return ""
+
+
 def html_to_text(html: str) -> str:
     """Convert HTML to compact visible text."""
     soup = BeautifulSoup(html, "html.parser")
     for tag_name in ("script", "style", "noscript", "template"):
         _remove_tags(soup, tag_name)
+    # Strip zero-width chars from text nodes
+    for node in soup.find_all(string=True):
+        if hasattr(node, "string") and node.string:
+            new_string = "".join(
+                ch for ch in node.string if ch not in "\u200b\u200c\u200d\ufeff\xad"
+            )
+            if new_string != node.string:
+                node.string.replace_with(new_string)
     text = soup.get_text("\n", strip=True)
     lines = [_re_whitespace.sub(" ", line).strip() for line in text.splitlines()]
     return "\n".join(line for line in lines if line)
 
 
+def _remove_event_handlers(soup: BeautifulSoup) -> None:
+    """Remove event handlers and attributes that could run JavaScript."""
+    for tag in soup.find_all(True):
+        if not isinstance(tag, Tag):
+            continue
+        for attr in list(tag.attrs):
+            if attr.lower().startswith(("on", "formaction")) and attr.lower() not in (
+                "formaction",
+            ):
+                tag.attrs.pop(attr, None)
+            if attr == "formaction":
+                pass  # formaction is allowed; do nothing
+
+
+def _remove_readability_selectors(soup: BeautifulSoup) -> None:
+    """Remove common readability skip selectors (nav/footer/aside/cookie banners)."""
+    selectors_to_remove = [
+        "nav",
+        "footer",
+        "aside",
+        "form",
+        "button",
+        "[role='navigation']",
+        "[role='contentinfo']",
+        "[role='complementary']",
+        ".navbar",
+        ".nav",
+        ".nav-bar",
+        ".navigation",
+        ".site-header",
+        ".site-footer",
+        ".main-header",
+        ".main-footer",
+        ".header",
+        ".footer",
+        ".sidebar",
+        ".side-bar",
+        ".related",
+        ".recommendations",
+        ".popular",
+        ".trending",
+        ".recommended",
+        ".article-sidebar",
+        ".content-sidebar",
+        ".comment",
+        ".comments",
+        ".comment-section",
+        ".comment-area",
+        ".replies",
+        ".replies-list",
+        ". replies-container",
+        ".share-buttons",
+        ".share-button",
+        ".social-buttons",
+        ".social-share",
+        ".sharing",
+        ".social-sharing",
+        ".subscription",
+        ".subscribe",
+        ".subscribed",
+        ".newsletter",
+        ".email-subscription",
+        ".mailing-list",
+        ".cookie-banner",
+        ".cookie-consent",
+        ".cookie-message",
+        ".cookie-policy",
+        ".cookie-notice",
+        ".cookie-warning",
+        ".cookie-bar",
+        ".cookie-container",
+        ".cookie-overlay",
+        ".cookie-consent-banner",
+        ".cookie-consent-modal",
+        ".cookie-consent-overlay",
+        ".cookie-consent-popup",
+        ".cookie-consent-dialog",
+        ".cookie-consent-container",
+        ".cookie-consent-wrapper",
+        ".cookie-consent-area",
+        ".cookie-consent-content",
+        ".cookie-consent-box",
+        ".cookie-consent-window",
+        ".cookie-consent-frame",
+        ".cookie-consent-panel",
+        ".cookie-consent-section",
+        ".cookie-consent-bar",
+        ".cookie-consent-message",
+        ".cookie-consent-block",
+        ".cookie-consent-banner-container",
+        ".cookie-consent-banner-wrapper",
+        ".cookie-consent-banner-area",
+        ".cookie-consent-banner-content",
+        ".cookie-consent-banner-box",
+        ".cookie-consent-banner-window",
+        ".cookie-consent-banner-frame",
+        ".cookie-consent-banner-panel",
+        ".cookie-consent-banner-section",
+        ".cookie-consent-banner-bar",
+        ".cookie-consent-banner-message",
+        ".cookie-consent-banner-block",
+        ".cookie-consent-banner-outer",
+        ".cookie-consent-banner-inner",
+        ".cookie-consent-banner-wrapper-inner",
+        ".cookie-consent-banner-wrapper-outer",
+        ".cookie-consent-banner-area-inner",
+        ".cookie-consent-banner-area-outer",
+        ".cookie-consent-banner-content-inner",
+        ".cookie-consent-banner-content-outer",
+        ".cookie-consent-banner-box-inner",
+        ".cookie-consent-banner-box-outer",
+        ".cookie-consent-banner-window-inner",
+        ".cookie-consent-banner-window-outer",
+        ".cookie-consent-banner-frame-inner",
+        ".cookie-consent-banner-frame-outer",
+        ".cookie-consent-banner-panel-inner",
+        ".cookie-consent-banner-panel-outer",
+        ".cookie-consent-banner-section-inner",
+        ".cookie-consent-banner-section-outer",
+        ".cookie-consent-banner-bar-inner",
+        ".cookie-consent-banner-bar-outer",
+        ".cookie-consent-banner-message-inner",
+        ".cookie-consent-banner-message-outer",
+        ".cookie-consent-banner-block-inner",
+        ".cookie-consent-banner-block-outer",
+    ]
+    for selector in selectors_to_remove:
+        for elem in soup.select(selector):
+            elem.decompose()
+
+
+def html_to_markdown(
+    html: str,
+    base_url: str,
+    *,
+    main_content: bool = False,
+    include_images: bool = True,
+) -> tuple[str, dict[str, bool]]:
+    """Convert HTML to clean Markdown, applying normalization and sanitization.
+
+    This function converts HTML to Markdown while:
+    - Removing script/style/noscript/template tags
+    - Optionally removing readability selectors (nav/footer/aside/cookie banners)
+    - Stripping event handlers and attributes
+    - Zero-width and hidden characters
+    - Converting relative URLs to absolute
+    - Preserving headings, lists, tables, code blocks, links, and image alt text
+
+    Parameters
+    ----------
+    html:
+        Raw HTML string to convert.
+    base_url:
+        Base URL to resolve relative URLs against.
+    main_content:
+        If True, remove common readability selectors (nav, footer, aside,
+        cookie banners, etc.) before conversion.
+    include_images:
+        If True, include image alt text; if False, drop images entirely.
+
+    Returns
+    -------
+    tuple[str, dict[str, bool]]
+        ``(markdown, applied)`` where ``applied`` contains the active
+        normalization features.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    applied: dict[str, bool] = {}
+
+    # Remove script/style/noscript/template
+    for tag_name in ("script", "style", "noscript", "template"):
+        _remove_tags(soup, tag_name)
+    if soup.find("script") or soup.find("style"):
+        applied["remove_scripts_and_styles"] = True
+
+    # Remove event handlers
+    _remove_event_handlers(soup)
+    if soup.find(lambda t: any(a.startswith("on") for a in t.attrs if a.lower().startswith("on"))):
+        applied["remove_event_handlers"] = True
+
+    # Remove zero-width and invisible characters from text
+    def _strip_zero_width(text: str) -> str:
+        """Remove zero-width and invisible characters."""
+        if not isinstance(text, str):
+            return text
+        # Remove zero-width chars
+        text = "".join(ch for ch in text if ch not in "\u200b\u200c\u200d\ufeff")
+        # Remove soft hyphen
+        text = text.replace("\xad", "")
+        return text
+
+    for node in soup.find_all(string=True):
+        if hasattr(node, "string") and node.string:
+            new_string = _strip_zero_width(node.string)
+            if new_string != node.string:
+                node.string.replace_with(new_string)
+                applied["strip_hidden_characters"] = True
+
+    # Optionally remove readability selectors
+    if main_content:
+        _remove_readability_selectors(soup)
+        if soup.find("nav") or soup.find("footer") or soup.find("aside"):
+            applied["remove_readability_selectors"] = True
+
+    # Absolutize URLs
+    _make_urls_absolute(soup, base_url)
+    applied["absolute_urls"] = True
+
+    # Remove images if requested
+    if not include_images:
+        for img in soup.find_all("img"):
+            img.decompose()
+        if soup.find("img"):
+            applied["remove_images"] = True
+
+    # Convert to Markdown using markdownify
+    try:
+        from markdownify import MarkdownConverter
+    except ImportError:
+        raise ImportError(
+            "markdownify is required for HTML to Markdown conversion. "
+            "Install with: pip install markdownify==1.2.3"
+        )
+
+    # Use convert_soup to get soup as input
+    conv = MarkdownConverter(heading_style="ATX")
+    markdown = conv.convert_soup(soup)
+
+    # Final sanitization: strip zero-width chars again on final output
+    markdown = _strip_zero_width(markdown)
+
+    # Collapse 3+ blank lines to 2
+    import re
+
+    markdown = re.sub(r"\n{3,}", "\n\n", markdown)
+
+    applied["convert_to_markdown"] = True
+
+    return markdown, applied
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
-# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------"
 
 
 def _remove_tags(soup: BeautifulSoup, tag_name: str) -> None:

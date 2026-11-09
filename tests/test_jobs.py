@@ -259,6 +259,7 @@ class TestJobEndpoints:
         assert data["status"] == "queued"
 
     def test_create_v2_job_with_response_format(self):
+        # v2 job endpoint accepts response_format in the request body (backward compat)
         response = self._client().post(
             "/v2/jobs",
             json={
@@ -274,7 +275,7 @@ class TestJobEndpoints:
 
         job = self._job_service.get_job(data["job_id"])
         assert job is not None
-        assert job.response_format == "text"
+        assert job.output_format == "text"
 
     # --------------------------------------------------------------- get
 
