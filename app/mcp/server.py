@@ -22,7 +22,6 @@ import os
 import sys
 from collections.abc import Callable
 from contextlib import asynccontextmanager
-from types import SimpleNamespace
 from typing import Any
 
 from mcp import types
@@ -39,39 +38,38 @@ from app.mcp.tools import ToolRegistry
 logger = logging.getLogger("scraper-api.mcp.server")
 
 
-def run_server(server: MCPServer) -> Any:
-    """Adapter shim for ``create_connected_server_and_client_session``."""
-    return server.run_fn()
-
-
-def _init_options() -> InitializationOptions:
-    return InitializationOptions(
-        server_name="scrapping-service",
-        server_version=MCP_ADAPTER_VERSION,
-        capabilities=types.ServerCapabilities(tools={"listChanged": False}),
-        instructions=(
-            "Tools of the scrapping-service: web search (search, search_capabilities), "
-            "URL fetch (fetch_url, fetch_url_batch), YouTube transcripts (transcript), "
-            "interactive browser (browser_capabilities, browser_create_session, "
-            "browser_navigate, browser_click, browser_type, browser_evaluate, "
-            "browser_close_tab, browser_close_session) and cache maintenance "
-            "(cache_purge, cache_delete, cache_cleanup, cache_vacuum, cache_stats). "
-            "All tools proxy the service's REST API: the same security policies, "
-            "caching and error contracts apply. Call adapter_info first to verify wiring."
-        ),
-    )
+# The tool catalogue advertised to MCP clients during the initialize
+# handshake. Kept as a module constant so the Server instance is the single
+# source of truth for its identity (name, version, instructions, and the
+# capabilities it derives from the handlers it registers).
+_ADAPTER_INSTRUCTIONS = (
+    "Tools of the scrapping-service: web search (search, search_capabilities), "
+    "URL fetch (fetch_url, fetch_url_batch), YouTube transcripts (transcript), "
+    "interactive browser (browser_capabilities, browser_create_session, "
+    "browser_navigate, browser_click, browser_type, browser_evaluate, "
+    "browser_close_tab, browser_close_session) and cache maintenance "
+    "(cache_purge, cache_delete, cache_cleanup, cache_vacuum, cache_stats). "
+    "All tools proxy the service's REST API: the same security policies, "
+    "caching and error contracts apply. Call adapter_info first to verify wiring."
+)
 
 
 def _run_loop(
-    server: Server,
-    read_stream: Any,
-    write_stream: Any,
-    init_options: InitializationOptions,
-    *,
-    raise_exceptions: bool = False,
+    server: Server, read_stream: Any, write_stream: Any, *, raise_exceptions: bool = False
 ) -> Any:
-    """Run the SDK's JSON-RPC loop over the given streams (used by all transports)."""
-    return server.run(read_stream, write_stream, init_options, raise_exceptions=raise_exceptions)
+    """Run the SDK's JSON-RPC loop over the given streams.
+
+    The lowlevel Server carries its own identity and derives its
+    initialization options (name, version, instructions, and the capabilities
+    implied by the handlers it registered), so every transport — stdio, streamable-HTTP,
+    and the in-memory test client — drives the same options.
+    """
+    return server.run(
+        read_stream,
+        write_stream,
+        server.create_initialization_options(),
+        raise_exceptions=raise_exceptions,
+    )
 
 
 class MCPServer:
@@ -84,19 +82,32 @@ class MCPServer:
         self.client = client
         self.metrics = metrics or MCPMetrics()
         self.registry = ToolRegistry(client, self.metrics)
-        self._server = Server(name="scrapping-service", version=MCP_ADAPTER_VERSION)
+        self._server = Server(
+            name="scrapping-service",
+            version=MCP_ADAPTER_VERSION,
+            instructions=_ADAPTER_INSTRUCTIONS,
+        )
         self._wire_handlers()
+
+    def initialization_options(self) -> InitializationOptions:
+        """The handshake options the lowlevel Server will advertise."""
+        return self._server.create_initialization_options()
 
     # ------------------------------------------------------------- handlers
     def _wire_handlers(self) -> None:
         registry = self.registry
+        server = self._server
 
-        @self._server.list_tools()
-        async def _list_tools() -> list[types.Tool]:
-            return [types.Tool(**spec) for spec in registry.list_tools()]
+        async def _list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
+            del ctx, params  # registry is the single source of truth; no pagination
+            return types.ListToolsResult(
+                tools=[types.Tool(**spec) for spec in registry.list_tools()]
+            )
 
-        @self._server.call_tool(validate_input=False)
-        async def _call_tool(name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
+        async def _call_tool(ctx: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
+            del ctx
+            name = params.name
+            arguments = params.arguments
             from pydantic_core import ValidationError  # noqa: PLC0415
 
             try:
@@ -125,37 +136,18 @@ class MCPServer:
                 isError=is_error,
             )
 
+        # mcp 2.x registers handlers via ``add_request_handler`` with a
+        # ``(ctx, params)`` signature (the 1.x decorator style is gone).
+        server.add_request_handler("tools/list", types.PaginatedRequestParams, _list_tools)
+        server.add_request_handler("tools/call", types.CallToolRequestParams, _call_tool)
+
     # -------------------------------------------------------------- running
     async def run_stdio(self) -> None:
         """Run the JSON-RPC loop over stdio (the default entry point)."""
         from mcp.server.stdio import stdio_server
 
         async with stdio_server() as (read_stream, write_stream):
-            await _run_loop(self._server, read_stream, write_stream, _init_options())
-
-    def run_fn(self) -> Any:
-        """An object compatible with the SDK's in-memory test helper.
-
-        ``mcp.shared.memory.create_connected_server_and_client_session``
-        expects an object with ``.run(read, write, init_options, *,
-        raise_exceptions)`` and ``.create_initialization_options()`` — the
-        ``run`` signature matches ``mcp.server.lowlevel.Server.run``.
-        """
-        server = self._server
-        init_options = _init_options()
-
-        async def _run(
-            read_stream: Any,
-            write_stream: Any,
-            _options: Any,
-            *,
-            raise_exceptions: bool = False,
-        ) -> None:
-            await _run_loop(
-                server, read_stream, write_stream, init_options, raise_exceptions=raise_exceptions
-            )
-
-        return SimpleNamespace(run=_run, create_initialization_options=lambda: init_options)
+            await _run_loop(self._server, read_stream, write_stream)
 
     def mount_http(self, asgi_app: Any) -> None:
         """Mount the streamable-HTTP ``/mcp`` endpoint plus ops routes."""

@@ -23,7 +23,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.9.0,<2"]
+mcp = ["mcp>=2.3.0,<3"]
 
 [project.scripts]
 scrapping-service = "app.run:main"
