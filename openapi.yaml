@@ -870,10 +870,10 @@ components:
         safe_search:
           type: string
           enum:
-          - false
+          - off
           - moderate
           - strict
-          default: moderate
+          default: 'moderate'
           description: Safe-search filtering level
         page:
           type: integer
@@ -1199,7 +1199,7 @@ components:
           items:
             type: string
             enum:
-            - false
+            - off
             - moderate
             - strict
           description: Normalized safe-search levels accepted by the request
