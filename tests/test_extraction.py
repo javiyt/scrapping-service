@@ -95,6 +95,11 @@ class TestExtractText:
         assert "required_field" in str(excinfo.value)
         assert "selector" in str(excinfo.value) and "required_field" in str(excinfo.value)
 
+    def test_text_extraction_with_whitespace(self):
+        html = "<div>  Hello   World  </div>"
+        result = extract(html, {"text": {"selector": "div", "type": "text"}})
+        assert result["text"] == "Hello   World"
+
 
 class TestExtractAttribute:
     def test_extract_href_attribute(self):
@@ -346,6 +351,19 @@ class TestExtractionError:
 # =========================================================================
 
 
+class TestExtractionErrorClass:
+    def test_extraction_error_message(self):
+        err = ExtractionError("fieldname", "error details")
+        assert "fieldname" in str(err)
+        assert "error details" in str(err)
+
+    def test_extraction_error_to_dict(self):
+        err = ExtractionError("field", "message")
+        d = err.to_dict()
+        assert d["field"] == "field"
+        assert d["message"] == "message"
+
+
 class TestFieldDefaults:
     def test_no_type_defaults_to_text(self):
         result = extract(
@@ -436,3 +454,104 @@ class TestExtractExceptionInField:
             },
         )
         assert result["card"]["link"] == "fallback_url"
+
+
+# =========================================================================
+# XPath Locators
+# =========================================================================
+
+
+class TestXPath:
+    def test_xpath_text_extraction(self):
+        html = '<div><p class="desc">Hello World</p></div>'
+        result = extract(html, {"text": {"xpath": "//p[@class='desc']", "type": "text"}})
+        assert result["text"] == "Hello World"
+
+    def test_xpath_multiple_elements(self):
+        html = "<div><span>Item 1</span><span>Item 2</span><span>Item 3</span></div>"
+        result = extract(html, {"items": {"xpath": "//span", "type": "text", "multiple": True}})
+        assert result["items"] == ["Item 1", "Item 2", "Item 3"]
+
+    def test_xpath_no_match_returns_none(self):
+        html = "<div><p>content</p></div>"
+        result = extract(html, {"x": {"xpath": "//missing", "type": "text"}})
+        assert result["x"] is None
+
+
+# =========================================================================
+# Text Regex Locators
+# =========================================================================
+
+
+class TestTextRegex:
+    def test_text_regex_finds_matching_element(self):
+        html = "<div><p>Price: $19.99</p><p>Price: $29.99</p></div>"
+        result = extract(
+            html,
+            {
+                "price": {
+                    "text_regex": r"Price: \$(\d+\.\d+)",
+                    "type": "text",
+                    "regex": r"\$(\d+\.\d+)",
+                    "regex_group": 1,
+                }
+            },
+        )
+        assert result["price"] == "19.99"
+
+    def test_text_regex_no_match(self):
+        html = "<div><p>content</p></div>"
+        result = extract(html, {"x": {"text_regex": "missing", "type": "text"}})
+        assert result["x"] is None
+
+
+# =========================================================================
+# Regex Transform
+# =========================================================================
+
+
+class TestRegexTransform:
+    def test_regex_extract_group(self):
+        html = "<div><p>John Doe</p></div>"
+        result = extract(
+            html,
+            {
+                "name": {
+                    "selector": "p",
+                    "type": "text",
+                    "regex": r"(\w+) (\w+)",
+                    "regex_group": 1,
+                }
+            },
+        )
+        assert result["name"] == "John"
+
+    def test_regex_full_match(self):
+        html = "<div><p>John Doe</p></div>"
+        result = extract(
+            html,
+            {
+                "name": {
+                    "selector": "p",
+                    "type": "text",
+                    "regex": r"(\w+) (\w+)",
+                    "regex_group": 0,
+                }
+            },
+        )
+        assert result["name"] == "John Doe"
+
+    def test_regex_no_match(self):
+        html = "<div><p>John Doe</p></div>"
+        result = extract(
+            html,
+            {
+                "name": {
+                    "selector": "p",
+                    "type": "text",
+                    "regex": r"^\d+$",
+                    "regex_group": 0,
+                }
+            },
+        )
+        assert result["name"] is None
