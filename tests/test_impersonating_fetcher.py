@@ -76,6 +76,7 @@ class TestImpersonatingFetcher:
     async def test_health_returns_curl_cffi_availability(self) -> None:
         """Health returns True when curl_cffi is available."""
         fetcher = ImpersonatingFetcher()
+        # curl_cffi is installed via requirements-dev
         assert await fetcher.health() is True
 
     def test_close_does_not_raise(self) -> None:
@@ -83,3 +84,24 @@ class TestImpersonatingFetcher:
         fetcher = ImpersonatingFetcher()
         fetcher.close()
         fetcher.close()  # Should not raise
+
+    def test_profile_allowlist_contains_chrome(self) -> None:
+        """Profile allowlist contains chrome."""
+        from app.scraper.impersonating_fetcher import _PROFILE_MAP
+
+        assert "chrome" in _PROFILE_MAP
+        assert "firefox" in _PROFILE_MAP
+        assert "safari" in _PROFILE_MAP
+
+    def test_profile_allowlist_contains_versions(self) -> None:
+        """Profile allowlist contains version-specific profiles."""
+        from app.scraper.impersonating_fetcher import _PROFILE_MAP
+
+        # Check some known version profiles
+        chrome_versions = [p for p in _PROFILE_MAP.keys() if p.startswith("chrome")]
+        safari_versions = [p for p in _PROFILE_MAP.keys() if p.startswith("safari")]
+        firefox_versions = [p for p in _PROFILE_MAP.keys() if p.startswith("firefox")]
+
+        assert len(chrome_versions) > 1
+        assert len(safari_versions) > 1
+        assert len(firefox_versions) > 1
