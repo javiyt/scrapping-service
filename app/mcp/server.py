@@ -54,7 +54,9 @@ _ADAPTER_INSTRUCTIONS = (
 )
 
 
-def _run_loop(server: Server, read_stream: Any, write_stream: Any, *, raise_exceptions: bool = False) -> Any:
+def _run_loop(
+    server: Server, read_stream: Any, write_stream: Any, *, raise_exceptions: bool = False
+) -> Any:
     """Run the SDK's JSON-RPC loop over the given streams.
 
     The lowlevel Server carries its own identity and derives its
@@ -62,7 +64,12 @@ def _run_loop(server: Server, read_stream: Any, write_stream: Any, *, raise_exce
     implied by the handlers it registered), so every transport — stdio, streamable-HTTP,
     and the in-memory test client — drives the same options.
     """
-    return server.run(read_stream, write_stream, server.create_initialization_options(), raise_exceptions=raise_exceptions)
+    return server.run(
+        read_stream,
+        write_stream,
+        server.create_initialization_options(),
+        raise_exceptions=raise_exceptions,
+    )
 
 
 class MCPServer:
@@ -93,7 +100,9 @@ class MCPServer:
 
         async def _list_tools(ctx: Any, params: Any) -> types.ListToolsResult:
             del ctx, params  # registry is the single source of truth; no pagination
-            return types.ListToolsResult(tools=[types.Tool(**spec) for spec in registry.list_tools()])
+            return types.ListToolsResult(
+                tools=[types.Tool(**spec) for spec in registry.list_tools()]
+            )
 
         async def _call_tool(ctx: Any, params: types.CallToolRequestParams) -> types.CallToolResult:
             del ctx
