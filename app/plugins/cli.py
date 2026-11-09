@@ -32,6 +32,15 @@ def _run_pip(cmd: list[str], *, capture_output: bool = False) -> subprocess.Comp
     )
 
 
+def _cleanup_constraints_file(constraints_file: str | None) -> None:
+    """Delete temp constraints file if it was created by default_constraints_file."""
+    if constraints_file and os.path.exists(constraints_file):
+        try:
+            os.unlink(constraints_file)
+        except OSError:
+            pass  # Best-effort cleanup; don't fail the operation
+
+
 def cmd_install(specs: list[str], constraints_file: str | None, **kwargs: Any) -> int:
     """Install plugins via pip.
 
@@ -73,9 +82,11 @@ def cmd_install(specs: list[str], constraints_file: str | None, **kwargs: Any) -
         print(f"ERROR: pip install failed with exit code {result.returncode}", file=sys.stderr)
         if result.stderr:
             print(result.stderr, file=sys.stderr)
+        _cleanup_constraints_file(constraints_file)
         return 1
     if result.stdout:
         print(result.stdout, file=sys.stderr)
+    _cleanup_constraints_file(constraints_file)
     return 0
 
 
