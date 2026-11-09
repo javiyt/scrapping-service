@@ -444,6 +444,7 @@ async def scrape_url(
             proxy_config=request.proxy.model_dump(),
             cookie_config=request.cookies.model_dump(),
             header_config=request.headers.model_dump(),
+            impersonate=request.impersonate,
         )
 
         elapsed = int((time.monotonic() - start) * 1000)
@@ -530,6 +531,7 @@ async def scrape_url_v2(
             proxy_config=request.proxy.model_dump(),
             cookie_config=request.cookies.model_dump(),
             header_config=request.headers.model_dump(),
+            impersonate=request.impersonate,
         )
 
         elapsed = int((time.monotonic() - start) * 1000)
@@ -801,6 +803,7 @@ async def scrape_batch(
                     proxy_config=item.proxy.model_dump(),
                     cookie_config=item.cookies.model_dump(),
                     header_config=item.headers.model_dump(),
+                    impersonate=item.impersonate,
                 )
                 if item.extract.enabled and item.extract.fields:
                     metrics_collector.inc("extraction_requests_total")
@@ -1066,6 +1069,7 @@ async def create_job(
         "proxy_config": request.proxy.model_dump(),
         "cookie_config": request.cookies.model_dump(),
         "header_config": request.headers.model_dump(),
+        "impersonate": request.impersonate,
     }
 
     job = await jobs.create_job(
@@ -1114,6 +1118,7 @@ async def create_job_v2(
         "proxy_config": request.proxy.model_dump(),
         "cookie_config": request.cookies.model_dump(),
         "header_config": request.headers.model_dump(),
+        "impersonate": request.impersonate,
     }
 
     job = await jobs.create_job(

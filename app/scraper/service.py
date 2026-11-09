@@ -35,6 +35,7 @@ from app.scraper.cookies import cookies_for_url, parse_cookie_config
 from app.scraper.domain_policy import DomainRateLimiter
 from app.scraper.headers import parse_header_config
 from app.scraper.http_fetcher import FetchResult, HttpFetcher
+from app.scraper.impersonating_fetcher import ImpersonatingFetcher
 from app.scraper.normalizer import make_cache_key
 
 logger = logging.getLogger("scraper-api.service")
@@ -102,6 +103,21 @@ class ScraperService:
             max_concurrency=settings.scraper_max_concurrency,
             proxy_url=self._proxy_url,
         )
+
+        # Impersonating fetcher (curl_cffi)
+        self.impersonating_fetcher: ImpersonatingFetcher | None = None
+        if settings.scraper_http_impersonate:
+            try:
+                self.impersonating_fetcher = ImpersonatingFetcher(
+                    timeout_seconds=settings.scraper_timeout_seconds,
+                    max_concurrency=settings.scraper_max_concurrency,
+                    proxy_url=self._proxy_url,
+                )
+            except ImportError:
+                logger.warning(
+                    "curl_cffi not available; impersonating fetcher disabled "
+                    "despite scraper_http_impersonate setting"
+                )
 
         # Browser backend abstraction (lazy).  Botasaurus is primary; Camofox
         # is an optional fallback when a client is configured.
@@ -290,6 +306,7 @@ class ScraperService:
         proxy_config: dict[str, Any] | None = None,
         cookie_config: dict[str, Any] | None = None,
         header_config: dict[str, Any] | None = None,
+        impersonate: str | None = None,
     ) -> dict[str, Any]:
         """Scrape a single URL and return the result dictionary.
 
@@ -310,6 +327,8 @@ class ScraperService:
             header_config: Per-request custom headers (allowlisted names only).
                 Folded into the cache key so different headers never share
                 a cached response.
+            impersonate: Impersonation profile for HTTP mode (e.g. ``"chrome"``).
+                Falls back to plain httpx when unset or curl_cffi unavailable.
 
         Returns:
             Dict ready for JSON serialisation.
@@ -335,10 +354,11 @@ class ScraperService:
         domain_ttl = self.settings.get_domain_ttl(domain)
 
         # ---- 3. Cache check
-        # The cache key folds in cookies/custom headers so that requests with
-        # different (or no) credentials never share a cache entry, while
-        # identical requests can still hit the cache instead of re-fetching.
-        cache_key = make_cache_key(url, request_cookies, extra_headers)
+        # The cache key folds in cookies/custom headers/impersonate so that requests with
+        # different credentials never share a cache entry, while identical requests can still hit
+        # the cache instead of re-fetching. The cache key also scopes to the impersonation profile
+        # so requests with different impersonation profiles get their own slots.
+        cache_key = make_cache_key(url, request_cookies, extra_headers, impersonate=impersonate)
         cached: Any = None
 
         if not force_refresh:
@@ -363,6 +383,11 @@ class ScraperService:
             metrics.inc("proxy_requests_total")
 
         try:
+            # Determine effective impersonate profile: request-level > settings default
+            effective_impersonate = (
+                impersonate if impersonate else self.settings.scraper_http_impersonate
+            )
+
             if mode == "http":
                 result = await self._fetch_http(
                     url,
@@ -371,6 +396,7 @@ class ScraperService:
                     proxy_url=effective_proxy,
                     cookies=request_cookies,
                     extra_headers=extra_headers,
+                    impersonate=effective_impersonate,
                 )
             elif mode == "browser":
                 result = await self._fetch_browser(
@@ -385,7 +411,7 @@ class ScraperService:
                     extra_headers=extra_headers,
                 )
             else:  # auto
-                # Try HTTP first.
+                # Try HTTP first (plain or impersonated based on effective_impersonate)
                 try:
                     result = await self._fetch_http(
                         url,
@@ -394,22 +420,78 @@ class ScraperService:
                         proxy_url=effective_proxy,
                         cookies=request_cookies,
                         extra_headers=extra_headers,
+                        impersonate=effective_impersonate,
                     )
                     if self._looks_blocked(result):
-                        logger.info(
-                            "HTTP result looks blocked for %s — falling back to browser", url
-                        )
-                        result = await self._fetch_browser(
-                            url,
-                            timeout_seconds,
-                            wait_until,
-                            wait_selector,
-                            scroll_config or {},
-                            debug_config or {},
-                            proxy_url=effective_proxy,
-                            cookies=request_cookies,
-                            extra_headers=extra_headers,
-                        )
+                        # HTTP blocked — decide whether to try impersonated fetch first
+                        if (
+                            effective_impersonate
+                            and self.settings.scraper_auto_impersonate_escalation
+                        ):
+                            logger.info(
+                                "HTTP result looks blocked for %s — trying impersonated fetch",
+                                url,
+                            )
+                            try:
+                                result = await self._fetch_http(
+                                    url,
+                                    timeout_seconds,
+                                    domain,
+                                    proxy_url=effective_proxy,
+                                    cookies=request_cookies,
+                                    extra_headers=extra_headers,
+                                    impersonate=effective_impersonate,
+                                )
+                                if self._looks_blocked(result):
+                                    logger.info(
+                                        "Impersonated fetch also blocked for %s — "
+                                        "falling back to browser",
+                                        url,
+                                    )
+                                    result = await self._fetch_browser(
+                                        url,
+                                        timeout_seconds,
+                                        wait_until,
+                                        wait_selector,
+                                        scroll_config or {},
+                                        debug_config or {},
+                                        proxy_url=effective_proxy,
+                                        cookies=request_cookies,
+                                        extra_headers=extra_headers,
+                                    )
+                            except (HttpError, TimeoutError, ImportError) as inner_exc:
+                                logger.info(
+                                    "Impersonated fetch failed for %s — "
+                                    "falling back to browser: %s",
+                                    url,
+                                    inner_exc,
+                                )
+                                result = await self._fetch_browser(
+                                    url,
+                                    timeout_seconds,
+                                    wait_until,
+                                    wait_selector,
+                                    scroll_config or {},
+                                    debug_config or {},
+                                    proxy_url=effective_proxy,
+                                    cookies=request_cookies,
+                                    extra_headers=extra_headers,
+                                )
+                        else:
+                            logger.info(
+                                "HTTP result looks blocked for %s — falling back to browser", url
+                            )
+                            result = await self._fetch_browser(
+                                url,
+                                timeout_seconds,
+                                wait_until,
+                                wait_selector,
+                                scroll_config or {},
+                                debug_config or {},
+                                proxy_url=effective_proxy,
+                                cookies=request_cookies,
+                                extra_headers=extra_headers,
+                            )
                         used_mode = "browser"
                     else:
                         used_mode = "http"
@@ -513,7 +595,26 @@ class ScraperService:
         proxy_url: str | None = None,
         cookies: list[dict] | None = None,
         extra_headers: dict[str, str] | None = None,
+        impersonate: str | None = None,
     ) -> FetchResult:
+        """Fetch via HTTP (plain httpx or impersonated curl_cffi).
+
+        If impersonate is set and available, use the impersonating fetcher;
+        otherwise use plain httpx.  When curl_cffi is not available but
+        impersonate is set, raise ImportError.
+        """
+        if impersonate and self.impersonating_fetcher:
+            return await self.impersonating_fetcher.fetch(
+                url=url,
+                timeout_seconds=timeout,
+                domain_limiter=self.rate_limiter,
+                domain=domain or None,
+                proxy_url=proxy_url,
+                cookies=cookies,
+                extra_headers=extra_headers,
+                impersonate=impersonate,
+            )
+        # Fall back to plain httpx
         return await self.http_fetcher.fetch(
             url=url,
             timeout_seconds=timeout,

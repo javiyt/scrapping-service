@@ -791,6 +791,7 @@ class ToolRegistry:
             ("wait_selector", "wait_selector"),
             ("wait_until", "wait_until"),
             ("selector", "selector"),
+            ("impersonate", "impersonate"),
         ):
             value = _str(args.get(key), flag=flag)
             if value is not None:
@@ -853,6 +854,8 @@ class ToolRegistry:
                 )
             ) is not None:
                 item["timeout_seconds"] = int(v)
+            if (v := _str(raw.get("impersonate"), flag="urls[].impersonate")) is not None:
+                item["impersonate"] = v
             if _bool(raw.get("force_refresh"), flag="urls[].force_refresh") is True:
                 item["force_refresh"] = True
             items.append(item)
