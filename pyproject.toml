@@ -19,7 +19,7 @@ dependencies = [
     "selenium>=4.52.0",
     "beautifulsoup4>=4.15.0",
     "yt-dlp==2026.10.26",
-    "youtube-transcript-api>=1.2.0,<2.0.0",
+    "youtube-transcript-api>=1.2.5,<2.0.0",
 ]
 
 [project.optional-dependencies]
