@@ -817,6 +817,10 @@ class ToolRegistry:
             )
         ) is not None:
             payload["cache_ttl_seconds"] = v
+        if (
+            v := _enum(args.get("format"), flag="format", choices=("html", "markdown", "text"))
+        ) is not None:
+            payload["output_format"] = v
         # ``selector`` scoping rides on the service's ``extract`` config.
         if (v := _str(args.get("selector"), flag="selector")) is not None:
             payload["extract"] = {"enabled": True, "fields": {"content": {"selector": v}}}
@@ -857,6 +861,12 @@ class ToolRegistry:
             v := _int(args.get("max_concurrency"), flag="max_concurrency", minimum=1, maximum=10)
         ) is not None:
             payload["max_concurrency"] = v
+        # ``format`` is mapped to output_format for v1 batch
+        if (
+            v := _enum(args.get("format"), flag="format", choices=("html", "markdown", "text"))
+        ) is not None:
+            for item in items:
+                item["output_format"] = v
         response = await self._client.post(
             "/v1/scrape/batch", json_body=payload, api_key_override=api_key_override
         )

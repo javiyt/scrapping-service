@@ -354,6 +354,11 @@ class ScrapeRequest(BaseModel):
         description="Optional structured extraction using CSS selectors.",
     )
 
+    output_format: Literal["html", "markdown", "text"] = Field(
+        default="html",
+        description="Output format for the scrape result.",
+    )
+
     @model_validator(mode="after")
     def _check_timeout_vs_mode(self) -> "ScrapeRequest":
         if self.timeout_seconds > 60 and self.mode == "browser":
@@ -384,6 +389,10 @@ class BatchItem(BaseModel):
     debug: DebugConfig = Field(default_factory=DebugConfig)
     normalize: NormalizeConfig = Field(default_factory=NormalizeConfig)
     extract: ExtractConfig = Field(default_factory=ExtractConfig)
+    output_format: Literal["html", "markdown", "text"] = Field(
+        default="html",
+        description="Output format for the scrape result.",
+    )
 
 
 class BatchScrapeRequest(BaseModel):
@@ -410,6 +419,18 @@ class Metadata(BaseModel):
         description="Which normalisation features were applied, e.g. "
         '``{"remove_scripts": true, "absolute_urls": true}``.',
     )
+    output_format: Literal["html", "markdown", "text"] | None = Field(
+        default=None,
+        description="Output format applied to the result.",
+    )
+    title: str | None = Field(
+        default=None,
+        description="Page title (from <title> or <h1>) when markdown format is used.",
+    )
+    word_count: int | None = Field(
+        default=None,
+        description="Word count of the markdown content.",
+    )
 
 
 class ScrapeResponse(BaseModel):
@@ -423,6 +444,18 @@ class ScrapeResponse(BaseModel):
     fetched_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     expires_at: str | None = None
     html: str
+    markdown: str | None = Field(
+        default=None,
+        description="Markdown version of the content when output_format is markdown.",
+    )
+    title: str | None = Field(
+        default=None,
+        description="Page title (from <title> or <h1>) when markdown format is used.",
+    )
+    word_count: int | None = Field(
+        default=None,
+        description="Word count of the markdown content.",
+    )
     metadata: Metadata
     extracted: dict[str, Any] | None = Field(
         default=None,
@@ -440,7 +473,7 @@ class ScrapeResponse(BaseModel):
 class V2ScrapeRequest(ScrapeRequest):
     """Request body for the ``/v2/scrape`` endpoint."""
 
-    response_format: Literal["html", "text"] = Field(
+    response_format: Literal["html", "markdown", "text"] = Field(
         default="html",
         description="Format returned in the ``content`` field.",
     )
@@ -449,7 +482,7 @@ class V2ScrapeRequest(ScrapeRequest):
 class V2Metadata(Metadata):
     """Metadata attached to v2 scrape responses."""
 
-    response_format: Literal["html", "text"] = Field(
+    response_format: Literal["html", "markdown", "text"] = Field(
         default="html",
         description="Format of the returned ``content`` field.",
     )
@@ -466,6 +499,14 @@ class V2ScrapeResponse(BaseModel):
     fetched_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     expires_at: str | None = None
     content: str
+    title: str | None = Field(
+        default=None,
+        description="Page title (from <title> or <h1>) when markdown format is used.",
+    )
+    word_count: int | None = Field(
+        default=None,
+        description="Word count of the markdown content.",
+    )
     metadata: V2Metadata
     extracted: dict[str, Any] | None = Field(
         default=None,

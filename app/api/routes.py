@@ -473,6 +473,7 @@ async def scrape_url(
             extract_config=request.extract,
             extractor_registry=extractor_registry,
             url=request.url,
+            output_format=request.output_format,
         )
         if request.extract.enabled and request.extract.fields:
             if result.get("extraction_error"):
@@ -558,6 +559,7 @@ async def scrape_url_v2(
             extract_config=request.extract,
             extractor_registry=extractor_registry,
             url=request.url,
+            output_format=request.response_format,
         )
         if request.extract.enabled and request.extract.fields:
             if result.get("extraction_error"):
@@ -565,6 +567,7 @@ async def scrape_url_v2(
             else:
                 metrics_collector.inc("extraction_success_total")
 
+        # For v2, format_scrape_content handles markdown conversion when response_format=markdown
         result = format_scrape_content(result, request.response_format)
 
         if "metadata" in result:
@@ -808,6 +811,7 @@ async def scrape_batch(
                     extract_config=item.extract,
                     extractor_registry=extractor_registry,
                     url=item.url,
+                    output_format=item.output_format,
                 )
                 if item.extract.enabled and item.extract.fields:
                     if result.get("extraction_error"):
@@ -1069,6 +1073,7 @@ async def create_job(
         scrape_config=scrape_config,
         normalize_config=request.normalize.model_dump(),
         extract_config=request.extract.model_dump() if request.extract.fields else None,
+        output_format=request.output_format,
         profile_name=auth_context.profile_name if auth_context else None,
         effective_settings=effective_settings,
     )
@@ -1116,7 +1121,7 @@ async def create_job_v2(
         scrape_config=scrape_config,
         normalize_config=request.normalize.model_dump(),
         extract_config=request.extract.model_dump() if request.extract.fields else None,
-        response_format=request.response_format,
+        output_format=request.response_format,
         profile_name=auth_context.profile_name if auth_context else None,
         effective_settings=effective_settings,
     )

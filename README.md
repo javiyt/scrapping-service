@@ -1185,6 +1185,11 @@ text output:
 }
 ```
 
+For Markdown output, use ``output_format": "markdown"`` on v1 endpoints or
+``response_format": "markdown"`` on v2 endpoints. Markdown is generated from
+the cached HTML with sanitization (removes script/style tags, zero-width
+characters) and URL absolutization.
+
 ``/v2/scrape`` returns the body in ``content`` instead of ``html``:
 
 ```json
@@ -1205,6 +1210,32 @@ text output:
   }
 }
 ```
+
+Markdown output example (v2):
+
+```json
+{
+  "url": "https://example.com",
+  "content": "# Example Domain\n\nThis domain is for use in illustrative examples...",
+  "title": "Example Domain",
+  "word_count": 12,
+  "metadata": {
+    "mode": "http",
+    "elapsed_ms": 230,
+    "content_length": 145,
+    "cache_key": "abc123...",
+    "response_format": "markdown",
+    "normalization": {
+      "remove_scripts": true,
+      "remove_styles": true
+    }
+  }
+}
+```
+
+Markdown output for v1 ``/v1/scrape`` adds ``markdown``, ``title`` and
+``word_count`` fields to the response (the ``html`` field is still present
+for backward compatibility).
 
 The same response format contract is available for async jobs through
 ``/v2/jobs``. Create the job with the same body and poll

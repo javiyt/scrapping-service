@@ -379,6 +379,11 @@ components:
           $ref: '#/components/schemas/NormalizeConfig'
         extract:
           $ref: '#/components/schemas/ExtractConfig'
+        output_format:
+          type: string
+          enum: [html, markdown, text]
+          default: html
+          description: Output format for the scrape result
 
     ScrapeResponse:
       type: object
@@ -532,6 +537,11 @@ components:
           $ref: '#/components/schemas/NormalizeConfig'
         extract:
           $ref: '#/components/schemas/ExtractConfig'
+        output_format:
+          type: string
+          enum: [html, markdown, text]
+          default: html
+          description: Output format for the scrape result
 
     BatchScrapeRequest:
       type: object

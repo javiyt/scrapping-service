@@ -108,6 +108,7 @@ class JobService:
         *,
         extract_config: dict[str, Any] | None = None,
         normalize_config: dict[str, Any] | None = None,
+        output_format: str | None = None,
         response_format: str | None = None,
         profile_name: str | None = None,
         effective_settings: Settings | None = None,
@@ -122,7 +123,8 @@ class JobService:
             scrape_config: Parameters for :meth:`ScraperService.scrape`.
             extract_config: Optional extraction config.
             normalize_config: Optional normalisation config.
-            response_format: Optional v2 response format.
+            output_format: Optional output format (html|markdown|text).
+            response_format: Optional v2 response format (deprecated; use output_format).
             profile_name: The authenticated profile name.
             effective_settings: The profile-effective settings snapshot.
                 API keys are never stored in the job object.
@@ -144,6 +146,7 @@ class JobService:
                 config=scrape_config,
                 extract_config=extract_config,
                 normalize_config=normalize_config,
+                output_format=output_format,
                 response_format=response_format,
                 profile_name=profile_name,
                 effective_settings_overrides=overrides_snapshot,
