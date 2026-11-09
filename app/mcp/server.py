@@ -136,8 +136,8 @@ class MCPServer:
                 isError=is_error,
             )
 
-        # mcp 2.x registers handlers via ``add_request_handler`` with a
-        # ``(ctx, params)`` signature (the 1.x decorator style is gone).
+        # mcp 2.x uses add_request_handler with method string and params_type
+        # See: https://github.com/modelcontextprotocol/python-sdk/blob/main/src/mcp/server/lowlevel/server.py
         server.add_request_handler("tools/list", types.PaginatedRequestParams, _list_tools)
         server.add_request_handler("tools/call", types.CallToolRequestParams, _call_tool)
 
