@@ -1,91 +1,83 @@
 openapi: 3.0.3
-
 info:
   title: Scraper API
-  description: |
-    Containerized scraping microservice — fetch rendered HTML from URLs.
-
-    This API provides endpoints for:
-      - Single URL scraping with multiple modes (HTTP, Browser, Auto)
-      - Batch scraping of multiple URLs with controlled concurrency
-      - Provider-agnostic web search with stable normalized results
-      - Async job queuing and management
-      - Interactive agent browsing (stateful sessions, tabs, snapshot, click, type, navigate, evaluate)
-      - Cache operations (stats, purge, cleanup, vacuum)
-      - Health and readiness checks (the deep health check reports the search subsystem)
-      - Prometheus-style metrics, including per-provider search counters
-
-    Authentication: API key via Bearer token in Authorization header (required for most endpoints).
-
+  description: "Containerized scraping microservice — fetch rendered HTML from URLs.\n\
+    \nThis API provides endpoints for:\n  - Single URL scraping with multiple modes\
+    \ (HTTP, Browser, Auto)\n  - Batch scraping of multiple URLs with controlled concurrency\n\
+    \  - Provider-agnostic web search with stable normalized results\n  - Async job\
+    \ queuing and management\n  - Interactive agent browsing (stateful sessions, tabs,\
+    \ snapshot, click, type, navigate, evaluate)\n  - Cache operations (stats, purge,\
+    \ cleanup, vacuum)\n  - Health and readiness checks (the deep health check reports\
+    \ the search subsystem)\n  - Prometheus-style metrics, including per-provider\
+    \ search counters\n\nAuthentication: API key via Bearer token in Authorization\
+    \ header (required for most endpoints).\n"
   version: 1.0.0
   license:
     name: MIT
     url: https://opensource.org/licenses/MIT
-
 servers:
-  - url: https://api.yourdomain.com/v1
-    description: Production server
-  - url: https://staging.yourdomain.com/v1
-    description: Staging environment
-
+- url: https://api.yourdomain.com/v1
+  description: Production server
+- url: https://staging.yourdomain.com/v1
+  description: Staging environment
 tags:
-   - name: Health
-     description: Health and readiness checks
-   - name: Monitoring
-     description: Metrics and monitoring endpoints
-   - name: Scrape
-     description: URL scraping endpoints
-   - name: Search
-     description: Provider-agnostic web search endpoints
-   - name: Transcript
-     description: Provider-agnostic YouTube transcript (captions) endpoints
-   - name: Plugins
-     description: Plugin discovery, metadata and observability endpoints
-   - name: Cache
-     description: Cache management operations
-   - name: Jobs
-     description: Async job queue management
-   - name: Browser
-     description: Interactive agent browser API (stateful sessions, tabs, snapshot, actions)
-
+- name: Health
+  description: Health and readiness checks
+- name: Monitoring
+  description: Metrics and monitoring endpoints
+- name: Scrape
+  description: URL scraping endpoints
+- name: Search
+  description: Provider-agnostic web search endpoints
+- name: Transcript
+  description: Provider-agnostic YouTube transcript (captions) endpoints
+- name: Plugins
+  description: Plugin discovery, metadata and observability endpoints
+- name: Cache
+  description: Cache management operations
+- name: Jobs
+  description: Async job queue management
+- name: Browser
+  description: Interactive agent browser API (stateful sessions, tabs, snapshot, actions)
 security:
-  - bearerAuth: []
-
+- bearerAuth: []
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: "API-Key"
-# =========================================================== SCHEMA DEFINITIONS
+      bearerFormat: API-Key
   schemas:
-    # Health endpoints
     HealthResponse:
       type: object
       properties:
         status:
           type: string
-          enum: [ok, degraded, unavailable]
+          enum:
+          - ok
+          - degraded
+          - unavailable
           default: ok
         version:
           type: string
-          default: "1.0.0"
+          default: 1.0.0
         service:
           type: string
-          default: "scraper-api"
-
+          default: scraper-api
     ReadinessResponse:
       type: object
       properties:
         status:
           type: string
-          enum: [ok, degraded, unavailable, not_loaded]
+          enum:
+          - ok
+          - degraded
+          - unavailable
+          - not_loaded
           default: ok
         checks:
           type: object
           additionalProperties: true
-
-    # Plugin endpoints
     PluginInfo:
       type: object
       properties:
@@ -105,7 +97,11 @@ components:
           description: Service plugin API version
         status:
           type: string
-          enum: [loaded, failed, skipped, disabled]
+          enum:
+          - loaded
+          - failed
+          - skipped
+          - disabled
           description: Plugin status
         reason:
           type: string
@@ -115,7 +111,6 @@ components:
           type: object
           nullable: true
           description: Registered providers by kind
-
     PluginListResponse:
       type: object
       properties:
@@ -141,20 +136,26 @@ components:
           type: integer
         status:
           type: string
-          enum: [loaded, skipped_all, no_plugins]
+          enum:
+          - loaded
+          - skipped_all
+          - no_plugins
         message:
           type: string
-
-    # Scrape endpoints
     ExtractField:
       type: object
       properties:
         selector:
           type: string
-          description: CSS selector to locate element(s)
+          description: CSS selector to locate the element(s).
+          minLength: 1
         type:
           type: string
-          enum: [text, html, attr, object]
+          enum:
+          - text
+          - html
+          - attr
+          - object
           default: text
           description: Type of value to extract
         attribute:
@@ -175,7 +176,55 @@ components:
           type: boolean
           default: false
           description: Convert to absolute URL
+        xpath:
+          type: string
+          minLength: 1
+          maxLength: 10000
+          description: XPath expression to locate the element(s).
+        text_contains:
+          type: string
+          minLength: 1
+          description: 'Text search: find elements whose text content contains this
+            string.'
+        text_regex:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: 'Text search: find elements whose text content matches this
+            regex pattern.'
+        regex:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Post-extraction regex applied to the extracted value. Use ``regex_group``
+            to capture a specific group from the match.
+        regex_group:
+          type: integer
+          minimum: 0
+          description: Capture group index to use when ``regex`` is set (default 0
+            = full match).
+        fields:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/ExtractField'
+          description: Nested field definitions (only used when ``type`` is ``object``).
+      description: 'Configuration for a single extracted field.
 
+
+        Supports four field types:
+
+
+        * ``text`` — inner text content (stripped).
+
+        * ``html`` — inner HTML markup (preserves tag structure).
+
+        * ``attr`` — value of an HTML attribute on the matched element.
+
+        * ``object`` — nested structured extraction via sub-``fields``.
+
+
+        Exactly one locator must be provided: ``selector``, ``xpath``, ``text_contains``,
+        or ``text_regex``.'
     ExtractConfig:
       type: object
       properties:
@@ -190,17 +239,20 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/ExtractField'
-
     NormalizeConfig:
       type: object
       properties:
         enabled:
           type: boolean
           default: false
-          description: Master toggle for HTML normalization. A preset also enables normalization.
+          description: Master toggle for HTML normalization. A preset also enables
+            normalization.
         preset:
           type: string
-          enum: [light, content, aggressive]
+          enum:
+          - light
+          - content
+          - aggressive
           nullable: true
           description: Optional normalization preset
         absolute_urls:
@@ -247,7 +299,6 @@ components:
           type: boolean
           default: false
           description: Compact HTML without breaking semantics
-
     ProxyConfig:
       type: object
       properties:
@@ -261,7 +312,6 @@ components:
         country:
           type: string
           description: Country hint for proxy provider
-
     CookieConfig:
       type: object
       properties:
@@ -279,7 +329,6 @@ components:
           maxLength: 200000
           nullable: true
           description: Full Netscape cookies.txt content
-
     HeaderConfig:
       type: object
       properties:
@@ -291,12 +340,10 @@ components:
           type: object
           additionalProperties:
             type: string
-          description: >-
-            Header name/value pairs. Allowed names: authorization, referer,
-            accept-language, origin, or any name prefixed with 'X-'. Values
-            may not contain control characters (CR/LF/NUL) and are limited
-            to 4000 characters; at most 20 headers are allowed.
-
+          description: 'Header name/value pairs. Allowed names: authorization, referer,
+            accept-language, origin, or any name prefixed with ''X-''. Values may
+            not contain control characters (CR/LF/NUL) and are limited to 4000 characters;
+            at most 20 headers are allowed.'
     ScrollConfig:
       type: object
       properties:
@@ -316,7 +363,6 @@ components:
         stop_when_no_growth:
           type: boolean
           default: true
-
     DebugConfig:
       type: object
       properties:
@@ -326,10 +372,10 @@ components:
         html_dump:
           type: boolean
           default: false
-
     ScrapeRequest:
       type: object
-      required: [url]
+      required:
+      - url
       properties:
         url:
           type: string
@@ -338,7 +384,10 @@ components:
           description: Target URL to scrape
         mode:
           type: string
-          enum: [http, browser, auto]
+          enum:
+          - http
+          - browser
+          - auto
           default: auto
           description: Scraping mode (http, browser, or auto)
         cache_ttl_seconds:
@@ -352,7 +401,11 @@ components:
           description: Bypass cache and fetch fresh content
         wait_until:
           type: string
-          enum: [load, domcontentloaded, networkidle, networkidle0]
+          enum:
+          - load
+          - domcontentloaded
+          - networkidle
+          - networkidle0
           default: networkidle
           description: Browser wait strategy (browser mode only)
         wait_selector:
@@ -381,10 +434,12 @@ components:
           $ref: '#/components/schemas/ExtractConfig'
         output_format:
           type: string
-          enum: [html, markdown, text]
+          enum:
+          - html
+          - markdown
+          - text
           default: html
           description: Output format for the scrape result
-
     ScrapeResponse:
       type: object
       properties:
@@ -417,7 +472,6 @@ components:
         extraction_error:
           type: object
           description: Error when required extraction field failed
-
     Metadata:
       type: object
       properties:
@@ -436,29 +490,30 @@ components:
         normalization:
           type: object
           description: Which features were applied
-
     V2ScrapeRequest:
       allOf:
-        - $ref: '#/components/schemas/ScrapeRequest'
-        - type: object
-          properties:
-            response_format:
-              type: string
-              enum: [html, text]
-              default: html
-              description: Format returned in the content field
-
+      - $ref: '#/components/schemas/ScrapeRequest'
+      - type: object
+        properties:
+          response_format:
+            type: string
+            enum:
+            - html
+            - text
+            default: html
+            description: Format returned in the content field
     V2Metadata:
       allOf:
-        - $ref: '#/components/schemas/Metadata'
-        - type: object
-          properties:
-            response_format:
-              type: string
-              enum: [html, text]
-              default: html
-              description: Format of the returned content field
-
+      - $ref: '#/components/schemas/Metadata'
+      - type: object
+        properties:
+          response_format:
+            type: string
+            enum:
+            - html
+            - text
+            default: html
+            description: Format of the returned content field
     V2ScrapeResponse:
       type: object
       properties:
@@ -491,10 +546,11 @@ components:
         extraction_error:
           type: object
           description: Error when required extraction field failed
-
     BatchItem:
       type: object
-      required: [url, mode]
+      required:
+      - url
+      - mode
       properties:
         url:
           type: string
@@ -502,7 +558,10 @@ components:
           maxLength: 8192
         mode:
           type: string
-          enum: [http, browser, auto]
+          enum:
+          - http
+          - browser
+          - auto
           default: auto
         cache_ttl_seconds:
           type: integer
@@ -513,7 +572,11 @@ components:
           default: false
         wait_until:
           type: string
-          enum: [load, domcontentloaded, networkidle, networkidle0]
+          enum:
+          - load
+          - domcontentloaded
+          - networkidle
+          - networkidle0
           default: networkidle
         wait_selector:
           type: string
@@ -532,7 +595,9 @@ components:
         impersonate:
           type: string
           maxLength: 64
-          description: Impersonation profile for HTTP mode fetches (e.g. 'chrome', 'firefox', 'safari'). When unset, plain httpx is used. If curl_cffi is unavailable, the fetch falls back to plain httpx regardless of this setting.
+          description: Impersonation profile for HTTP mode fetches (e.g. 'chrome',
+            'firefox', 'safari'). When unset, plain httpx is used. If curl_cffi is
+            unavailable, the fetch falls back to plain httpx regardless of this setting.
         scroll:
           $ref: '#/components/schemas/ScrollConfig'
         debug:
@@ -543,13 +608,16 @@ components:
           $ref: '#/components/schemas/ExtractConfig'
         output_format:
           type: string
-          enum: [html, markdown, text]
+          enum:
+          - html
+          - markdown
+          - text
           default: html
           description: Output format for the scrape result
-
     BatchScrapeRequest:
       type: object
-      required: [items]
+      required:
+      - items
       properties:
         items:
           type: array
@@ -562,7 +630,6 @@ components:
           minimum: 1
           maximum: 10
           default: 3
-
     BatchResult:
       type: object
       properties:
@@ -574,7 +641,6 @@ components:
           $ref: '#/components/schemas/ScrapeResponse'
         error:
           type: object
-
     BatchScrapeResponse:
       type: object
       properties:
@@ -590,7 +656,6 @@ components:
           type: integer
         elapsed_ms:
           type: integer
-
     CacheStats:
       type: object
       properties:
@@ -602,7 +667,6 @@ components:
           type: integer
         cache_path:
           type: string
-
     PurgeResponse:
       type: object
       properties:
@@ -610,7 +674,6 @@ components:
           type: integer
         message:
           type: string
-
     CacheCleanupRequest:
       type: object
       properties:
@@ -622,13 +685,11 @@ components:
           type: integer
         vacuum:
           type: boolean
-
     CacheVacuumResult:
       type: object
       properties:
         size_after_bytes:
           type: integer
-
     CacheCleanupResult:
       type: object
       properties:
@@ -638,12 +699,14 @@ components:
           type: integer
         entries_after:
           type: integer
-
-    # Job endpoints
     JobStatus:
       type: string
-      enum: [queued, running, succeeded, failed, cancelled]
-
+      enum:
+      - queued
+      - running
+      - succeeded
+      - failed
+      - cancelled
     JobResponse:
       type: object
       properties:
@@ -672,7 +735,6 @@ components:
         profile_name:
           type: string
           description: Authenticated profile name (optional)
-
     JobListResponse:
       type: object
       properties:
@@ -682,18 +744,16 @@ components:
             $ref: '#/components/schemas/JobResponse'
         total:
           type: integer
-
-    # Search endpoints
     TranscriptApiResponse:
       type: object
       description: Normalized, provider-agnostic transcript response
       required:
-        - video_id
-        - segments
-        - text
-        - total_words
-        - provider
-        - metadata
+      - video_id
+      - segments
+      - text
+      - total_words
+      - provider
+      - metadata
       properties:
         video_id:
           type: string
@@ -714,7 +774,9 @@ components:
           type: array
           items:
             type: object
-            required: [start, text]
+            required:
+            - start
+            - text
             properties:
               start:
                 type: number
@@ -729,7 +791,8 @@ components:
           type: integer
         metadata:
           type: object
-          required: [provider]
+          required:
+          - provider
           properties:
             provider:
               type: string
@@ -759,10 +822,10 @@ components:
             auth_profile:
               type: string
               nullable: true
-
     SearchRequest:
       type: object
-      required: [query]
+      required:
+      - query
       additionalProperties: false
       properties:
         query:
@@ -775,22 +838,41 @@ components:
           minItems: 1
           items:
             type: string
-            enum: [web, news, images, videos, social, it, science, maps, music, files]
-          default: [web]
-          description: Verticals to search (additive, no duplicates). Each result is tagged with its vertical
+            enum:
+            - web
+            - news
+            - images
+            - videos
+            - social
+            - it
+            - science
+            - maps
+            - music
+            - files
+          default:
+          - web
+          description: Verticals to search (additive, no duplicates). Each result
+            is tagged with its vertical
         language:
           type: string
           nullable: true
-          pattern: '^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$'
+          pattern: ^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$
           description: Optional BCP-47 style language tag, e.g. "en" or "en-US"
         time_range:
           type: string
-          enum: [day, week, month, year]
+          enum:
+          - day
+          - week
+          - month
+          - year
           nullable: true
           description: Restrict results to this time range
         safe_search:
           type: string
-          enum: [off, moderate, strict]
+          enum:
+          - false
+          - moderate
+          - strict
           default: moderate
           description: Safe-search filtering level
         page:
@@ -812,13 +894,15 @@ components:
             type: string
             minLength: 1
             maxLength: 100
-          description: Optional preferred underlying sources (no duplicates). Semantics are provider-defined; see the capabilities endpoint
+          description: Optional preferred underlying sources (no duplicates). Semantics
+            are provider-defined; see the capabilities endpoint
         provider:
           type: string
           minLength: 1
           maxLength: 100
           default: auto
-          description: Provider name to use, or "auto" to let the service pick an available provider
+          description: Provider name to use, or "auto" to let the service pick an
+            available provider
         cache_ttl_seconds:
           type: integer
           nullable: true
@@ -829,10 +913,14 @@ components:
           type: boolean
           default: false
           description: If true, bypass the cache and query the provider fresh
-
     SearchApiResult:
       type: object
-      required: [title, url, rank, vertical, provider]
+      required:
+      - title
+      - url
+      - rank
+      - vertical
+      - provider
       properties:
         title:
           type: string
@@ -850,7 +938,17 @@ components:
           description: 1-based rank within its vertical
         vertical:
           type: string
-          enum: [web, news, images, videos, social, it, science, maps, music, files]
+          enum:
+          - web
+          - news
+          - images
+          - videos
+          - social
+          - it
+          - science
+          - maps
+          - music
+          - files
           description: Vertical this result belongs to (normalized vocabulary)
         source:
           type: string
@@ -868,7 +966,6 @@ components:
           format: date-time
           nullable: true
           description: Optional publication timestamp, when known
-
     SearchPagination:
       type: object
       properties:
@@ -880,7 +977,8 @@ components:
         has_more:
           type: boolean
           nullable: true
-          description: Whether further pages exist. null when the provider does not report a total page count
+          description: Whether further pages exist. null when the provider does not
+            report a total page count
         total_pages:
           type: integer
           nullable: true
@@ -891,10 +989,10 @@ components:
           nullable: true
           minimum: 0
           description: Estimated total number of matching results, if reported
-
     SearchApiMetadata:
       type: object
-      required: [provider]
+      required:
+      - provider
       properties:
         provider:
           type: string
@@ -920,12 +1018,14 @@ components:
           type: string
           format: date-time
           nullable: true
-          description: When the cached entry serving this response was created (null for fresh responses)
+          description: When the cached entry serving this response was created (null
+            for fresh responses)
         cache_age_seconds:
           type: number
           nullable: true
           minimum: 0
-          description: Age of the served entry in seconds when from_cache is true (null for fresh responses)
+          description: Age of the served entry in seconds when from_cache is true
+            (null for fresh responses)
         elapsed_ms:
           type: integer
           minimum: 0
@@ -940,15 +1040,20 @@ components:
           type: array
           items:
             type: string
-          description: Machine-readable tokens for requested features the provider could not fully honor
+          description: Machine-readable tokens for requested features the provider
+            could not fully honor
         auth_profile:
           type: string
           nullable: true
-          description: Authenticated profile name, present only when profile exposure is enabled
-
+          description: Authenticated profile name, present only when profile exposure
+            is enabled
     SearchApiResponse:
       type: object
-      required: [query, results, pagination, metadata]
+      required:
+      - query
+      - results
+      - pagination
+      - metadata
       properties:
         query:
           type: string
@@ -962,7 +1067,6 @@ components:
           $ref: '#/components/schemas/SearchPagination'
         metadata:
           $ref: '#/components/schemas/SearchApiMetadata'
-
     SearchFilters:
       type: object
       properties:
@@ -986,17 +1090,19 @@ components:
           type: boolean
           default: false
           description: Restrict results to specific sources
-
     SearchProviderCapabilities:
       type: object
-      required: [name, available]
+      required:
+      - name
+      - available
       properties:
         name:
           type: string
           description: Stable provider identifier
         available:
           type: boolean
-          description: Provider health. false when the provider is down or its capabilities probe failed
+          description: Provider health. false when the provider is down or its capabilities
+            probe failed
         verticals:
           type: array
           items:
@@ -1006,7 +1112,11 @@ components:
           type: array
           items:
             type: string
-            enum: [day, week, month, year]
+            enum:
+            - day
+            - week
+            - month
+            - year
           description: Time-range filters this provider supports (empty when none)
         filters:
           $ref: '#/components/schemas/SearchFilters'
@@ -1020,16 +1130,19 @@ components:
           nullable: true
           items:
             type: string
-          description: Selectable source names, when the provider can discover them (null = not discoverable)
+          description: Selectable source names, when the provider can discover them
+            (null = not discoverable)
         warnings:
           type: array
           items:
             type: string
           description: Human-readable notes, e.g. a failed capabilities probe
-
     SearchCacheCapabilities:
       type: object
-      required: [enabled, default_ttl_seconds, stale_if_error]
+      required:
+      - enabled
+      - default_ttl_seconds
+      - stale_if_error
       properties:
         enabled:
           type: boolean
@@ -1037,14 +1150,17 @@ components:
         default_ttl_seconds:
           type: integer
           minimum: 0
-          description: TTL for cached entries when the request sets none (0 = never expires)
+          description: TTL for cached entries when the request sets none (0 = never
+            expires)
         stale_if_error:
           type: boolean
           description: Whether expired entries are served when the live search fails
-
     SearchCapabilitiesResponse:
       type: object
-      required: [default_provider, providers, cache]
+      required:
+      - default_provider
+      - providers
+      - cache
       properties:
         default_provider:
           type: string
@@ -1063,25 +1179,32 @@ components:
           type: array
           items:
             type: string
-          description: Normalized verticals usable with provider=auto (union across available providers)
+          description: Normalized verticals usable with provider=auto (union across
+            available providers)
         time_ranges:
           type: array
           items:
             type: string
-            enum: [day, week, month, year]
-          description: Time-range filters usable with provider=auto (union across available providers)
+            enum:
+            - day
+            - week
+            - month
+            - year
+          description: Time-range filters usable with provider=auto (union across
+            available providers)
         filters:
           $ref: '#/components/schemas/SearchFilters'
         safe_search_levels:
           type: array
           items:
             type: string
-            enum: [off, moderate, strict]
+            enum:
+            - false
+            - moderate
+            - strict
           description: Normalized safe-search levels accepted by the request
         cache:
           $ref: '#/components/schemas/SearchCacheCapabilities'
-
-    # Error models
     ErrorResponse:
       type: object
       properties:
@@ -1094,22 +1217,19 @@ components:
               type: string
             details:
               type: object
-
     AuthErrorResponse:
       type: object
       properties:
         detail:
           type: string
           description: Error detail message
-
-    # Interactive agent browser endpoints
     BrowserProviderMetadata:
       type: object
       properties:
         provider:
           type: string
-          description: Backend provider serving the session (e.g. "camofox"). Never a raw upstream ID.
-
+          description: Backend provider serving the session (e.g. "camofox"). Never
+            a raw upstream ID.
     BrowserTab:
       type: object
       properties:
@@ -1125,8 +1245,8 @@ components:
           type: string
           nullable: true
           format: date-time
-      required: [tab_id]
-
+      required:
+      - tab_id
     BrowserSession:
       type: object
       properties:
@@ -1150,15 +1270,17 @@ components:
           type: string
           nullable: true
           format: date-time
-      required: [session_id, provider, tabs]
-
+      required:
+      - session_id
+      - provider
+      - tabs
     BrowserSessionCreatedResponse:
       type: object
       properties:
         session:
           $ref: '#/components/schemas/BrowserSession'
-      required: [session]
-
+      required:
+      - session
     BrowserSessionDeletedResponse:
       type: object
       properties:
@@ -1166,8 +1288,9 @@ components:
           type: string
         message:
           type: string
-      required: [session_id, message]
-
+      required:
+      - session_id
+      - message
     BrowserTabCreatedResponse:
       type: object
       properties:
@@ -1175,8 +1298,9 @@ components:
           type: string
         tab:
           $ref: '#/components/schemas/BrowserTab'
-      required: [session_id, tab]
-
+      required:
+      - session_id
+      - tab
     BrowserTabDeletedResponse:
       type: object
       properties:
@@ -1186,8 +1310,10 @@ components:
           type: string
         message:
           type: string
-      required: [session_id, tab_id, message]
-
+      required:
+      - session_id
+      - tab_id
+      - message
     BrowserLink:
       type: object
       properties:
@@ -1195,9 +1321,9 @@ components:
           type: string
         text:
           type: string
-          default: ""
-      required: [url]
-
+          default: ''
+      required:
+      - url
     SnapshotResponse:
       type: object
       properties:
@@ -1229,8 +1355,15 @@ components:
             $ref: '#/components/schemas/BrowserLink'
         provider:
           $ref: '#/components/schemas/BrowserProviderMetadata'
-      required: [session_id, tab_id, snapshot, refs_count, truncated, has_more, links, provider]
-
+      required:
+      - session_id
+      - tab_id
+      - snapshot
+      - refs_count
+      - truncated
+      - has_more
+      - links
+      - provider
     BrowserNavigateRequest:
       type: object
       properties:
@@ -1239,8 +1372,8 @@ components:
         timeout_seconds:
           type: number
           nullable: true
-      required: [url]
-
+      required:
+      - url
     BrowserNavigateResponse:
       type: object
       properties:
@@ -1258,8 +1391,11 @@ components:
           nullable: true
         provider:
           $ref: '#/components/schemas/BrowserProviderMetadata'
-      required: [session_id, tab_id, ok, provider]
-
+      required:
+      - session_id
+      - tab_id
+      - ok
+      - provider
     BrowserClickRequest:
       type: object
       properties:
@@ -1270,7 +1406,6 @@ components:
           type: string
           nullable: true
       description: Provide exactly one of ``ref`` (snapshot ref) or ``selector`` (CSS).
-
     BrowserClickResponse:
       type: object
       properties:
@@ -1285,8 +1420,11 @@ components:
           nullable: true
         provider:
           $ref: '#/components/schemas/BrowserProviderMetadata'
-      required: [session_id, tab_id, ok, provider]
-
+      required:
+      - session_id
+      - tab_id
+      - ok
+      - provider
     BrowserTypeRequest:
       type: object
       properties:
@@ -1298,8 +1436,8 @@ components:
         selector:
           type: string
           nullable: true
-      required: [text]
-
+      required:
+      - text
     BrowserTypeResponse:
       type: object
       properties:
@@ -1314,8 +1452,11 @@ components:
           nullable: true
         provider:
           $ref: '#/components/schemas/BrowserProviderMetadata'
-      required: [session_id, tab_id, ok, provider]
-
+      required:
+      - session_id
+      - tab_id
+      - ok
+      - provider
     BrowserEvaluateRequest:
       type: object
       properties:
@@ -1324,8 +1465,8 @@ components:
         timeout_ms:
           type: integer
           nullable: true
-      required: [expression]
-
+      required:
+      - expression
     BrowserEvaluateResponse:
       type: object
       properties:
@@ -1351,8 +1492,12 @@ components:
           nullable: true
         provider:
           $ref: '#/components/schemas/BrowserProviderMetadata'
-      required: [session_id, tab_id, ok, truncated, provider]
-
+      required:
+      - session_id
+      - tab_id
+      - ok
+      - truncated
+      - provider
     BrowserCapabilitiesResponse:
       type: object
       properties:
@@ -1369,1682 +1514,1766 @@ components:
           type: integer
         session_ttl_seconds:
           type: integer
-      required: [enabled, evaluate_enabled, max_sessions, max_tabs_per_session, session_ttl_seconds]
-
+      required:
+      - enabled
+      - evaluate_enabled
+      - max_sessions
+      - max_tabs_per_session
+      - session_ttl_seconds
 paths:
-   /health:
-     get:
-       operationId: healthCheck
-       summary: Liveness check
-       description: |
-         Always returns 200 when the service is running. Deliberately I/O-free:
-         it never touches the cache or any external dependency (including search
-         providers), so liveness stays cheap. No authentication required.
-       tags: [Health]
-       security: []
-       responses:
-         '200':
-           description: Service is healthy
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/HealthResponse'
-         '401':
-           description: Not authorized
-
-   /health/deep:
-     get:
-       operationId: deepHealthCheck
-       summary: Deep health check
-       description: |
-         Deep health check for container restart policy. Verifies internal
-         dependencies (config, cache) and recent scrape error patterns.
-
-         The `checks.search` object reports the search subsystem:
-         - `status`: `ok`, `no providers configured`, or `degraded (no provider available)`
-         - `configured`: whether the search subsystem is present
-         - `cache_enabled`: whether the search result cache is on
-         - `providers`: per-provider report — `name`, `available` (from a bounded capabilities probe), `probe` (`ok`/`failed`), plus provider diagnostics (e.g. SearXNG's `/config` discovery state)
-
-         External backends (search providers, Camofox) are **reported but non-fatal**:
-         a down backend degrades the reported status but never fails the check, so the
-         restart policy never depends on an external service.  Only local infrastructure
-         problems (missing cache or missing search subsystem) fail the check. No
-         authentication required.
-         
-         The `checks.camofox` object reports the external Camofox service when the
-         `camofox` client is enabled: `status` (`ok`/`unreachable`), `reason`,
-         `version`, `browser_connected`, `pool_size` (from the service's cheap
-         unauthenticated health probe); `disabled` when the client is off.
-       tags: [Health]
-       security: []
-       responses:
-         '200':
-           description: Internal checks are healthy
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ReadinessResponse'
-               examples:
-                 searchSubsystemOk:
-                   summary: Search subsystem healthy (SearXNG discovered)
-                   value:
-                     status: ok
-                     checks:
-                       config: ok
-                       cache: ok
-                       scrape_errors: ok
-                       search:
-                         status: ok
-                         configured: true
-                         cache_enabled: true
-                         providers:
-                           - name: searxng
-                             available: true
-                             probe: ok
-                             base_url_configured: true
-                             discovery_state: ok
-                             discovery_age_seconds: 12.5
-                             config_cache_ttl_seconds: 3600
-                             enabled_engines: 23
-                             instance_version: "5.0.0"
-                       camofox:
-                         status: unreachable
-                         reason: connection refused
-                         version: null
-                         browser_connected: null
-                         pool_size: null
-         '401':
-           description: Not authorized
-         '503':
-           description: One or more internal checks are degraded
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ReadinessResponse'
-               examples:
-                 searchSubsystemMissing:
-                   summary: Search subsystem not initialized (local configuration problem)
-                   value:
-                     status: degraded
-                     checks:
-                       config: ok
-                       cache: ok
-                       scrape_errors: ok
-                       search: unavailable
-
-   /ready:
-     get:
-       operationId: readinessCheck
-       summary: Readiness probe
-       description: Verifies config and cache are initialized. Requires authentication for metrics collection. For search subsystem diagnostics use `/health/deep`.
-       tags: [Health]
-       security:
-         - bearerAuth: []
-       responses:
-         '200':
-           description: All services ready
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ReadinessResponse'
-         '401':
-           description: Not authorized
-         '503':
-           description: Service degraded
-
-   /metrics:
-     get:
-       operationId: getMetrics
-       summary: Prometheus-style metrics
-       description: |
-         Returns Prometheus-formatted text metrics for monitoring. No authentication required.
-
-         Search metrics:
-         - `search_requests_total`, `search_success_total`, `search_error_total`
-         - `search_cache_hits_total`, `search_cache_misses_total`, `search_cache_stale_hits_total`, `search_cache_errors_total`
-         - `search_duration_ms_sum` (sum for average latency)
-         - `search_fallbacks_total` (auto-mode provider fallbacks)
-         - `search_provider_attempts_total`, `search_provider_success_total`, `search_provider_error_total` — labelled only by the bounded, operator-configured `provider` name
-
-         Label hygiene: user input (query text, result URLs) never appears in labels.
-       tags: [Monitoring]
-       security: []
-       responses:
-         '200':
-           description: Text metrics response
-           content:
-             text/plain:
-               schema:
-                 type: string
-               example: |
-                 # HELP search_requests_total Total search requests received
-                 # TYPE search_requests_total counter
-                 search_requests_total 42
-                 # HELP search_provider_attempts_total Search attempts made, by provider
-                 # TYPE search_provider_attempts_total counter
-                 search_provider_attempts_total{provider="searxng"} 39
-         '401':
-           description: Not authorized
-
-   # ====================================================== Scrape Endpoints
-   /v1/scrape:
-     post:
-       operationId: scrapeUrl
-       summary: Scrape single URL
-       description: |
-         Scrape a single URL and return its rendered HTML. Supports multiple modes:
-
-           - **http**: Uses standard HTTP headers (headless browser)
-           - **browser**: Uses headless Chrome/Chromium with full JavaScript execution
-           - **auto**: Auto-detects based on user-agent and content
-
-         Request body fields:
-           - url: Target URL to scrape
-           - mode: Scraping mode (http, browser, or auto)
-           - cache_ttl_seconds: TTL for caching (60s - 30 days)
-           - force_refresh: Bypass cache if true
-           - wait_until: Browser wait strategy
-           - wait_selector: CSS selector to wait for
-           - timeout_seconds: Max time to wait (5-120s)
-           - proxy: Proxy configuration for this request
-           - scroll: Scroll settings for JS-rendered pages
-           - debug: Debug output controls
-           - normalize: HTML normalization options
-           - extract: CSS selector extraction config
-
-         Authentication: Required unless API key is disabled in config.
-
-       tags: [Scrape]
-       security:
-         - bearerAuth: []
-       requestBody:
-         required: true
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/ScrapeRequest'
-       responses:
-         '200':
-           description: Successful scrape
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ScrapeResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-         '422':
-           description: Validation error
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v2/scrape:
-     post:
-       operationId: scrapeUrlV2
-       summary: Scrape single URL (v2)
-       description: |
-         Scrape a single URL and return ``content`` in the requested
-         ``response_format``. Unlike ``/v1/scrape``, this endpoint does not
-         overload the ``html`` field for non-HTML formats.
-
-       tags: [Scrape]
-       security:
-         - bearerAuth: []
-       requestBody:
-         required: true
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/V2ScrapeRequest'
-       responses:
-         '200':
-           description: Successful scrape
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/V2ScrapeResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '422':
-           description: Validation error
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/scrape/batch:
-     post:
-       operationId: scrapeBatch
-       summary: Scrape multiple URLs
-       description: |
-         Scrape multiple URLs with controlled concurrency. Returns results individually
-         so failed items don't block others.
-
-         Request body fields:
-           - items: Array of up to 50 URLs with per-item options
-           - max_concurrency: Max concurrent requests (1-10)
-
-         Each item can have its own mode, proxy, scroll config, etc.
-
-       tags: [Scrape]
-       security:
-         - bearerAuth: []
-       requestBody:
-         required: true
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/BatchScrapeRequest'
-       responses:
-         '200':
-           description: Batch scraping complete
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/BatchScrapeResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '422':
-           description: Validation error
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   # ====================================================== Search Endpoints
-   /v1/search:
-     post:
-       operationId: search
-       summary: Search the web (provider-agnostic)
-       description: |
-         Run a normalized web search and return stable, provider-agnostic results.
-
-         The request uses service-level concepts only (query, verticals, language,
-         time range, safe search, page, limit, sources, provider); provider-specific
-         parameter names are rejected. Results are normalized into a stable shape
-         with pagination and metadata — raw provider payloads never appear.
-
-         When `provider` is `auto` (the default), the service selects a healthy
-         provider whose capabilities satisfy the request and falls back on
-         transient failures (fallbacks are reported in `metadata`).
-
-         Authentication: Required unless API key is disabled in config.
-
-       tags: [Search]
-       security:
-         - bearerAuth: []
-       requestBody:
-         required: true
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/SearchRequest'
-       responses:
-         '200':
-           description: Normalized search results
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/SearchApiResponse'
-         '400':
-           description: Unknown provider or unsatisfiable capabilities for the explicitly requested provider
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '422':
-           description: Request validation error
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '503':
-           description: No provider is available (none configured, or all failed)
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '504':
-           description: Provider timed out
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/search/capabilities:
-     get:
-       operationId: searchCapabilities
-       summary: Search capabilities
-       description: |
-         Service-level search capabilities: enabled providers (in routing
-         priority order), the normalized verticals and filters usable in auto
-         mode, discoverable per-provider sources, safe-search levels, and the
-         search result cache policy.
-
-         This is an aggregate owned by this service; it does not proxy a
-         provider's own configuration/discovery endpoint.
-
-         Authentication: Required unless API key is disabled in config.
-
-       tags: [Search]
-       security:
-         - bearerAuth: []
-       responses:
-         '200':
-           description: Capabilities report
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/SearchCapabilitiesResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/transcript:
-     get:
-       operationId: transcript
-       summary: Fetch the transcript (captions) of a YouTube video
-       description: |
-         Fetch a normalized, provider-agnostic transcript for a YouTube video.
-
-         Identify the video with `url` (any YouTube URL form: watch, shorts,
-         youtu.be, embed, live) or `video_id`. `lang` is a comma-separated list
-         of preferred caption language tags; `provider` selects a transcript
-         backend (default `auto` = ordered fallback chain, explicit names never
-         fall back silently). Results are cached; `cache_ttl_seconds` overrides
-         the cache TTL for this response and `force_refresh` bypasses the cache.
-
-         Authentication: Required unless API key is disabled in config.
-
-       tags: [Transcript]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: url
-           in: query
-           required: false
-           description: "YouTube URL (watch/shorts/youtu.be/embed/live) or bare video ID"
-           schema:
-             type: string
-         - name: video_id
-           in: query
-           required: false
-           description: YouTube video ID (alternative to `url`)
-           schema:
-             type: string
-             pattern: '^[A-Za-z0-9_-]{11}$'
-         - name: lang
-           in: query
-           required: false
-           description: "Preferred caption languages, comma-separated (e.g. `es,en`; default `en`)"
-           schema:
-             type: string
-             default: ""
-         - name: provider
-           in: query
-           required: false
-           description: Transcript provider name, or `auto` for the fallback chain (default)
-           schema:
-             type: string
-             default: auto
-         - name: cache_ttl_seconds
-           in: query
-           required: false
-           description: Cache TTL override in seconds for this response (minimum 60)
-           schema:
-             type: integer
-             minimum: 60
-         - name: force_refresh
-           in: query
-           required: false
-           description: Bypass the result cache and re-fetch
-           schema:
-             type: boolean
-             default: false
-       responses:
-         '200':
-           description: Normalized transcript (segments + full text + metadata)
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/TranscriptApiResponse'
-         '400':
-           description: Invalid request (missing/bad url, non-YouTube video, unknown provider)
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '403':
-           description: Transcript request blocked by the provider (e.g. IP block)
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Video unavailable, or no transcript/captions for the requested language
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '502':
-           description: Provider returned an unusable payload
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '503':
-           description: No transcript provider is available (none configured, or all down)
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '504':
-           description: Transcript provider timed out
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   # ======================================================= Cache Endpoints
-   /v1/cache/stats:
-     get:
-       operationId: cacheStats
-       summary: Cache statistics
-       description: Returns current cache statistics (entries, size, expired count).
-       tags: [Cache]
-       security:
-         - bearerAuth: []
-       responses:
-         '200':
-           description: Cache stats returned
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/CacheStats'
-         '401':
-           description: Not authorized
-
-   /v1/cache/{url}:
-     delete:
-       operationId: deleteCacheEntry
-       summary: Delete single cache entry
-       description: Remove a specific URL from the cache. Returns number of entries deleted.
-       tags: [Cache]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: url
-           in: path
-           required: true
-           schema:
-             type: string
-           description: URL to remove from cache
-       responses:
-         '200':
-           description: Entry deleted successfully
-           content:
-             application/json:
-               schema:
-                 type: object
-                 properties:
-                   message:
-                     type: string
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: URL not found in cache
-
-   /v1/cache/purge:
-     post:
-       operationId: purgeCache
-       summary: Purge cache entries
-       description: |
-         Remove all (or domain-scoped) entries from the cache.
-
-         Body field:
-           - domain: Optional domain to scope the purge (e.g., "example.com")
-
-       tags: [Cache]
-       security:
-         - bearerAuth: []
-       requestBody:
-         required: false
-         content:
-           application/json:
-             schema:
-               type: object
-               properties:
-                 domain:
-                   type: string
-                   description: Optional domain scope (omit to purge all)
-       responses:
-         '200':
-           description: Cache purged successfully
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/PurgeResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/cache/cleanup:
-     post:
-       operationId: cleanupCache
-       summary: Run cache cleanup
-       description: |
-         Immediately run cache cleanup with optional overrides.
-
-         Optional body fields (defaults to global config):
-           - delete_expired_after_seconds: Delete entries older than this
-           - max_entries: Max entries to keep
-           - max_size_mb: Max total size in MB
-           - vacuum: Run VACUUM to reclaim space
-
-       tags: [Cache]
-       security:
-         - bearerAuth: []
-       requestBody:
-         required: false
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/CacheCleanupRequest'
-       responses:
-         '200':
-           description: Cleanup completed
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/CacheCleanupResult'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/cache/vacuum:
-     post:
-       operationId: vacuumCache
-       summary: Vacuum cache disk space
-       description: Run SQLite VACUUM to reclaim disk space. Prefer during maintenance windows.
-       tags: [Cache]
-       security:
-         - bearerAuth: []
-       responses:
-         '200':
-           description: Vacuum completed
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/CacheVacuumResult'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   # ======================================================= Job Endpoints
-# ============================================================ /v1/plugins/status
-   /v1/plugins/status:
-     get:
-       operationId: pluginsStatus
-       summary: Plugin loading status
-       description: |
-         Return plugin loading status and metadata.
-
-         Reports which plugins were successfully loaded, skipped, or failed,
-         along with allowlist/denylist configuration and failure isolation mode.
-         This endpoint helps operators diagnose plugin loading issues and verify
-         that expected plugins are active.
-       tags: [Plugins]
-       responses:
-         '200':
-           description: Plugin status report
-         '401':
-           description: Not authorized
-         '403':
-           description: Forbidden
-           content:
-             application/json:
-               schema:
-                 type: object
-                 properties:
-                   loaded:
-                     type: array
-                     items:
-                       type: string
-                   skipped:
-                     type: array
-                     items:
-                       type: object
-                   failed:
-                     type: array
-                     items:
-                       type: object
-                   enabled:
-                     type: array
-                     items:
-                       type: string
-                   on_error:
-                     type: string
-                     enum: [fail, warn]
-                   allowlist_enabled:
-                     type: boolean
-                   allowlist:
-                     type: array
-                     nullable: true
-                     items:
-                       type: string
-                   denylist:
-                     type: array
-                     items:
-                       type: string
-                   status:
-                     type: string
-                     enum: [loaded, skipped_all, no_plugins, not_loaded]
-                   message:
-                     type: string
-
-# ============================================================ /v1/plugins
-   /v1/plugins:
-     get:
-       operationId: pluginsList
-       summary: Plugin metadata list
-       description: |
-         Return detailed plugin metadata and registration info.
-
-         This endpoint provides richer information than /v1/plugins/status,
-         including API versions, registered providers, and per-plugin status.
-       tags: [Plugins]
-       security:
-         - bearerAuth: []
-       responses:
-         '200':
-           description: Plugin metadata list
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/PluginListResponse'
-         '401':
-           description: Unauthorized
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/AuthErrorResponse'
-
-   /v1/jobs:
-     post:
-       operationId: createJob
-       summary: Create async scrape job
-       description: |
-         Queue a new async scrape job for background processing.
-
-         The request body is identical to `/v1/scrape`. The job is queued immediately
-         and processed by a background worker. Poll `/v1/jobs/{job_id}` for results.
-
-         Requires API key authentication unless disabled in config.
-
-       tags: [Jobs]
-       security:
-         - bearerAuth: []
-       requestBody:
-         required: true
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/ScrapeRequest'
-       responses:
-         '200':
-           description: Job created successfully
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/JobResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '422':
-           description: Validation error
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '503':
-           description: Async jobs are disabled
-
-     get:
-       operationId: listJobs
-       summary: List all jobs
-       description: Returns all async jobs (newest first) with their current status.
-       tags: [Jobs]
-       security:
-         - bearerAuth: []
-       responses:
-         '200':
-           description: List of jobs
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/JobListResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v2/jobs:
-     post:
-       operationId: createJobV2
-       summary: Create async scrape job (v2)
-       description: |
-         Queue a new async scrape job using the v2 scrape contract. Results are
-         stored with ``content`` when ``response_format`` is provided, matching
-         ``/v2/scrape``.
-
-       tags: [Jobs]
-       security:
-         - bearerAuth: []
-       requestBody:
-         required: true
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/V2ScrapeRequest'
-       responses:
-         '200':
-           description: Job created successfully
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/JobResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '422':
-           description: Validation error
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '503':
-           description: Async jobs are disabled
-
-     get:
-       operationId: listJobsV2
-       summary: List all jobs (v2 alias)
-       description: Returns all async jobs (newest first) with their current status.
-       tags: [Jobs]
-       security:
-         - bearerAuth: []
-       responses:
-         '200':
-           description: List of jobs
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/JobListResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/jobs/{job_id}:
-     get:
-       operationId: getJob
-       summary: Get job status
-       description: |
-         Return the current state and result of an async job.
-
-         Required path parameter: `job_id`
-
-         When authentication is enabled and expose_profile_in_response is true,
-         includes the profile_name field.
-
-       tags: [Jobs]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: job_id
-           in: path
-           required: true
-           schema:
-             type: string
-           description: Job ID to retrieve
-       responses:
-         '200':
-           description: Job details returned
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/JobResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Job not found
-
-     delete:
-       operationId: deleteJob
-       summary: Delete job
-       description: Remove an async job from the store. Returns confirmation message.
-       tags: [Jobs]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: job_id
-           in: path
-           required: true
-           schema:
-             type: string
-           description: Job ID to delete
-       responses:
-         '200':
-           description: Job deleted successfully
-           content:
-             application/json:
-               schema:
-                 type: object
-                 properties:
-                   message:
-                     type: string
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Job not found
-
-   /v1/jobs/{job_id}/cancel:
-     post:
-       operationId: cancelJob
-       summary: Cancel queued job
-       description: |
-         Cancel a queued job. No-op if the job is already running or finished.
-
-         Required path parameter: `job_id`
-
-       tags: [Jobs]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: job_id
-           in: path
-           required: true
-           schema:
-             type: string
-           description: Job ID to cancel
-       responses:
-         '200':
-           description: Job cancelled or no-op (already running/finished)
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/JobResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v2/jobs/{job_id}:
-     get:
-       operationId: getJobV2
-       summary: Get job status (v2 alias)
-       description: Return the current state and result of an async job.
-       tags: [Jobs]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: job_id
-           in: path
-           required: true
-           schema:
-             type: string
-           description: Job ID to retrieve
-       responses:
-         '200':
-           description: Job details returned
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/JobResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Job not found
-
-     delete:
-       operationId: deleteJobV2
-       summary: Delete job (v2 alias)
-       description: Remove an async job from the store. Returns confirmation message.
-       tags: [Jobs]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: job_id
-           in: path
-           required: true
-           schema:
-             type: string
-           description: Job ID to delete
-       responses:
-         '200':
-           description: Job deleted successfully
-           content:
-             application/json:
-               schema:
-                 type: object
-                 properties:
-                   message:
-                     type: string
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Job not found
-
-   /v2/jobs/{job_id}/cancel:
-     post:
-       operationId: cancelJobV2
-       summary: Cancel queued job (v2 alias)
-       description: Cancel a queued job. No-op if the job is already running or finished.
-       tags: [Jobs]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: job_id
-           in: path
-           required: true
-           schema:
-             type: string
-           description: Job ID to cancel
-       responses:
-         '200':
-           description: Job cancelled or no-op (already running/finished)
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/JobResponse'
-         '400':
-           description: Bad Request
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Job not found
-
-   # ====================================================== Browser Endpoints
-
-   /v1/browser/sessions:
-     post:
-       operationId: createBrowserSession
-       summary: Create a browser session
-       description: |
-         Create a new interactive browser session owned by the authenticated
-         profile. Returns a service-owned `session_id` (a `ses_` ID). The
-         backend (Camofox) session is created on demand; provider identifiers
-         never appear in the response.
-       tags: [Browser]
-       security:
-         - bearerAuth: []
-       responses:
-         '201':
-           description: Session created
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/BrowserSessionCreatedResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '409':
-           description: Session limit reached for this profile
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '502':
-           description: Browser provider failure
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '503':
-           description: Interactive browser API is not enabled
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/browser/sessions/{session_id}:
-     get:
-       operationId: getBrowserSession
-       summary: Get browser session state
-       description: Return the current state of one of the caller's sessions, including open tabs.
-       tags: [Browser]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: session_id
-           in: path
-           required: true
-           schema:
-             type: string
-           description: Service-owned session ID (`ses_...`)
-       responses:
-         '200':
-           description: Session details
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/BrowserSession'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Session not found (unknown or not owned by the profile)
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '410':
-           description: Session expired (idle TTL elapsed)
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-     delete:
-       operationId: deleteBrowserSession
-       summary: Close a browser session
-       description: Close a session and all of its tabs, releasing the underlying browser.
-       tags: [Browser]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: session_id
-           in: path
-           required: true
-           schema:
-             type: string
-           description: Service-owned session ID (`ses_...`)
-       responses:
-         '200':
-           description: Session closed
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/BrowserSessionDeletedResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Session not found
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '410':
-           description: Session expired
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/browser/sessions/{session_id}/tabs:
-     post:
-       operationId: createBrowserTab
-       summary: Create a tab in a session
-       description: |
-         Create a tab in a session. Optionally open a URL, which is validated
-         against the profile's SSRF and domain-allowlist rules before the tab
-         is created.
-       tags: [Browser]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: session_id
-           in: path
-           required: true
-           schema:
-             type: string
-           description: Service-owned session ID (`ses_...`)
-         - name: url
-           in: query
-           required: false
-           schema:
-             type: string
-           description: URL to open in the new tab (validated by security rules)
-       responses:
-         '201':
-           description: Tab created
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/BrowserTabCreatedResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '403':
-           description: URL rejected by security rules (SSRF / domain policy)
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Session not found
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '409':
-           description: Tab limit reached for the session
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '410':
-           description: Session expired
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '502':
-           description: Browser provider failure
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/browser/sessions/{session_id}/tabs/{tab_id}:
-     delete:
-       operationId: deleteBrowserTab
-       summary: Close a tab
-       description: Close a single tab in a session.
-       tags: [Browser]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: session_id
-           in: path
-           required: true
-           schema:
-             type: string
-         - name: tab_id
-           in: path
-           required: true
-           schema:
-             type: string
-       responses:
-         '200':
-           description: Tab closed
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/BrowserTabDeletedResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Session or tab not found
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '410':
-           description: Session expired
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '502':
-           description: Browser provider failure
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/browser/sessions/{session_id}/tabs/{tab_id}/snapshot:
-     get:
-       operationId: snapshotBrowserTab
-       summary: Snapshot a page
-       description: |
-         Return a normalized page snapshot (accessible text/tree with stable
-         element refs, current URL and title, and optional extracted links).
-       tags: [Browser]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: session_id
-           in: path
-           required: true
-           schema:
-             type: string
-         - name: tab_id
-           in: path
-           required: true
-           schema:
-             type: string
-         - name: include_links
-           in: query
-           required: false
-           schema:
-             type: boolean
-             default: false
-           description: Also extract page links
-         - name: links_limit
-           in: query
-           required: false
-           schema:
-             type: integer
-             default: 50
-             minimum: 1
-             maximum: 500
-       responses:
-         '200':
-           description: Page snapshot
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/SnapshotResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Session or tab not found
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '410':
-           description: Session expired
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '502':
-           description: Browser provider failure
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/browser/sessions/{session_id}/tabs/{tab_id}/navigate:
-     post:
-       operationId: navigateBrowserTab
-       summary: Navigate a tab to a URL
-       description: Navigate a tab to a URL. The URL is validated against the profile's security rules.
-       tags: [Browser]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: session_id
-           in: path
-           required: true
-           schema:
-             type: string
-         - name: tab_id
-           in: path
-           required: true
-           schema:
-             type: string
-       requestBody:
-         required: true
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/BrowserNavigateRequest'
-       responses:
-         '200':
-           description: Navigation result
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/BrowserNavigateResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '403':
-           description: URL rejected by security rules
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Session or tab not found
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '410':
-           description: Session expired
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '502':
-           description: Browser provider failure
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/browser/sessions/{session_id}/tabs/{tab_id}/click:
-     post:
-       operationId: clickBrowserTab
-       summary: Click an element
-       description: Click an element by snapshot `ref` or CSS `selector`.
-       tags: [Browser]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: session_id
-           in: path
-           required: true
-           schema:
-             type: string
-         - name: tab_id
-           in: path
-           required: true
-           schema:
-             type: string
-       requestBody:
-         required: true
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/BrowserClickRequest'
-       responses:
-         '200':
-           description: Click result
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/BrowserClickResponse'
-         '400':
-           description: Neither ref nor selector provided
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Session or tab not found
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '410':
-           description: Session expired
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '502':
-           description: Browser provider failure
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/browser/sessions/{session_id}/tabs/{tab_id}/type:
-     post:
-       operationId: typeBrowserTab
-       summary: Type text
-       description: Type text into the active element, or one addressed by `ref`/`selector`.
-       tags: [Browser]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: session_id
-           in: path
-           required: true
-           schema:
-             type: string
-         - name: tab_id
-           in: path
-           required: true
-           schema:
-             type: string
-       requestBody:
-         required: true
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/BrowserTypeRequest'
-       responses:
-         '200':
-           description: Type result
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/BrowserTypeResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Session or tab not found
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '410':
-           description: Session expired
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '502':
-           description: Browser provider failure
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/browser/sessions/{session_id}/tabs/{tab_id}/evaluate:
-     post:
-       operationId: evaluateBrowserTab
-       summary: Evaluate JavaScript
-       description: |
-         Evaluate JavaScript in the page context. Refused (403) unless
-         JavaScript evaluation is enabled for the caller's profile.
-       tags: [Browser]
-       security:
-         - bearerAuth: []
-       parameters:
-         - name: session_id
-           in: path
-           required: true
-           schema:
-             type: string
-         - name: tab_id
-           in: path
-           required: true
-           schema:
-             type: string
-       requestBody:
-         required: true
-         content:
-           application/json:
-             schema:
-               $ref: '#/components/schemas/BrowserEvaluateRequest'
-       responses:
-         '200':
-           description: Evaluation result
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/BrowserEvaluateResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '403':
-           description: JavaScript evaluation not enabled for this profile
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '404':
-           description: Session or tab not found
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '410':
-           description: Session expired
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-         '502':
-           description: Browser provider failure
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
-
-   /v1/browser/capabilities:
-     get:
-       operationId: browserCapabilities
-       summary: Interactive browser capabilities
-       description: Report the interactive browser capability and limits for the caller's profile.
-       tags: [Browser]
-       security:
-         - bearerAuth: []
-       responses:
-         '200':
-           description: Capabilities and limits
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/BrowserCapabilitiesResponse'
-         '401':
-           description: Missing or invalid API key
-           content:
-             application/json:
-               schema:
-                 $ref: '#/components/schemas/ErrorResponse'
+  /health:
+    get:
+      operationId: healthCheck
+      summary: Liveness check
+      description: 'Always returns 200 when the service is running. Deliberately I/O-free:
+
+        it never touches the cache or any external dependency (including search
+
+        providers), so liveness stays cheap. No authentication required.
+
+        '
+      tags:
+      - Health
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '401':
+          description: Not authorized
+  /health/deep:
+    get:
+      operationId: deepHealthCheck
+      summary: Deep health check
+      description: 'Deep health check for container restart policy. Verifies internal
+
+        dependencies (config, cache) and recent scrape error patterns.
+
+
+        The `checks.search` object reports the search subsystem:
+
+        - `status`: `ok`, `no providers configured`, or `degraded (no provider available)`
+
+        - `configured`: whether the search subsystem is present
+
+        - `cache_enabled`: whether the search result cache is on
+
+        - `providers`: per-provider report — `name`, `available` (from a bounded capabilities
+        probe), `probe` (`ok`/`failed`), plus provider diagnostics (e.g. SearXNG''s
+        `/config` discovery state)
+
+
+        External backends (search providers, Camofox) are **reported but non-fatal**:
+
+        a down backend degrades the reported status but never fails the check, so
+        the
+
+        restart policy never depends on an external service.  Only local infrastructure
+
+        problems (missing cache or missing search subsystem) fail the check. No
+
+        authentication required.
+
+
+        The `checks.camofox` object reports the external Camofox service when the
+
+        `camofox` client is enabled: `status` (`ok`/`unreachable`), `reason`,
+
+        `version`, `browser_connected`, `pool_size` (from the service''s cheap
+
+        unauthenticated health probe); `disabled` when the client is off.
+
+        '
+      tags:
+      - Health
+      security: []
+      responses:
+        '200':
+          description: Internal checks are healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+              examples:
+                searchSubsystemOk:
+                  summary: Search subsystem healthy (SearXNG discovered)
+                  value:
+                    status: ok
+                    checks:
+                      config: ok
+                      cache: ok
+                      scrape_errors: ok
+                      search:
+                        status: ok
+                        configured: true
+                        cache_enabled: true
+                        providers:
+                        - name: searxng
+                          available: true
+                          probe: ok
+                          base_url_configured: true
+                          discovery_state: ok
+                          discovery_age_seconds: 12.5
+                          config_cache_ttl_seconds: 3600
+                          enabled_engines: 23
+                          instance_version: 5.0.0
+                      camofox:
+                        status: unreachable
+                        reason: connection refused
+                        version: null
+                        browser_connected: null
+                        pool_size: null
+        '401':
+          description: Not authorized
+        '503':
+          description: One or more internal checks are degraded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+              examples:
+                searchSubsystemMissing:
+                  summary: Search subsystem not initialized (local configuration problem)
+                  value:
+                    status: degraded
+                    checks:
+                      config: ok
+                      cache: ok
+                      scrape_errors: ok
+                      search: unavailable
+  /ready:
+    get:
+      operationId: readinessCheck
+      summary: Readiness probe
+      description: Verifies config and cache are initialized. Requires authentication
+        for metrics collection. For search subsystem diagnostics use `/health/deep`.
+      tags:
+      - Health
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: All services ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadinessResponse'
+        '401':
+          description: Not authorized
+        '503':
+          description: Service degraded
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus-style metrics
+      description: 'Returns Prometheus-formatted text metrics for monitoring. No authentication
+        required.
+
+
+        Search metrics:
+
+        - `search_requests_total`, `search_success_total`, `search_error_total`
+
+        - `search_cache_hits_total`, `search_cache_misses_total`, `search_cache_stale_hits_total`,
+        `search_cache_errors_total`
+
+        - `search_duration_ms_sum` (sum for average latency)
+
+        - `search_fallbacks_total` (auto-mode provider fallbacks)
+
+        - `search_provider_attempts_total`, `search_provider_success_total`, `search_provider_error_total`
+        — labelled only by the bounded, operator-configured `provider` name
+
+
+        Label hygiene: user input (query text, result URLs) never appears in labels.
+
+        '
+      tags:
+      - Monitoring
+      security: []
+      responses:
+        '200':
+          description: Text metrics response
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: '# HELP search_requests_total Total search requests received
+
+                # TYPE search_requests_total counter
+
+                search_requests_total 42
+
+                # HELP search_provider_attempts_total Search attempts made, by provider
+
+                # TYPE search_provider_attempts_total counter
+
+                search_provider_attempts_total{provider="searxng"} 39
+
+                '
+        '401':
+          description: Not authorized
+  /v1/scrape:
+    post:
+      operationId: scrapeUrl
+      summary: Scrape single URL
+      description: "Scrape a single URL and return its rendered HTML. Supports multiple\
+        \ modes:\n\n  - **http**: Uses standard HTTP headers (headless browser)\n\
+        \  - **browser**: Uses headless Chrome/Chromium with full JavaScript execution\n\
+        \  - **auto**: Auto-detects based on user-agent and content\n\nRequest body\
+        \ fields:\n  - url: Target URL to scrape\n  - mode: Scraping mode (http, browser,\
+        \ or auto)\n  - cache_ttl_seconds: TTL for caching (60s - 30 days)\n  - force_refresh:\
+        \ Bypass cache if true\n  - wait_until: Browser wait strategy\n  - wait_selector:\
+        \ CSS selector to wait for\n  - timeout_seconds: Max time to wait (5-120s)\n\
+        \  - proxy: Proxy configuration for this request\n  - scroll: Scroll settings\
+        \ for JS-rendered pages\n  - debug: Debug output controls\n  - normalize:\
+        \ HTML normalization options\n  - extract: CSS selector extraction config\n\
+        \nAuthentication: Required unless API key is disabled in config.\n"
+      tags:
+      - Scrape
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScrapeRequest'
+      responses:
+        '200':
+          description: Successful scrape
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScrapeResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v2/scrape:
+    post:
+      operationId: scrapeUrlV2
+      summary: Scrape single URL (v2)
+      description: 'Scrape a single URL and return ``content`` in the requested
+
+        ``response_format``. Unlike ``/v1/scrape``, this endpoint does not
+
+        overload the ``html`` field for non-HTML formats.
+
+        '
+      tags:
+      - Scrape
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/V2ScrapeRequest'
+      responses:
+        '200':
+          description: Successful scrape
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/V2ScrapeResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/scrape/batch:
+    post:
+      operationId: scrapeBatch
+      summary: Scrape multiple URLs
+      description: "Scrape multiple URLs with controlled concurrency. Returns results\
+        \ individually\nso failed items don't block others.\n\nRequest body fields:\n\
+        \  - items: Array of up to 50 URLs with per-item options\n  - max_concurrency:\
+        \ Max concurrent requests (1-10)\n\nEach item can have its own mode, proxy,\
+        \ scroll config, etc.\n"
+      tags:
+      - Scrape
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchScrapeRequest'
+      responses:
+        '200':
+          description: Batch scraping complete
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BatchScrapeResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/search:
+    post:
+      operationId: search
+      summary: Search the web (provider-agnostic)
+      description: 'Run a normalized web search and return stable, provider-agnostic
+        results.
+
+
+        The request uses service-level concepts only (query, verticals, language,
+
+        time range, safe search, page, limit, sources, provider); provider-specific
+
+        parameter names are rejected. Results are normalized into a stable shape
+
+        with pagination and metadata — raw provider payloads never appear.
+
+
+        When `provider` is `auto` (the default), the service selects a healthy
+
+        provider whose capabilities satisfy the request and falls back on
+
+        transient failures (fallbacks are reported in `metadata`).
+
+
+        Authentication: Required unless API key is disabled in config.
+
+        '
+      tags:
+      - Search
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRequest'
+      responses:
+        '200':
+          description: Normalized search results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchApiResponse'
+        '400':
+          description: Unknown provider or unsatisfiable capabilities for the explicitly
+            requested provider
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Request validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: No provider is available (none configured, or all failed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '504':
+          description: Provider timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/search/capabilities:
+    get:
+      operationId: searchCapabilities
+      summary: Search capabilities
+      description: 'Service-level search capabilities: enabled providers (in routing
+
+        priority order), the normalized verticals and filters usable in auto
+
+        mode, discoverable per-provider sources, safe-search levels, and the
+
+        search result cache policy.
+
+
+        This is an aggregate owned by this service; it does not proxy a
+
+        provider''s own configuration/discovery endpoint.
+
+
+        Authentication: Required unless API key is disabled in config.
+
+        '
+      tags:
+      - Search
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Capabilities report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchCapabilitiesResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/transcript:
+    get:
+      operationId: transcript
+      summary: Fetch the transcript (captions) of a YouTube video
+      description: 'Fetch a normalized, provider-agnostic transcript for a YouTube
+        video.
+
+
+        Identify the video with `url` (any YouTube URL form: watch, shorts,
+
+        youtu.be, embed, live) or `video_id`. `lang` is a comma-separated list
+
+        of preferred caption language tags; `provider` selects a transcript
+
+        backend (default `auto` = ordered fallback chain, explicit names never
+
+        fall back silently). Results are cached; `cache_ttl_seconds` overrides
+
+        the cache TTL for this response and `force_refresh` bypasses the cache.
+
+
+        Authentication: Required unless API key is disabled in config.
+
+        '
+      tags:
+      - Transcript
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: url
+        in: query
+        required: false
+        description: YouTube URL (watch/shorts/youtu.be/embed/live) or bare video
+          ID
+        schema:
+          type: string
+      - name: video_id
+        in: query
+        required: false
+        description: YouTube video ID (alternative to `url`)
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{11}$
+      - name: lang
+        in: query
+        required: false
+        description: Preferred caption languages, comma-separated (e.g. `es,en`; default
+          `en`)
+        schema:
+          type: string
+          default: ''
+      - name: provider
+        in: query
+        required: false
+        description: Transcript provider name, or `auto` for the fallback chain (default)
+        schema:
+          type: string
+          default: auto
+      - name: cache_ttl_seconds
+        in: query
+        required: false
+        description: Cache TTL override in seconds for this response (minimum 60)
+        schema:
+          type: integer
+          minimum: 60
+      - name: force_refresh
+        in: query
+        required: false
+        description: Bypass the result cache and re-fetch
+        schema:
+          type: boolean
+          default: false
+      responses:
+        '200':
+          description: Normalized transcript (segments + full text + metadata)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TranscriptApiResponse'
+        '400':
+          description: Invalid request (missing/bad url, non-YouTube video, unknown
+            provider)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Transcript request blocked by the provider (e.g. IP block)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Video unavailable, or no transcript/captions for the requested
+            language
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Provider returned an unusable payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: No transcript provider is available (none configured, or all
+            down)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '504':
+          description: Transcript provider timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/cache/stats:
+    get:
+      operationId: cacheStats
+      summary: Cache statistics
+      description: Returns current cache statistics (entries, size, expired count).
+      tags:
+      - Cache
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Cache stats returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CacheStats'
+        '401':
+          description: Not authorized
+  /v1/cache/{url}:
+    delete:
+      operationId: deleteCacheEntry
+      summary: Delete single cache entry
+      description: Remove a specific URL from the cache. Returns number of entries
+        deleted.
+      tags:
+      - Cache
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: url
+        in: path
+        required: true
+        schema:
+          type: string
+        description: URL to remove from cache
+      responses:
+        '200':
+          description: Entry deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: URL not found in cache
+  /v1/cache/purge:
+    post:
+      operationId: purgeCache
+      summary: Purge cache entries
+      description: "Remove all (or domain-scoped) entries from the cache.\n\nBody\
+        \ field:\n  - domain: Optional domain to scope the purge (e.g., \"example.com\"\
+        )\n"
+      tags:
+      - Cache
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                domain:
+                  type: string
+                  description: Optional domain scope (omit to purge all)
+      responses:
+        '200':
+          description: Cache purged successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurgeResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/cache/cleanup:
+    post:
+      operationId: cleanupCache
+      summary: Run cache cleanup
+      description: "Immediately run cache cleanup with optional overrides.\n\nOptional\
+        \ body fields (defaults to global config):\n  - delete_expired_after_seconds:\
+        \ Delete entries older than this\n  - max_entries: Max entries to keep\n \
+        \ - max_size_mb: Max total size in MB\n  - vacuum: Run VACUUM to reclaim space\n"
+      tags:
+      - Cache
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CacheCleanupRequest'
+      responses:
+        '200':
+          description: Cleanup completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CacheCleanupResult'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/cache/vacuum:
+    post:
+      operationId: vacuumCache
+      summary: Vacuum cache disk space
+      description: Run SQLite VACUUM to reclaim disk space. Prefer during maintenance
+        windows.
+      tags:
+      - Cache
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Vacuum completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CacheVacuumResult'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/plugins/status:
+    get:
+      operationId: pluginsStatus
+      summary: Plugin loading status
+      description: 'Return plugin loading status and metadata.
+
+
+        Reports which plugins were successfully loaded, skipped, or failed,
+
+        along with allowlist/denylist configuration and failure isolation mode.
+
+        This endpoint helps operators diagnose plugin loading issues and verify
+
+        that expected plugins are active.
+
+        '
+      tags:
+      - Plugins
+      responses:
+        '200':
+          description: Plugin status report
+        '401':
+          description: Not authorized
+        '403':
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  loaded:
+                    type: array
+                    items:
+                      type: string
+                  skipped:
+                    type: array
+                    items:
+                      type: object
+                  failed:
+                    type: array
+                    items:
+                      type: object
+                  enabled:
+                    type: array
+                    items:
+                      type: string
+                  on_error:
+                    type: string
+                    enum:
+                    - fail
+                    - warn
+                  allowlist_enabled:
+                    type: boolean
+                  allowlist:
+                    type: array
+                    nullable: true
+                    items:
+                      type: string
+                  denylist:
+                    type: array
+                    items:
+                      type: string
+                  status:
+                    type: string
+                    enum:
+                    - loaded
+                    - skipped_all
+                    - no_plugins
+                    - not_loaded
+                  message:
+                    type: string
+  /v1/plugins:
+    get:
+      operationId: pluginsList
+      summary: Plugin metadata list
+      description: 'Return detailed plugin metadata and registration info.
+
+
+        This endpoint provides richer information than /v1/plugins/status,
+
+        including API versions, registered providers, and per-plugin status.
+
+        '
+      tags:
+      - Plugins
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Plugin metadata list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PluginListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthErrorResponse'
+  /v1/jobs:
+    post:
+      operationId: createJob
+      summary: Create async scrape job
+      description: 'Queue a new async scrape job for background processing.
+
+
+        The request body is identical to `/v1/scrape`. The job is queued immediately
+
+        and processed by a background worker. Poll `/v1/jobs/{job_id}` for results.
+
+
+        Requires API key authentication unless disabled in config.
+
+        '
+      tags:
+      - Jobs
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScrapeRequest'
+      responses:
+        '200':
+          description: Job created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Async jobs are disabled
+    get:
+      operationId: listJobs
+      summary: List all jobs
+      description: Returns all async jobs (newest first) with their current status.
+      tags:
+      - Jobs
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobListResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v2/jobs:
+    post:
+      operationId: createJobV2
+      summary: Create async scrape job (v2)
+      description: 'Queue a new async scrape job using the v2 scrape contract. Results
+        are
+
+        stored with ``content`` when ``response_format`` is provided, matching
+
+        ``/v2/scrape``.
+
+        '
+      tags:
+      - Jobs
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/V2ScrapeRequest'
+      responses:
+        '200':
+          description: Job created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Async jobs are disabled
+    get:
+      operationId: listJobsV2
+      summary: List all jobs (v2 alias)
+      description: Returns all async jobs (newest first) with their current status.
+      tags:
+      - Jobs
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobListResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/jobs/{job_id}:
+    get:
+      operationId: getJob
+      summary: Get job status
+      description: 'Return the current state and result of an async job.
+
+
+        Required path parameter: `job_id`
+
+
+        When authentication is enabled and expose_profile_in_response is true,
+
+        includes the profile_name field.
+
+        '
+      tags:
+      - Jobs
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Job ID to retrieve
+      responses:
+        '200':
+          description: Job details returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+    delete:
+      operationId: deleteJob
+      summary: Delete job
+      description: Remove an async job from the store. Returns confirmation message.
+      tags:
+      - Jobs
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Job ID to delete
+      responses:
+        '200':
+          description: Job deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+  /v1/jobs/{job_id}/cancel:
+    post:
+      operationId: cancelJob
+      summary: Cancel queued job
+      description: 'Cancel a queued job. No-op if the job is already running or finished.
+
+
+        Required path parameter: `job_id`
+
+        '
+      tags:
+      - Jobs
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Job ID to cancel
+      responses:
+        '200':
+          description: Job cancelled or no-op (already running/finished)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v2/jobs/{job_id}:
+    get:
+      operationId: getJobV2
+      summary: Get job status (v2 alias)
+      description: Return the current state and result of an async job.
+      tags:
+      - Jobs
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Job ID to retrieve
+      responses:
+        '200':
+          description: Job details returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+    delete:
+      operationId: deleteJobV2
+      summary: Delete job (v2 alias)
+      description: Remove an async job from the store. Returns confirmation message.
+      tags:
+      - Jobs
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Job ID to delete
+      responses:
+        '200':
+          description: Job deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+  /v2/jobs/{job_id}/cancel:
+    post:
+      operationId: cancelJobV2
+      summary: Cancel queued job (v2 alias)
+      description: Cancel a queued job. No-op if the job is already running or finished.
+      tags:
+      - Jobs
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: job_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Job ID to cancel
+      responses:
+        '200':
+          description: Job cancelled or no-op (already running/finished)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobResponse'
+        '400':
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Job not found
+  /v1/browser/sessions:
+    post:
+      operationId: createBrowserSession
+      summary: Create a browser session
+      description: 'Create a new interactive browser session owned by the authenticated
+
+        profile. Returns a service-owned `session_id` (a `ses_` ID). The
+
+        backend (Camofox) session is created on demand; provider identifiers
+
+        never appear in the response.
+
+        '
+      tags:
+      - Browser
+      security:
+      - bearerAuth: []
+      responses:
+        '201':
+          description: Session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserSessionCreatedResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Session limit reached for this profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Browser provider failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Interactive browser API is not enabled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/browser/sessions/{session_id}:
+    get:
+      operationId: getBrowserSession
+      summary: Get browser session state
+      description: Return the current state of one of the caller's sessions, including
+        open tabs.
+      tags:
+      - Browser
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Service-owned session ID (`ses_...`)
+      responses:
+        '200':
+          description: Session details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserSession'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session not found (unknown or not owned by the profile)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Session expired (idle TTL elapsed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      operationId: deleteBrowserSession
+      summary: Close a browser session
+      description: Close a session and all of its tabs, releasing the underlying browser.
+      tags:
+      - Browser
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Service-owned session ID (`ses_...`)
+      responses:
+        '200':
+          description: Session closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserSessionDeletedResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Session expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/browser/sessions/{session_id}/tabs:
+    post:
+      operationId: createBrowserTab
+      summary: Create a tab in a session
+      description: 'Create a tab in a session. Optionally open a URL, which is validated
+
+        against the profile''s SSRF and domain-allowlist rules before the tab
+
+        is created.
+
+        '
+      tags:
+      - Browser
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Service-owned session ID (`ses_...`)
+      - name: url
+        in: query
+        required: false
+        schema:
+          type: string
+        description: URL to open in the new tab (validated by security rules)
+      responses:
+        '201':
+          description: Tab created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserTabCreatedResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: URL rejected by security rules (SSRF / domain policy)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Tab limit reached for the session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Session expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Browser provider failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/browser/sessions/{session_id}/tabs/{tab_id}:
+    delete:
+      operationId: deleteBrowserTab
+      summary: Close a tab
+      description: Close a single tab in a session.
+      tags:
+      - Browser
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: tab_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Tab closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserTabDeletedResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session or tab not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Session expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Browser provider failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/browser/sessions/{session_id}/tabs/{tab_id}/snapshot:
+    get:
+      operationId: snapshotBrowserTab
+      summary: Snapshot a page
+      description: 'Return a normalized page snapshot (accessible text/tree with stable
+
+        element refs, current URL and title, and optional extracted links).
+
+        '
+      tags:
+      - Browser
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: tab_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: include_links
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+        description: Also extract page links
+      - name: links_limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 50
+          minimum: 1
+          maximum: 500
+      responses:
+        '200':
+          description: Page snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session or tab not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Session expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Browser provider failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/browser/sessions/{session_id}/tabs/{tab_id}/navigate:
+    post:
+      operationId: navigateBrowserTab
+      summary: Navigate a tab to a URL
+      description: Navigate a tab to a URL. The URL is validated against the profile's
+        security rules.
+      tags:
+      - Browser
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: tab_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrowserNavigateRequest'
+      responses:
+        '200':
+          description: Navigation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserNavigateResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: URL rejected by security rules
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session or tab not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Session expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Browser provider failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/browser/sessions/{session_id}/tabs/{tab_id}/click:
+    post:
+      operationId: clickBrowserTab
+      summary: Click an element
+      description: Click an element by snapshot `ref` or CSS `selector`.
+      tags:
+      - Browser
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: tab_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrowserClickRequest'
+      responses:
+        '200':
+          description: Click result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserClickResponse'
+        '400':
+          description: Neither ref nor selector provided
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session or tab not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Session expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Browser provider failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/browser/sessions/{session_id}/tabs/{tab_id}/type:
+    post:
+      operationId: typeBrowserTab
+      summary: Type text
+      description: Type text into the active element, or one addressed by `ref`/`selector`.
+      tags:
+      - Browser
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: tab_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrowserTypeRequest'
+      responses:
+        '200':
+          description: Type result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserTypeResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session or tab not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Session expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Browser provider failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/browser/sessions/{session_id}/tabs/{tab_id}/evaluate:
+    post:
+      operationId: evaluateBrowserTab
+      summary: Evaluate JavaScript
+      description: 'Evaluate JavaScript in the page context. Refused (403) unless
+
+        JavaScript evaluation is enabled for the caller''s profile.
+
+        '
+      tags:
+      - Browser
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: tab_id
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BrowserEvaluateRequest'
+      responses:
+        '200':
+          description: Evaluation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserEvaluateResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: JavaScript evaluation not enabled for this profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Session or tab not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '410':
+          description: Session expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Browser provider failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /v1/browser/capabilities:
+    get:
+      operationId: browserCapabilities
+      summary: Interactive browser capabilities
+      description: Report the interactive browser capability and limits for the caller's
+        profile.
+      tags:
+      - Browser
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Capabilities and limits
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BrowserCapabilitiesResponse'
+        '401':
+          description: Missing or invalid API key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

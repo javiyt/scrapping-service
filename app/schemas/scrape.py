@@ -11,6 +11,10 @@ from app.scraper.headers import (
     validate_header_value,
 )
 
+# Regex / XPath length caps to guard against ReDoS and resource exhaustion
+MAX_REGEX_LENGTH = 1000
+MAX_XPATH_LENGTH = 10000
+
 
 # ========================================================= ExtractField
 class ExtractField(BaseModel):
@@ -22,9 +26,47 @@ class ExtractField(BaseModel):
     * ``html`` — inner HTML markup (preserves tag structure).
     * ``attr`` — value of an HTML attribute on the matched element.
     * ``object`` — nested structured extraction via sub-``fields``.
+
+    Exactly one locator must be provided: ``selector``, ``xpath``,
+    ``text_contains``, or ``text_regex``.
     """
 
-    selector: str = Field(..., description="CSS selector to locate the element(s).")
+    selector: str | None = Field(
+        default=None,
+        min_length=1,
+        description="CSS selector to locate the element(s).",
+    )
+    xpath: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_XPATH_LENGTH,
+        description="XPath expression to locate the element(s).",
+    )
+    text_contains: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Text search: find elements whose text content contains this string.",
+    )
+    text_regex: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_REGEX_LENGTH,
+        description="Text search: find elements whose text content matches this regex pattern.",
+    )
+    regex: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_REGEX_LENGTH,
+        description=(
+            "Post-extraction regex applied to the extracted value. "
+            "Use ``regex_group`` to capture a specific group from the match."
+        ),
+    )
+    regex_group: int | None = Field(
+        default=None,
+        ge=0,
+        description="Capture group index to use when ``regex`` is set (default 0 = full match).",
+    )
     type: str = Field(
         default="text",
         pattern=r"^(text|html|attr|object)$",
@@ -55,6 +97,33 @@ class ExtractField(BaseModel):
         default=None,
         description="Nested field definitions (only used when ``type`` is ``object``).",
     )
+
+    @model_validator(mode="after")
+    def _check_exactly_one_locator(self) -> "ExtractField":
+        locators = [
+            self.selector,
+            self.xpath,
+            self.text_contains,
+            self.text_regex,
+        ]
+        present = [
+            name
+            for name, val in zip(
+                ["selector", "xpath", "text_contains", "text_regex"], locators, strict=True
+            )
+            if val is not None
+        ]
+        if len(present) == 0:
+            raise ValueError(
+                "Exactly one locator must be provided"
+                ": selector, xpath, text_contains, or text_regex"
+            )
+        if len(present) > 1:
+            comma_list = ", ".join(present)
+            raise ValueError(f"Exactly one locator must be provided, but found: {comma_list}")
+        if self.regex_group is not None and self.regex is None:
+            raise ValueError("regex_group may only be set when regex is also set")
+        return self
 
 
 ExtractField.model_rebuild()

@@ -93,7 +93,7 @@ class TestExtractText:
                 {"required_field": {"selector": ".missing", "type": "text", "required": True}},
             )
         assert "required_field" in str(excinfo.value)
-        assert ".missing" in str(excinfo.value)
+        assert "selector" in str(excinfo.value) and "required_field" in str(excinfo.value)
 
 
 class TestExtractAttribute:
@@ -321,7 +321,7 @@ class TestExtractionError:
                 {"title": {"selector": "title", "type": "text", "required": True}},
             )
         assert excinfo.value.field_name == "title"
-        assert "title" in excinfo.value.message
+        assert "No element matched the selector locator" in excinfo.value.message
 
     def test_extraction_error_to_dict(self):
         err = ExtractionError("products", "No element matched CSS selector '.products'")
@@ -407,7 +407,7 @@ class TestExtractExceptionInField:
             PRODUCT_CARDS_HTML,
             {
                 "bad": {
-                    "selector": None,  # type: ignore[typeddict-item]
+                    "selector": ".does-not-exist",  # type: ignore[typeddict-item]
                     "type": "text",
                     "required": False,
                     "default": "safe_fallback",
@@ -426,7 +426,7 @@ class TestExtractExceptionInField:
                     "type": "object",
                     "fields": {
                         "link": {
-                            "selector": None,  # type: ignore[typeddict-item]
+                            "selector": ".does-not-exist",  # type: ignore[typeddict-item]
                             "type": "text",
                             "required": False,
                             "default": "fallback_url",

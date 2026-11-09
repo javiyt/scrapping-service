@@ -52,3 +52,25 @@ class CrawlNotYetCompletedError(CrawlError):
 
     def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__("crawl_not_completed", message, details, 409)
+
+
+class ExtractionError(ScraperError):
+    """Raised when a required field cannot be extracted.
+
+    The exception is caught by the API route and converted to a structured
+    ``extraction_error`` dict in the response body.
+    """
+
+    def __init__(self, field_name: str, message: str) -> None:
+        super().__init__(
+            "extraction_error",
+            f"Extraction failed for '{field_name}': {message}",
+            {"field": field_name, "message": message},
+            400,
+        )
+        self.field_name = field_name
+        self.message = message
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return the error as a serialisable dict."""
+        return self.details
