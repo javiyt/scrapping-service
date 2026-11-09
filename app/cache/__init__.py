@@ -1,17 +1,8 @@
-"""Cache backend package.
+"""Crawl cache management.
 
-Provides a persistent SQLite-backed HTML cache with configurable TTL,
-eviction, and maintenance (cleanup / vacuum).
+Provides wrapper and helper functions around the crawl store.
 """
 
-from app.cache.maintenance import CacheMaintenanceService
-from app.cache.models import CacheCleanupResult, CacheEntry, CacheVacuumResult
-from app.cache.sqlite_cache import SqliteCache
+from app.cache.crawl_store import CrawlStore
 
-__all__ = [
-    "CacheCleanupResult",
-    "CacheEntry",
-    "CacheMaintenanceService",
-    "CacheVacuumResult",
-    "SqliteCache",
-]
+__all__ = ["CrawlStore"]

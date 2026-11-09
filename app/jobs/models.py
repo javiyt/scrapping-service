@@ -47,6 +47,10 @@ class Job(BaseModel):
     output_format: str | None = None
     response_format: str | None = None
     profile_name: str | None = None
+    # Type of job: "scrape" or "crawl"
+    kind: str = "scrape"
+    # For crawl jobs: persisted crawler state
+    crawl_state: dict[str, Any] | None = None
     # A safe snapshot of effective settings overrides (no API keys).
     # This is a dict of section -> overrides, e.g. {"scraper": {"default_mode": "browser"}}
     effective_settings_overrides: dict[str, Any] | None = None

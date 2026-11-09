@@ -1,17 +1,19 @@
 """FastAPI route definitions for the scraper API."""
 
 import asyncio
+import datetime
 import logging
 import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import ValidationError
 
 from app.api.dependencies import (
     get_auth_context,
     get_cache,
+    get_crawl_store,
     get_effective_settings,
     get_expose_profile,
     get_job_service,
@@ -22,6 +24,7 @@ from app.api.dependencies import (
     verify_api_key,
 )
 from app.auth.models import AuthContext
+from app.cache.crawl_store import CrawlStore
 from app.cache.models import CacheCleanupResult, CacheVacuumResult
 from app.cache.sqlite_cache import SqliteCache
 from app.core.config import Settings
@@ -30,6 +33,15 @@ from app.jobs.models import Job, JobListResponse, JobResponse
 from app.jobs.service import JobService
 from app.metrics.prometheus import MetricsCollector, get_metrics
 from app.plugins.loader import sanitize_plugin_reason
+from app.schemas.crawl import (
+    CrawlCancelResponse,
+    CrawlJobResponse,
+    CrawlPage,
+    CrawlPageListResponse,
+    CrawlRequest,
+    CrawlResumeRequest,
+    CrawlResumeResponse,
+)
 from app.schemas.health import HealthResponse, ReadinessResponse
 from app.schemas.scrape import (
     BatchItem,
@@ -49,6 +61,7 @@ from app.schemas.search import (
     SearchRequest,
 )
 from app.schemas.transcript import TranscriptApiResponse, TranscriptQueryParams
+from app.scraper.crawler import CrawlState, CrawlSummary
 from app.scraper.response_processing import format_scrape_content, process_scrape_response
 from app.scraper.service import ScraperService
 from app.search import SearchCache, SearchCapabilities
@@ -1416,3 +1429,296 @@ async def cancel_job(
             },
         )
     return _job_to_response(job, expose_profile=expose_profile)
+
+
+# ======================================================================== Crawl Routes
+
+
+@router.post("/v1/crawl", response_model=CrawlJobResponse, tags=["Crawl"])
+async def create_crawl(
+    request: CrawlRequest,
+    jobs: JobService = Depends(get_job_service),
+    cache: SqliteCache = Depends(get_cache),
+    crawl_store: CrawlStore = Depends(get_crawl_store),
+    auth_context: AuthContext | None = Depends(get_auth_context),
+    expose_profile: bool = Depends(get_expose_profile),
+    effective_settings: Settings = Depends(get_effective_settings),
+):
+    """Create a new async crawl job."""
+    if not jobs._settings.jobs_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": {
+                    "type": "internal_error",
+                    "message": "Async jobs are disabled",
+                    "details": {},
+                }
+            },
+        )
+
+    max_pages = effective_settings.crawler_max_pages
+    max_depth = effective_settings.crawler_max_depth
+    if request.max_pages > max_pages:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "type": "validation_error",
+                    "message": f"max_pages exceeds limit: {request.max_pages} > {max_pages}",
+                    "details": {},
+                }
+            },
+        )
+    if request.max_depth > max_depth:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "type": "validation_error",
+                    "message": f"max_depth exceeds limit: {request.max_depth} > {max_depth}",
+                    "details": {},
+                }
+            },
+        )
+
+    scrape_config = {
+        "mode": request.mode,
+        "timeout_seconds": request.timeout_seconds,
+        "normalize_config": request.normalize.model_dump() if request.normalize else None,
+        "extract_config": request.extract.model_dump() if request.extract else None,
+        "output_format": request.output_format,
+        "impersonate": request.impersonate,
+        "proxy_config": request.proxy.model_dump() if request.proxy else None,
+        "cookie_config": request.cookies.model_dump() if request.cookies else None,
+        "header_config": request.headers.model_dump() if request.headers else None,
+        "robots_txt": request.obey_robots_txt,
+    }
+
+    job = await jobs.create_job(
+        url=request.start_urls[0] if request.start_urls else (request.sitemap_url or ""),
+        scrape_config=scrape_config,
+        normalize_config=request.normalize.model_dump() if request.normalize else None,
+        extract_config=request.extract.model_dump() if request.extract else None,
+        output_format=request.output_format,
+        profile_name=auth_context.profile_name if auth_context else None,
+        effective_settings=effective_settings,
+    )
+
+    summary = CrawlSummary()
+    state = CrawlState(
+        frontier=list(request.start_urls or []),
+        seen=set(request.start_urls or []),
+        summary=summary,
+        start_time=time.monotonic(),
+    )
+
+    crawl_store.save(
+        job_id=job.job_id,
+        state_json=state.to_dict(),
+        summary_json=summary.model_dump(),
+    )
+
+    return CrawlJobResponse(
+        job_id=job.job_id,
+        status=job.status.value,
+        created_at=job.created_at.isoformat(),
+        updated_at=job.updated_at.isoformat(),
+    )
+
+
+@router.get("/v1/crawl/{job_id}", response_model=CrawlJobResponse, tags=["Crawl"])
+@router.get("/v2/crawl/{job_id}", response_model=CrawlJobResponse, tags=["Crawl"])
+async def get_crawl(
+    job_id: str,
+    jobs: JobService = Depends(get_job_service),
+    crawl_store: CrawlStore = Depends(get_crawl_store),
+    expose_profile: bool = Depends(get_expose_profile),
+):
+    """Return the current state and summary of an async crawl job."""
+    job = jobs.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "type": "not_found",
+                    "message": f"Job {job_id} not found",
+                    "details": {},
+                }
+            },
+        )
+
+    crawl_data = crawl_store.load(job_id)
+    if crawl_data is None:
+        return CrawlJobResponse(
+            job_id=job.job_id,
+            status=job.status.value,
+            created_at=job.created_at.isoformat(),
+            updated_at=job.updated_at.isoformat(),
+        )
+
+    summary = CrawlSummary(**crawl_data["summary"])
+    return CrawlJobResponse(
+        job_id=job.job_id,
+        status=job.status.value,
+        created_at=job.created_at.isoformat(),
+        updated_at=job.updated_at.isoformat(),
+        summary=summary,
+        result=crawl_data.get("state"),
+    )
+
+
+@router.get("/v1/crawl/{job_id}/pages", response_model=CrawlPageListResponse, tags=["Crawl"])
+@router.get("/v2/crawl/{job_id}/pages", response_model=CrawlPageListResponse, tags=["Crawl"])
+async def list_crawl_pages(
+    job_id: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=500),
+    format_type: str = Query(default="json", regex="^(json|ndjson)$"),
+    jobs: JobService = Depends(get_job_service),
+    crawl_store: CrawlStore = Depends(get_crawl_store),
+):
+    """Return paginated page results from a crawl job."""
+    job = jobs.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "type": "not_found",
+                    "message": f"Job {job_id} not found",
+                    "details": {},
+                }
+            },
+        )
+
+    crawl_data = crawl_store.load(job_id)
+    if crawl_data is None:
+        return CrawlPageListResponse(pages=[], total=0, offset=offset, limit=limit)
+
+    state_dict = crawl_data["state"]
+    state = CrawlState.from_dict(state_dict)
+
+    pages = state.results
+    total = len(pages)
+    start = offset
+    end = min(offset + limit, total)
+
+    if format_type == "ndjson":
+
+        async def generate_ndjson():
+            for page in pages[start:end]:
+                yield CrawlPage(**page).model_dump_json() + "\n"
+
+        return StreamingResponse(
+            generate_ndjson(),
+            media_type="application/x-ndjson",
+            headers={
+                "X-Total-Count": str(total),
+                "X-Offset": str(offset),
+                "X-Limit": str(limit),
+            },
+        )
+
+    return CrawlPageListResponse(
+        pages=[CrawlPage(**p) for p in pages[start:end]],
+        total=total,
+        offset=offset,
+        limit=limit,
+    )
+
+
+@router.post("/v1/crawl/{job_id}/cancel", response_model=CrawlCancelResponse, tags=["Crawl"])
+@router.post("/v2/crawl/{job_id}/cancel", response_model=CrawlCancelResponse, tags=["Crawl"])
+async def cancel_crawl(
+    job_id: str,
+    jobs: JobService = Depends(get_job_service),
+    crawl_store: CrawlStore = Depends(get_crawl_store),
+    expose_profile: bool = Depends(get_expose_profile),
+):
+    """Cancel a crawl job (queued or running)."""
+    job = jobs.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "type": "not_found",
+                    "message": f"Job {job_id} not found",
+                    "details": {},
+                }
+            },
+        )
+
+    await jobs.cancel_job(job_id)
+
+    crawl_data = crawl_store.load(job_id)
+    if crawl_data:
+        state_dict = crawl_data["state"]
+        state_dict["cancelled"] = True
+        crawl_store.save(
+            job_id=job_id,
+            state_json=state_dict,
+            summary_json=crawl_data["summary"],
+        )
+
+    return CrawlCancelResponse(job_id=job_id, status="cancelled")
+
+
+@router.post("/v1/crawl/{job_id}/resume", response_model=CrawlResumeResponse, tags=["Crawl"])
+@router.post("/v2/crawl/{job_id}/resume", response_model=CrawlResumeResponse, tags=["Crawl"])
+async def resume_crawl(
+    job_id: str,
+    request: CrawlResumeRequest = None,
+    jobs: JobService = Depends(get_job_service),
+    crawl_store: CrawlStore = Depends(get_crawl_store),
+):
+    """Resume a cancelled or failed crawl job."""
+    job = jobs.get_job(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "type": "not_found",
+                    "message": f"Job {job_id} not found",
+                    "details": {},
+                }
+            },
+        )
+
+    crawl_data = crawl_store.load(job_id)
+    if crawl_data is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": {
+                    "type": "not_found",
+                    "message": f"Crawl state not found for job {job_id}",
+                    "details": {},
+                }
+            },
+        )
+
+    state_dict = crawl_data["state"]
+    cancelled = state_dict.get("cancelled", False)
+
+    if cancelled:
+        state_dict["cancelled"] = False
+        crawl_store.save(
+            job_id=job_id,
+            state_json=state_dict,
+            summary_json=crawl_data["summary"],
+        )
+        job.status = "queued"
+        job.updated_at = datetime.datetime.now(datetime.UTC)
+        job.result = None
+        job.error = None
+        await jobs._queue.put(job.job_id)
+
+    return CrawlResumeResponse(
+        job_id=job_id,
+        status="resumed",
+        resumed_from_state=cancelled,
+    )

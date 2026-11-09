@@ -76,6 +76,21 @@ CREATE_TRANSCRIPT_INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS idx_transcript_cache_expires ON transcript_cache(expires_at);
 """
 
+# Schema for the crawl job cache table.  Crawl jobs persist their state and
+# results in this table, enabling cancel/resume and across-restart durability.
+CREATE_CRAWL_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS crawl_jobs (
+    job_id           TEXT PRIMARY KEY,
+    state_json       TEXT NOT NULL,
+    summary_json     TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+"""
+
+CREATE_CRAWL_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS idx_crawl_jobs_updated ON crawl_jobs(updated_at);
+"""
+
 
 class SqliteCache:
     """Persistent HTML cache backed by SQLite.
@@ -109,6 +124,8 @@ class SqliteCache:
         self._conn.execute(CREATE_SEARCH_INDEX_SQL)
         self._conn.execute(CREATE_TRANSCRIPT_TABLE_SQL)
         self._conn.execute(CREATE_TRANSCRIPT_INDEX_SQL)
+        self._conn.execute(CREATE_CRAWL_TABLE_SQL)
+        self._conn.execute(CREATE_CRAWL_INDEX_SQL)
         self._conn.commit()
 
     def close(self) -> None:

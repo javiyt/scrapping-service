@@ -179,6 +179,22 @@ class Settings(BaseSettings):
     jobs_max_concurrency: int = 2
     jobs_result_ttl_seconds: int = 86400  # 24 hours
 
+    # ------------------------------------------------------------- Crawl
+    crawler_max_pages: int = Field(default=1000, ge=1, description="Maximum pages per crawl")
+    crawler_max_depth: int = Field(default=5, ge=0, description="Maximum crawl depth")
+    crawler_max_duration_seconds: int = Field(
+        default=1800, ge=60, description="Maximum crawl duration"
+    )
+    crawler_global_concurrency: int = Field(
+        default=10, ge=1, description="Global crawl concurrency"
+    )
+    crawler_per_domain_concurrency: int = Field(
+        default=2, ge=1, description="Per-domain crawl concurrency"
+    )
+    crawler_robots_cache_ttl_seconds: int = Field(
+        default=86400, ge=0, description="Robots.txt cache TTL"
+    )
+
     # ------------------------------------------------------------- Health
     health_max_consecutive_scrape_errors: int = Field(default=5, ge=1)
 

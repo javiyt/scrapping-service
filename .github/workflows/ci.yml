@@ -64,7 +64,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ --ignore=tests/test_transcript_youtube_transcript_api_provider.py --ignore=tests/test_transcript_ytdlp_provider.py --ignore=tests/test_agent_browser_coverage.py --ignore=tests/test_agent_browser_router.py --ignore=tests/test_integration_agent_browser.py
+          python -m pytest tests/ --ignore=tests/test_transcript_youtube_transcript_api_provider.py --ignore=tests/test_transcript_ytdlp_provider.py --ignore=tests/test_agent_browser_coverage.py --ignore=tests/test_agent_browser_router.py --ignore=tests/test_integration_agent_browser.py --cov=app --cov-report=xml --cov-fail-under=71
 
       # Install and test the example plugin
       - name: Install example plugin in venv
