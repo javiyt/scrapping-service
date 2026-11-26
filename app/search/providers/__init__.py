@@ -3,7 +3,7 @@
 The service owns the search contract (see :mod:`app.search`); this package
 holds concrete backends that adapt to it.  :func:`build_search_providers`
 constructs the configured, enabled providers from application settings —
-currently SearXNG and Camofox.
+currently SearXNG, Camofox and 4get.
 """
 
 from app.core.config import Settings
@@ -13,11 +13,14 @@ from app.search.providers.camofox import (
     CamofoxSearchProvider,
     resolve_camofox_client,
 )
+from app.search.providers.fourget import FourgetConfig, FourgetProvider
 from app.search.providers.searxng import SearxngConfig, SearxngProvider
 
 __all__ = [
     "CamofoxSearchConfig",
     "CamofoxSearchProvider",
+    "FourgetConfig",
+    "FourgetProvider",
     "SearxngConfig",
     "SearxngProvider",
     "build_search_providers",
@@ -49,5 +52,9 @@ def build_search_providers(settings: Settings) -> list[SearchProvider]:
                 "is disabled; enable the camofox section (base_url, keys) to use it"
             )
         providers.append(CamofoxSearchProvider(camofox_config, client=client))
+
+    fourget_config = FourgetConfig.from_settings(settings)
+    if fourget_config.enabled:
+        providers.append(FourgetProvider(fourget_config))
 
     return providers

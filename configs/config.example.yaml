@@ -242,6 +242,30 @@ search:
       # SCRAPER_SEARCH_CAMOFOX_MAX_RESULTS
       enabled: false
       max_results: null               # optional documented result cap (1-100)
+    4get:
+      # 4get metasearch (privacy-oriented frontend that scrapes DuckDuckGo,
+      # Brave, Google, Yandex, Marginalia, ...). Disabled by default: 4get's
+      # API terms forbid intensive scraping / non-human automated traffic and
+      # ask clients to cache responses — self-host an instance
+      # (https://git.lolcat.ca/lolcat/4get) and do not point production
+      # traffic at 4get.ca. Rely on the generic result cache below (a
+      # generous default_ttl_seconds, e.g. 900+, is recommended).
+      # Environment variable overrides: SCRAPER_SEARCH_4GET_ENABLED,
+      # SCRAPER_SEARCH_4GET_BASE_URL, SCRAPER_SEARCH_4GET_TIMEOUT_SECONDS,
+      # SCRAPER_SEARCH_4GET_PASS_TOKEN, SCRAPER_SEARCH_4GET_SCRAPER,
+      # SCRAPER_SEARCH_4GET_DEFAULT_LANGUAGE, SCRAPER_SEARCH_4GET_DEFAULT_REGION,
+      # SCRAPER_SEARCH_4GET_DEFAULT_NSFW, SCRAPER_SEARCH_4GET_HEALTH_CACHE_TTL_SECONDS
+      enabled: false
+      base_url: null                  # e.g. http://4get:8080 (self-hosted instance)
+      timeout_seconds: 15
+      pass_token: null                # instance pass (captcha-derived cookie); secret —
+                                      # use ${SCRAPER_4GET_PASS}, never a literal
+      scraper: null                   # optional default engine (instance-defined,
+                                      # e.g. duckduckgo, brave, google, yandex, marginalia)
+      default_language: null          # e.g. en or en-US (sent as `lang`)
+      default_region: null            # e.g. us (sent as `country`)
+      default_nsfw: false             # nsfw=1 at the moderate safe-search level
+      health_cache_ttl_seconds: 300   # /ami4get probe cache TTL (0 = re-probe each time)
 
 # ------------------------------------------------------------------ Camofox
 # Reusable client for the external Camofox browser REST service

@@ -15,7 +15,7 @@ SearchCache (result cache: TTL, stale-if-error, shared by all providers)
 SearchRouter (capability-aware: probe, select, fall back on transient errors)
   |
   v
-SearchProvider (SearXNG today; more later) -> normalised SearchResponse
+SearchProvider (SearXNG / Camofox / 4get today; more later) -> normalised SearchResponse
   |
   v
 SearchApiResponse (stable envelope — raw provider payloads never appear)
@@ -94,6 +94,95 @@ fails). Overrides: `SCRAPER_SEARCH_CACHE_*`.
 - **Degradations** — parts of a request the instance cannot honor (e.g. a
   disabled category) surface as `metadata.degraded_capabilities` tokens plus
   human-readable `metadata.warnings`.
+
+## 4get
+
+4get is a privacy-oriented metasearch frontend that scrapes several engines
+(DuckDuckGo, Brave, Google, Yandex, Marginalia, ...) and exposes them
+through a JSON API. It is **disabled by default** and must be pointed at a
+**self-hosted** instance:
+
+- 4get's API terms forbid intensive scraping, SEO scanning and non-human
+  automated traffic, and ask clients to cache responses.
+- **Self-host** an instance (https://git.lolcat.ca/lolcat/4get) and set
+  `base_url` to it. Do **not** point production traffic at 4get.ca.
+- Rely on the generic search result cache (`search.cache.*`, shared by all
+  providers). A generous TTL (e.g. `default_ttl_seconds: 900` or higher)
+  is recommended to keep request volume low on quota-metered instances.
+
+Public instances may require a **pass cookie** (captcha-derived, roughly
+100 requests / 24h). Configure it as `pass_token`; the provider sends it as
+the `pass` cookie on every request. The token is a secret: excluded from
+serialization, masked in `repr()`, and never present in logs, errors, or
+`/health/deep` output. An HTTP 429 (missing/invalid pass) raises a clear,
+**non-retryable** configuration error (`no_provider_available`) telling the
+operator to fix `SCRAPER_SEARCH_4GET_PASS_TOKEN` — the router never falls
+back on it.
+
+### Configure the provider
+
+```yaml
+# configs/config.yaml
+search:
+  provider_order: [searxng, camofox, 4get]   # routing priority for auto mode
+  providers:
+    4get:
+      enabled: true
+      base_url: http://4get:8080        # self-hosted instance
+      timeout_seconds: 15
+      pass_token: ${SCRAPER_4GET_PASS}  # secret, never a literal
+      scraper: duckduckgo               # optional default engine
+      default_language: en              # sent as `lang` when a request has none
+      default_region: us                # sent as `country`
+      default_nsfw: false               # nsfw=1 at the moderate safe-search level
+      health_cache_ttl_seconds: 300     # /ami4get probe cache TTL
+```
+
+Environment overrides (take priority over YAML): `SCRAPER_SEARCH_4GET_ENABLED`,
+`SCRAPER_SEARCH_4GET_BASE_URL`, `SCRAPER_SEARCH_4GET_TIMEOUT_SECONDS`,
+`SCRAPER_SEARCH_4GET_PASS_TOKEN`, `SCRAPER_SEARCH_4GET_SCRAPER`,
+`SCRAPER_SEARCH_4GET_DEFAULT_LANGUAGE`, `SCRAPER_SEARCH_4GET_DEFAULT_REGION`,
+`SCRAPER_SEARCH_4GET_DEFAULT_NSFW`, `SCRAPER_SEARCH_4GET_HEALTH_CACHE_TTL_SECONDS`.
+
+### 4get behaviour
+
+- **Health** — `capabilities()` probes `/ami4get` (instance info) and caches
+  the result for `health_cache_ttl_seconds`; no search endpoint is ever used
+  for health. A failed probe reports `available: false`, never raises.
+- **Endpoints** — verticals map 1:1: `web` → `/api/v1/web`, `news` →
+  `/api/v1/news`, `images` → `/api/v1/images`, `videos` → `/api/v1/videos`,
+  `music` → `/api/v1/music`. One search performs exactly one 4get request
+  (the first supported vertical); other requested verticals are reported as
+  `metadata.degraded_capabilities`. The other domain verticals
+  (social, it, science, maps, files) have no 4get endpoint and are not
+  advertised.
+- **Parameters relied on** (instance-defined; craft requests in the 4get
+  web UI and swap `/web` → `/api/v1/web` to verify yours): `s` (query),
+  `scraper` (engine — from the request's `sources` or the configured
+  default), `lang` (request language or configured default), `country`
+  (configured default region), `nsfw` (safe-search: `0` = safe,
+  `1` = allow; `off` always sends `1`, `strict` always sends `0`,
+  `moderate` follows `default_nsfw`). `extendedsearch` (ddg-only) and the
+  instance date filters are deliberately not used.
+- **Paging (sequential-only)** — 4get paginates with opaque, single-use
+  `npt` tokens that expire after ~15 minutes. The provider serves **page 1
+  only**: it never sends `npt` and never exposes a token to clients, so
+  paging is not advertised (`supports_paging: false`) and the router never
+  routes page > 1 requests to 4get. A direct call with `page > 1` degrades
+  to page 1 with a `paging` token and warning.
+- **Normalization** — `title`, `url`, `snippet`, `engine` → `source`,
+  `image` → `thumbnail_url`, `date` (epoch seconds) → `published_at` (UTC);
+  music items fall back to `artist — album` for the snippet. The `time`
+  field (video duration, seconds) is intentionally not mapped: the domain
+  `SearchResult` has no duration field. Rich web extras (`answer`,
+  `spelling`, `related`, `table`) are ignored. 4get-specific names live only
+  in `app/search/providers/fourget/mapping.py`; nothing backend-specific
+  reaches the public response.
+- **Errors** — connection/5xx → `search_provider_unavailable`, timeout →
+  `search_provider_timeout`, `status != "ok"` / invalid JSON →
+  `invalid_provider_response`, HTTP 429 → `no_provider_available` (clear,
+  non-retryable pass-configuration error). No upstream body, instance URL,
+  or pass token ever appears in a raised error.
 
 ## Adding a new provider
 
